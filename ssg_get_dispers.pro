@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.2 2002/11/25 22:20:41 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.3 2002/11/25 23:38:12 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -235,13 +235,18 @@ function comp_correlate, in_disp, no_dp, spec=spec, line_list=line_list, line_st
 end
 
 
-pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=in_disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines
+pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=in_disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_free=width_free
 
 ;  ON_ERROR, 2
   cd, indir
 
   if NOT keyword_set(atlas) then atlas='/home/jpmorgen/data/ssg/reduced/thar_list'
   if NOT keyword_set(frac_lines) then frac_lines = 0.5
+  width_fixed = [1,1]
+  if keyword_set(width_free) then begin
+     if N_elements(width_free) eq 1 then width_fixed = [0,1] $
+     else width_fixed = NOT width_free
+  endif
 
   ;; Be careful with type conversion so everything ends up double
   if NOT keyword_set(in_disp) then in_disp=[6300, 0.055,0]
@@ -311,7 +316,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   
   files=strtrim(files)
 
-  if keyword_set(showplots) then window,6
+  window,6
 
   ngood = 0
   err=0
@@ -377,8 +382,8 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            ;; Put on some constraints for narrow comp lines
            parinfo = [parinfo, $
                       {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Center'}, $
-                      {fixed:1, limited:[1,1], limits:[0.D,4.D], parname:'Gauss FWHM'}, $
-                      {fixed:1, limited:[1,1], limits:[0.D,4.D], parname:'Lor Width'}, $
+          {fixed:width_fixed[0], limited:[1,1], limits:[0.D,4.D], parname:'Gauss FWHM'}, $
+          {fixed:width_fixed[1], limited:[1,1], limits:[0.D,4.D], parname:'Lor Width'}, $
                       {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Area'}]
 
            to_pass = { N_continuum:N_continuum }
@@ -394,23 +399,25 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                          nlines eq n_expected_lines
 
            if end_of_loop then begin
+              ;; Do one last fit with all parameters free
               parinfo[*].fixed = 0
               params = mpfitfun('voigt_spec', pix_axis, spec, sqrt(spec), $
                                 params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                                 PARINFO=parinfo, PERROR=perror)
-
-              if keyword_set(showplots) then begin
-                 plot, pix_axis, spec, $
-                       title=string("Spectrum of comp ", files[i]), $
-                       xtitle='Pixels', $
-                       ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
-                 oplot, pix_axis, model_spec, linestyle=dotted
-                 plot, pix_axis, residual, $
-                       title=string("Fit residual "), $
-                       xtitle='Pixels ref to center of image', $
-                       ytitle=string(sxpar(hdr, 'BUNIT'))
-              endif
-           endif ; last super fit
+              model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
+           endif
+           if end_of_loop or keyword_set(showplots) then begin
+              wset,6
+              plot, pix_axis, spec, $
+                    title=string("Spectrum of comp ", files[i]), $
+                    xtitle='Pixels', $
+                    ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
+              oplot, pix_axis, model_spec, linestyle=dotted
+              plot, pix_axis, residual, $
+                    title=string("Fit residual "), $
+                    xtitle='Pixels ref to center of image', $
+                    ytitle=string(sxpar(hdr, 'BUNIT'))
+           endif
         endrep until end_of_loop
 
         
@@ -472,94 +479,12 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
         coefs = jpm_polyfit(Xs[line_sort]-npts/2., $
                             line_list[associations[line_sort]], order, $
                             title=string("Dispersion relation for comp ", files[i]), $
-                            xtitle='Pixels', $
+                            xtitle='Pixels ref to center of image', $
                             ytitle='Best guess association to atlas line', $
                             noninteractive=noninteractive)
         print, coefs
-        stop
-
-
-        window,3
-        plot, Xs[line_sort], line_list[associations[line_sort]], $
-              yrange=[min(line_list[associations]), $
-                      max(line_list[associations])], $
-              psym=asterisk
-
-
-        to_pass = { line_pix:Xs[line_sort], line_list:line_list, npts:npts }
-        dispers = tnmin('line_correlate', dispers, $
-                        FUNCTARGS=to_pass, /AUTODERIVATIVE)
-
-
-        ;; Check again
-        close_match = make_disp_axis(dispers, Xs, npts/2.)
-        associations = list_associate(close_match, line_list)
-
-        window,3
-        plot, Xs[line_sort], line_list[associations[line_sort]], $
-              yrange=[min(line_list[associations]), $
-                      max(line_list[associations])], $
-              psym=asterisk
-        stop
-
-
-;        plot,Xs[line_sort], line_list[atlas_idx], xstyle=2, ystyle=2, $
-;             yrange=[min(line_list[atlas_idx]),max(line_list[atlas_idx])], $
-;             psym=asterisk
-
-;        window,7
-;
-;        xaxis = make_disp_axis(dispers, indgen(npts), npts/2.)
-;        plot, xaxis, spec
-;        oplot, xaxis, model_spec, linestyle=dotted
-        
-        
-;        xaxis = make_disp_axis(dispers, Xs[line_sort], npts/2.)
-;        plot, xaxis, spec
-
-
-
-
-
-
-;        if min(line_strengths) eq max(line_strengths) then $
-;          Yvals[*] = 1
-;
-
-
-
-;        ;; Haven't gotten this corelation code to work properly yet
-;        for ds = 0,3 do begin
-;           ideal_spec = smooth(deltafn(Xs, Yvals, Yaxis), (3-ds)*100)
-;
-
-;        openw, lun, /get_lun, temp[0]+'.comp.spec'
-;        for ti=0, npts-1 do begin
-;           printf, lun, spec[ti]
-;        endfor
-;       close, lun
-
-;        
-;        ;; Hone in on likely center wavelength by doing a correlation
-;        ;; with the line list 
-;        first_pass = fltarr(npts)
-;        wspan = dispers[1] * npts
-;        tdisp = dispers
-;        tdisp[0] = dispers[0] - wspan/2.
-;        for di = 0,npts-1 do begin
-;           first_pass[di] = comp_correlate(tdisp, spec=spec, line_list=line_list);, line_stengths=line_stengths)
-;           tdisp[0] = tdisp[0] + di*tdisp[1]
-;        endfor
-;        plot, first_pass
-;        stop
-;
-;           to_pass = { spec:ideal_spec, line_list:line_list}
-;           dispers = tnmin('comp_correlate', dispers, $
-;                           FUNCTARGS=to_pass, /AUTODERIVATIVE, $
-;                           /MAXIMIZE)
-;           print,dispers
-           disp_arrays[0:order,i] = dispers[*]
-           ngood = ngood + 1
+        disp_arrays[0:order,i] = coefs
+        ngood = ngood + 1
      endelse ;; CATCH if err
   endfor ;; all files in directory
   CATCH, /CANCEL
