@@ -1,4 +1,4 @@
-; $Id: ssg_edge_find.pro,v 1.1 2003/06/11 18:12:38 jpmorgen Exp $
+; $Id: ssg_edge_find.pro,v 1.2 2003/06/11 19:48:56 jpmorgen Exp $
 
 ; ssg_edge_find.pro a version of edge_find that is optomized to find
 ; the edge in a the SSG cross-dispersion spectrum
@@ -15,7 +15,7 @@ function ssg_edge_find, yin, side, threshold=threshold, contrast=contrast, limit
      if keyword_set(in_limits) then $
        limits = [npts-1-in_limits[1], npts-1-in_limits[0]]
      edge = ssg_edge_find(y, 'left', contrast=contrast, limits=limits, yerr=yerr, error=error, plot=plot)
-     edge = npts - edge
+     edge = npts-1 - edge
      return, edge
   endif else $
     if side ne 'left' then $
