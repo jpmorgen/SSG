@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_extract.pro,v 1.1 2002/11/28 15:56:04 jpmorgen Exp $
+; $Id: ssg_extract.pro,v 1.2 2002/11/28 17:48:21 jpmorgen Exp $
 
 ; ssg_extract extract 1D spectra from a directory full of SSG images
 
@@ -38,14 +38,20 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn
                    dbfind("bad<2047", $ ; < is really <=
                           dbfind(string("dir=", indir))))
 
-  dbext, entries, "fname, typecode, spectrum, spec_err", files, typecodes, spectra, spec_errors
-  dbclose
+  dbext, entries, "fname, nday, date, typecode, bad, nbad, wavelen, spectrum, spec_err, cross_disp, cross_err", files, ndays, dates, typecodes, badarray, nbads, wavelengths, spectra, spec_errors, cross_disps, cross_errors
   
   files=strtrim(files)
   nf = N_elements(files)
+  jds = ndays + julday(1,1,1990)
+  ;; Use the last file of the day since if you take biases in the
+  ;; afternoon, UT date hasn't turned over yet.
+  temp=strsplit(dates[nf-1],'T',/extract) 
+  utdate=temp[0]
+  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
 
   if keyword_set(showplots) then window,7
 
+  ngood_files = 0
   err = 0
   for i=0,nf-1 do begin
      CATCH, err
@@ -95,12 +101,17 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn
         err_axis = fltarr(nx)
 
         ngood_disp = 0
+        last_good_disp = 0
+        gap = 0
+        marked_bad = 0
         for di = 0, nx-1 do begin
            column = fltarr(ny)
            column = im[di,*]
            good_idx = where(finite(column) eq 1, ngood_xd)
            ;; Don't even bother adding a point if there is no data for
-           ;; it.  MPFITFN can handle unequally spaced X axes
+           ;; it.  MPFITFN can handle unequally spaced X axes, but do
+           ;; raise a wanting since some of my routines might not like
+           ;; it
            if ngood_xd gt 2 then begin
               ;; Dispersion axis
               wl = 0.
@@ -108,7 +119,8 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn
                  wl = wl + dispers[dci]*(di-nx/2.)^dci
               endfor
               ;; Optimum signal to noise calculation
-              ;; First get rid of NANs
+              ;; But first we have to rid of NANs so that descending
+              ;; sort doesn't cause problems
               temp = column[good_idx]
               column = temp
               sort_idx = sort(column)
@@ -129,21 +141,59 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn
               xaxis[ngood_disp] = wl
               spec[ngood_disp] = signal
               err_axis[ngood_disp] = error
-
+              last_good_disp = ngood_disp
               ngood_disp = ngood_disp + 1
-           endif
+           endif else begin
+              ;; This skips the first channels if they are bad
+              if keyword_set(last_good_disp) then begin
+                 ;; This skips the last channels if they are bad
+                 if last_good_disp lt ngood_disp-1 then begin
+                    if keyword_set(gap) then begin
+                       message,'WARNING: wavelength disontinuity between channel ' + string(last_good_disp) + ' and ' +  string(last_good_disp + 1) , /CONTINUE
+                       if NOT keyword_set(marked_bad) then begin
+                          badarray[i] = badarray[i] + 1024 
+                          marked_bad = 1
+                       endif
+                       gap = 0
+                    endif else begin
+                       gap = 1
+                    endelse
+                 endif     
+              endif
+           endelse
         endfor
         ngood_disp = ngood_disp - 1
 
-        temp = xaxis	[0:ngood_disp-1]
+        temp = 	xaxis	[0:ngood_disp-1]
         xaxis = temp
-        temp = spec	[0:ngood_disp-1]
+        temp = 	spec	[0:ngood_disp-1]
         spec = temp
-        temp = err_axis	[0:ngood_disp-1]
+        temp = 	err_axis[0:ngood_disp-1]
         err_axis = temp
+
+        ;; We don't need to be so careful about the cross-dispersion
+        ;; spectra, since the signal on them is huge
+        ;; --> I could take the code above + make a funciton out of it
+        ;; + pass it the rotated array to get the corss dispersion
+        ;; spectrum.  But for now this will do.
+        ssg_spec_extract, im, hdr, junk, xdisp, /AVERAGE
+        xdisp_err = sqrt(xdisp)
 
         spec = spec/exptime
         err_axis = err_axis/exptime
+        xdisp = xdisp/exptime
+        xdisp_err = xdisp_err/exptime
+
+        wavelengths	[0:ngood_disp-1, i] = xaxis
+        spectra		[0:ngood_disp-1, i] = spec
+        spec_errors	[0:ngood_disp-1, i] = err_axis
+
+        ;; For now just dump the cross dispersion spectra in.
+        ;; --> Eventually, I want to put them in relative to their
+        ;; absolute CCD coordinates, or something like that
+        ngood_xdisp = N_elements(xdisp)
+        cross_disps 	[0:ngood_xdisp-1, i] = xdisp
+        cross_errors	[0:ngood_xdisp-1, i] = xdisp_err
 
         if keyword_set(showplots) then begin
            wset,7
@@ -154,7 +204,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn
            ytitle=string('Signal (', sxpar(hdr, 'BUNIT'), '/S)')
            plot, xaxis, spec, psym=dot, $
                  title=fname, xtitle=xtitle, ytitle=ytitle
-           ploterr, xaxis, spec, err_axis, psym=dot
+           oploterr, xaxis, spec, err_axis, dot
         endif
 
         if keyword_set(TV) then $
@@ -172,16 +222,62 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn
            printf, lun, xaxis[id], spec[id], err_axis[id]
         endfor
         close, lun, /ALL
-     endelse
 
+        ngood_files = ngood_files + 1
 
-  endfor
+     endelse ;; CATCH if err
+  endfor  ;; Al extractions
 
   CATCH, /CANCEL
 
-  ;; For convenience 
-  message, /INFORMATIONAL, 'Directory is set to ' + indir
+  if ngood_files eq 0 then message, 'ERROR: no properly prepared files found, database not updated'
+
+  med_specs = fltarr(nf)
+  for i = 0,nf-1 do begin
+     med_specs[i] = median(spectra[*,i])
+  endfor
+
+  dbclose ; just in case
+  dbopen, dbname, 0
+  marked_ndays = ssg_mark_bad(ndays, [[med_specs], [nbads/100.]], $
+                              title=string('Continuum levels and bad pixels ', indir), $
+                              xtickunits='Hours', $
+                              xtitle=string('UT time (Hours) ', utdate), $
+                              ytitle='Median spectrum value (electrons/s), number of bad pixels/100', $
+                              window=7, legend=['Median spectral value', 'NUmber of bad pixels'])
+
+  dbclose
+  
+  bad_idx = where(finite(marked_ndays) eq 0, count)
+  if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 512
+
+  write=0
+  if NOT keyword_set(noninteractive) then begin
+     if NOT keyword_set(write) then begin
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+        repeat begin
+           message, /CONTINUE, 'Write these spectra to the database, erasing previous versions?(Y/[N])'
+           answer = get_kbrd(1)
+           if byte(answer) eq 10 then answer = 'N'
+           answer = strupcase(answer)
+        endrep until answer eq 'Y' or answer eq 'N'
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+     endif
+     if answer eq 'Y' then write=1
+  endif
+
+  if keyword_set(write) then begin
+     oldpriv=!priv
+     !priv = 2
+     dbopen, dbname, 1
+     dbupdate, entries, 'bad, wavelen, spectrum, spec_err, cross_disp, cross_err', badarray, wavelengths, spectra, spec_errors, cross_disps, cross_errors
+     dbclose
+     !priv=oldpriv
+     message, /INFORMATIONAL, 'Wrote spectra to ' + dbname + '.  Run ssg_fit_spec next'
+  endif
+
+     ;; For convenience 
+     message, /INFORMATIONAL, 'Directory is set to ' + indir
 
 end
-
 
