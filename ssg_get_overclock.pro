@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_overclock.pro,v 1.1 2002/10/28 17:37:13 jpmorgen Exp $
+; $Id: ssg_get_overclock.pro,v 1.2 2002/10/31 22:17:32 jpmorgen Exp $
 
 ; ssg_get_overclock.  collects information on the CCD overclock region
 ; to put into the reduction database.
@@ -34,7 +34,9 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind(string("dir=", indir))
-  dbext, entries, "fname, nday, date", files, ndays, dates
+  dbext, entries, "fname, nday, date, n_ovrclk, med_ovrclk, av_ovrclk, pred_ovrclk, med_bias, av_bias, stdev_bias", files, ndays, dates, n_ovrclk, med_ovrclk, av_ovrclk, pred_ovrclk, med_bias, av_bias, stdev_bias
+
+  files=strtrim(files)
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990)
   ;; Use the last file of the day since if you take biases in the
@@ -42,20 +44,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
   
-  files=strtrim(files)
-
   err=0
-  n_ovrclk = intarr(nf)
-  med_ovrclk = fltarr(800,nf)
-  av_ovrclk = fltarr(800,nf)
-  pred_ovrclk = fltarr(800,nf)
-  med_bias = fltarr(nf)
-  av_bias = fltarr(nf)
-  stdev_bias = fltarr(nf)
-
-  med_ovrclk [*] = !values.f_nan
-  av_ovrclk  [*] = !values.f_nan
-  pred_ovrclk[*] = !values.f_nan
 
   for i=0,nf-1 do begin
      CATCH, err
@@ -63,29 +52,38 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
         message, /NONAME, !error_state.msg, /CONTINUE
         message, 'skipping ' + files[i], /CONTINUE
      endif else begin
-        im = ssgread(files[i], hdr) ; Make sure image is in proper orientation
-        biassec = strtrim(sxpar(hdr,'BIASSEC',COUNT=count))
-        if count eq 0 then message, 'ERROR: no BIASSEC keyword in FITS header'
-        toks=strsplit(biassec,'[:,]')
-        if N_elements(toks) ne 4 then message, 'ERROR: unknown BIASSEC string format'
-        coords=strsplit(biassec,'[:,]',/extract)
-        coords = coords - 1     ; Translate into IDL array reference
-        if keyword_set(TV) then begin
-           ocr = im[coords[0]:coords[1], coords[2]:coords[3]]
-           display, /reuse, ocr, zoom=zoom
-        endif
-        n_ovrclk[i] = coords[3]-coords[2]
-        for di = coords[0], coords[1] do begin
-           med_ovrclk[di,i] = median(im[di,coords[2]:coords[3]])
-           av_ovrclk[di,i] = total(im[di,coords[2]:coords[3]])/float(n_ovrclk[i])
+        if n_ovrclk[i] ne 0 then message, /CONTINUE, 'WARNING: bias info already in database'
+        ;; Make sure image is in proper orientation, no FITS files are
+        ;; written, so this doesn't junk up the header
+        im = ssgread(files[i], hdr, /BIAS) 
+        asize=size(im)
+        nx=asize[1]
+        ny=asize[2]
+        n_ovrclk[i] = ny
+
+        biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
+        if count ne 0 then message, 'ERROR: bias has already been subtracted.  Use ssg_raw_cp to erase file and start again'
+        
+        med_bias   [i]   = !values.f_nan
+        av_bias    [i]   = !values.f_nan
+        stdev_bias [i]   = !values.f_nan
+        med_ovrclk [*,i] = !values.f_nan
+        av_ovrclk  [*,i] = !values.f_nan
+        pred_ovrclk[*,i] = !values.f_nan
+
+        if keyword_set(TV) then $
+          display, /reuse, im, zoom=zoom
+
+        for di = 0,nx-1 do begin
+           med_ovrclk[di,i] = median(im[di,*])
+           av_ovrclk[di,i] = total(im[di,*])/float(ny)
         endfor
-        med_bias[i] = median(im[coords[0]:coords[1], coords[2]:coords[3]])
-        av_bias[i] = total(im[coords[0]:coords[1], coords[2]:coords[3]])/ $
-          ((coords[1]-coords[0])*float(n_ovrclk[i]))
-        stdev_bias[i] = stddev(im[coords[0]:coords[1], coords[2]:coords[3]],/NAN)
+        med_bias[i] = median(im)
+        av_bias[i] = total(im)/N_elements(im)
+        stdev_bias[i] = stddev(im, /NAN)
         if keyword_set(showplots) then begin
-           window,2
-           plot, med_ovrclk[*,i], psym=plus, xrange=[coords[0],coords[1]], $
+           window,6
+           plot, med_ovrclk[*,i], psym=plus, xrange=[0,nx], $
                  yrange=[min([med_ovrclk,av_ovrclk], /NAN), $
                          max([med_ovrclk, av_ovrclk], /NAN)],$
                  xtitle='Pixel (dispersion direction)', $
@@ -106,8 +104,8 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
   message, /INFORMATIONAL, 'Updated overclock stuff in ' + dbname
 
   if keyword_set(showplots) then begin
-     window,2
-     plot,[0,0], xrange=[coords[0],coords[1]], $
+     window,6
+     plot,[0,0], xrange=[0,nx], $
           yrange=[min([med_ovrclk,av_ovrclk], /NAN), $
                   max([med_ovrclk, av_ovrclk], /NAN)],$
           xtitle='Pixel (dispersion direction)', $
@@ -115,13 +113,13 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
      legend, ['Median', 'Average'], psym=[plus, diamond], pos=pos, /norm
   endif
 
-  xaxis=indgen(coords[1]-coords[0]) + coords[0]
+  xaxis=indgen(nx)
   for i=0,nf-1 do begin
      oplot, med_ovrclk[*,i], psym=plus
      oplot, av_ovrclk[*,i], psym=diamond
   endfor ;; all files in directory
 
-  window,3
+  window,7
   plot, ndays, med_bias, title=string('Overclock info for files in ', indir), $
         xtickunits='Hours', $
         yrange=[min([med_bias,av_bias], /NAN), $
