@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biassub.pro,v 1.4 2002/12/16 13:44:21 jpmorgen Exp $
+; $Id: ssg_biassub.pro,v 1.5 2003/03/10 18:27:15 jpmorgen Exp $
 
 ; ssg_biassub Subtract the best bias image from all the (non-bias)
 ; files in the directory
@@ -34,14 +34,14 @@ pro ssg_biassub, indir
         message, /NONAME, !error_state.msg, /CONTINUE
         message, 'skipping ' + files[i], /CONTINUE
      endif else begin
-        im = ssgread(files[i], hdr) ; Make sure image is in proper orientation
+        im = ssgread(files[i], hdr, eim, ehdr)
         biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
         if count ne 0 then message, 'ERROR: bias frame ' + biasfile+ ' has already been subtracted'
 
         sxaddhist, string('(ssg_biassub.pro) ', systime(/UTC), ' UT'), hdr
 
         ;; Read in bestbias image
-        bias=ssgread(bias_fnames[i], bhdr)
+        bias=ssgread(bias_fnames[i], bhdr, beim)
         if N_elements(bias) ne N_elements(im) then $
           message, 'ERROR: ' + bias_fnames[i] + ' and ' + files[i] + ' are not the same size'
         
@@ -61,18 +61,28 @@ pro ssg_biassub, indir
            sxaddhist, string(format='("(ssg_biassub.pro) shifted by ", f6.2, " DN")', -delta), hdr
         endif
         im = im - bias
+        eim = beim
         sxaddhist, "(ssg_biassub.pro) subtracted file given in BIASFILE keyword", hdr
         sxaddpar, hdr, 'BIASFILE', bias_fnames[i], 'Bias frame subtracted'
         
         ;; GAIN should be here if ssg_db_init worked.  Should be
-        ;; modified by external procs (e.g. ssg_adj_gain) if determine
-        ;; gain should be different than NSO/KPNO supplied value
+        ;; modified by external procs (e.g. ssg_exceptions) if
+        ;; determined gain should be different than NSO/KPNO supplied
+        ;; value
         gain=sxpar(hdr, 'GAIN')  
+        im = im * gain
+        eim = eim * gain
+        ;; The statistical error on each data image pixel is the
+        ;; Poisson error on the number of electrons in that pixel.
+        ;; Add that in quadrature from here on out
+        eim = sqrt(eim^2 + im)
         sxaddhist, "(ssg_biassub.pro) Converted DN to electrons using GAIN keyword", hdr
         sxaddpar, hdr, 'BUNIT', 'ELECTRONS', 'Pixel units'
+        sxaddhist, "(ssg_biassub.pro) Added statistical error array extension", hdr
+        sxaddpar, hdr, 'EXTEND', 'T', 'Error array extension is present'
 
         message, /INFORMATIONAL, 'Converting to electrons and writing ' + files[i]
-        writefits, files[i], im, hdr
+        ssgwrite, files[i], im, hdr, eim, ehdr
 
      endelse
 

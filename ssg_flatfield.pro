@@ -1,12 +1,13 @@
 ;+
-; $Id: ssg_flatfield.pro,v 1.3 2002/12/16 13:41:40 jpmorgen Exp $
+; $Id: ssg_flatfield.pro,v 1.4 2003/03/10 18:30:56 jpmorgen Exp $
 
 ; ssg_flatfield Divide comp and object images by flatfield, recording
-; flatfield name in database
+; flatfield name in database.  If specified, also divide by the sky
+; slicer flat.
 
 ;-
 
-pro ssg_flatfield, indir, flatname=flatname, flat_cut=flat_cut, tv=tv
+pro ssg_flatfield, indir, lampflat_dir=lampflat_dir, skyflat_dir=skyflat_dir, flat_cut=flat_cut, sky_cut=sky_cut, tv=tv
 
   ON_ERROR, 2
   cd, indir
@@ -16,31 +17,22 @@ pro ssg_flatfield, indir, flatname=flatname, flat_cut=flat_cut, tv=tv
 
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
-  if keyword_set(flatname) then begin
-     oldpriv=!priv
-     !priv = 2
-     dbopen, dbname, 1
-     
-     entries = dbfind("typecode=[2,5]", dbfind(string("dir=", indir)))
-     nf = N_elements(entries)
-     flat_fnames = strarr(nf)
-     flat_fnames[*] = flatname
-     dbupdate, entries, 'flat_fname', flat_fnames
-     dbclose
-     !priv=oldpriv
-     message, /INFORMATIONAL, 'Updated flat_fnames in ' + dbname
-  endif
-
   dbopen, dbname, 0
   entries = dbfind("typecode=[2,5]", $
                    dbfind("bad<16383", $ ; < is really <=
                           dbfind(string("dir=", indir))))
-  dbext, entries, "fname, cam_rot, flat_fname, flat_cut", files, cam_rots, flat_fnames, flat_cuts
+        dbext, entries, 'fname, bad, typecode, lampflat_dir, skyflat_dir, flat_cut, sky_cut', $
+         files, badarray, typecodes, lampflat_dirs, skyflat_dirs, flat_cuts, sky_cuts
+        dbext, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, m_cam_rot, cam_rot', $
+         m_sli_bots, e_sli_bots, sli_bots, m_sli_tops, e_sli_tops, sli_tops, sli_cents, e_sli_cents, m_cam_rots, cam_rots
+
   dbclose
 
   files=strtrim(files)
-  flat_fnames=strtrim(flat_fnames)
   nf = N_elements(files)
+  if keyword_set(lampflat_dir) then lampflat_dirs[*]=lampflat_dirs
+  lampflat_dirs=strtrim(lampflat_dirs)
+  skyflat_dirs=strtrim(skyflat_dirs)
 
   err = 0
   for i=0,nf-1 do begin
@@ -49,52 +41,160 @@ pro ssg_flatfield, indir, flatname=flatname, flat_cut=flat_cut, tv=tv
         message, /NONAME, !error_state.msg, /CONTINUE
         message, 'skipping ' + files[i], /CONTINUE
      endif else begin
-        im = ssgread(files[i], hdr)
+        im = ssgread(files[i], hdr, eim, ehdr)
         asize=size(im) & nx=asize[1] & ny=asize[2]
-        flatfile = strtrim(sxpar(hdr,'FLATFILE',COUNT=count))
-        if count ne 0 then message, 'ERROR: flat frame ' + flatfile + ' has already been divided'
+        flatfile = strtrim(sxpar(hdr,'LAMPDIR',COUNT=count))
+        if count ne 0 then message, 'ERROR: flats from ' + flatfile + ' have already been divided'
         biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
         if count eq 0 then message, 'ERROR: run ssg_biassub ' + indir
 
         sxaddhist, string('(ssg_flatfield.pro) ', systime(/UTC), ' UT'), hdr
 
-        ;; Read in bestflat image and line it up
-        flat=ssgread(flat_fnames[i], fhdr)
-        flat=ssg_flat_align(im, hdr, flat, fhdr)
+        if keyword_set(lampflat_dir) then $
+          lampflat_dirs[i] = lampflat_dir
+        if strlen(lampflat_dirs[i]) eq 0 then $
+          lampflat_dirs[i] = indir
+        if keyword_set(skyflat_dir) then $
+          skyflat_dirs[i] = skyflat_dir
+        if strlen(skyflat_dirs[i]) eq 0 then $
+          skyflat_dirs[i] = 'NONE'
 
-        ;; Get the flat_cut parameter
-        if N_elements(flat_cut) eq 0 then begin
-           flat_cut = sxpar(fhdr, 'FLAT_CUT', count=count)
-           if count eq 0 then message, 'ERROR: no FLAT_CUT found in flatfield file.  You must therefore specify flat_cut (value below which flatfield image is not divided) on the command line.  0.75 should work OK'
-        endif
+        if keyword_set(flat_cut) then $
+          flat_cuts[i] = flat_cut
+        if keyword_set(sky_cut) then $
+          sky_cuts[i] = sky_cuts
 
-        ;; Re-normalize flatfield in case using a different flat_cut
-        flat = normalize(flat, flat_cut)
+        sxaddpar, hdr, 'LAMPDIR', lampflat_dirs[i], 'Dir with reduced lamp flats'
+        sxaddpar, hdr, 'SKYDIR', skyflat_dirs[i], 'Dir with reduced sky flats'
 
-        good_idx = where(flat gt flat_cut, count, complement=bad_idx)
-        if count eq 0 then message, 'ERROR: no good pixels in flatfield'
+        type = 'lamp'
+        repeat begin
+           ;; Lamp, sky loop
+           subtype = 'slicer'
+           repeat begin
+              ;; slicer, dust, source loop
+              flat_name = string(type+'_'+subtype+'_flat.fits')
+              dir = lampflat_dirs[i]
+              if type eq 'sky' then $
+                dir = skyflat_dirs[i]
+              flat = ssgread(string(dir, '/', flat_name), fhdr, feim, fehdr)
 
-        ;; This is the actual flatfielding code.  --> I need to decide
-        ;; if I am going to set the pixles outside the flatfield to
-        ;; NAN or not.
-        im[good_idx] = im[good_idx]/flat[good_idx]
-        sxaddhist, "(ssg_flatfield.pro) divided by FLATFILE pixels > FLAT_CUT", hdr
-        sxaddpar, hdr, 'FLATFILE', flat_fnames[i], 'Flatfield file'
-        sxaddpar, hdr, 'FLAT_CUT', flat_cut, ' cut for flatfield normalization'
+              ;; Get the flat_cut parameter
+              if type eq 'lamp' then begin
+                 if N_elements(flat_cut) eq 0 then begin
+                    ff_flat_cut = sxpar(fhdr, 'FLAT_CUT', count=count)
+                    if count eq 0 then message, 'ERROR: no FLAT_CUT found in flatfield file.  You must therefore specify flat_cut (value below which flatfield image is not divided) on the command line.'
+                 endif
+                 ;; Not the greatest logic here, since a flatcut of 0
+                 ;; might be desirable.  You'd have to use a small
+                 ;; number, then
+                 if flat_cuts[i] eq 0 then $
+                   flat_cuts[i] = ff_flat_cut
 
-        bad_idx = where(flat le flat_cut, count)
-        if count gt 0 then begin
-           im[bad_idx] = !values.f_nan
-           sxaddhist, "(ssg_flatfield.pro) Setting unflattened pixels to NAN", hdr
-        endif
+                 sxaddpar, hdr, 'FLAT_CUT', flat_cuts[i], ' cut for flatfield normalization'
+                 ;; The current versions of the IDL FITS stuff trims
+                 ;; keywords to 8 characters
+              endif ;; lamp flat
 
-        message, /INFORMATIONAL, 'Writing ' + files[i]
-        if keyword_set(TV) then display, im, hdr, /reuse
-        writefits, files[i], im, hdr
+              ;; Get the sky_cut parameter
+              if type eq 'sky' then begin
+                 if N_elements(sky_cut) eq 0 then begin
+                    ff_flat_cut = sxpar(fhdr, 'SKY_CUT', count=count)
+                    if count eq 0 then message, 'ERROR: no SKY_CUT found in flatfield file.  You must therefore specify sky_cut (value below which skyflat image is not divided) on the command line.'
+                 endif
+                 ;; Not the greatest logic here, since a flatcut of 0
+                 ;; might be desirable.  You'd have to use a small
+                 ;; number, then
+                 if sky_cuts[i] eq 0 then $
+                   sky_cuts[i] = ff_flat_cut
+                 
+                 sxaddpar, hdr, 'SKY_CUT', sky_cuts[i], ' cut for skyflat normalization'
+              endif  ;; sky flat
 
-     endelse
 
+
+              ;; If we have a sky flat, we don't want to divide the
+              ;; lamp slicer flat
+              if skyflat_dirs[i] ne 'NONE' and $
+                type eq 'lamp' and subtype eq 'slicer' then begin
+                 sxaddhist, '(ssg_flatfield.pro) SKYSLICE detected, not dividing by LAMPSLIC ', hdr
+              endif else begin
+
+                 ;; Only the dust flat can be divided directly into the
+                 ;; image.  All the others will have a little shifting
+                 ;; and rotating to do
+                 if subtype ne 'dust' then begin
+                    flat=ssg_flat_align(im, hdr, flat, fhdr)
+                 endif
+
+                 ;; Normalize flatfield to the flat_cut value
+                 flat = normalize(flat, ff_flat_cut, factor=factor)
+                 feim = feim*factor
+
+                 good_idx = where(flat gt ff_flat_cut, count, complement=bad_idx)
+                 if count eq 0 then message, 'ERROR: no good pixels in flatfield'
+
+                 ;; This is the actual flatfielding code.  Do the
+                 ;; division only for good pixels + use the slicer flat
+                 ;; later to mask out the edges.
+                 oim = im
+                 im[good_idx] = im[good_idx]/flat[good_idx]
+                 ;; The flatfield images are the total electrons in
+                 ;; each pixel, so Poisson statistics apply.
+                 eim[good_idx] = im[good_idx] * $
+                                 sqrt( (eim[good_idx] / oim[good_idx])^2 + $
+                                       (feim[good_idx] / flat[good_idx])^2 )
+
+                 keyword = strmid(strupcase(type+subtype), 0,8)
+                 sxaddhist, '(ssg_flatfield.pro) divided by ' + keyword, hdr
+                 sxaddpar, hdr, keyword, flat_name, string(type + ' ' + subtype + ' flat in ' + strupcase(type) + 'DIR')
+
+                 message, /INFORMATIONAL, 'Writing ' + files[i]
+                 if keyword_set(TV) then begin
+                    crx=1
+                    if typecodes[i] eq 2 then crx=0
+                    display, im, hdr, /reuse, crx=crx
+                 endif
+                 ssgwrite, files[i], im, hdr, eim, ehdr
+              endelse ;; OK to divide flatfield
+
+              case subtype of
+                 'slicer': begin
+                    subtype = 'dust'
+                 end
+                 'dust': begin
+                    subtype = 'source'
+                 end
+                 'source': begin
+                    subtype = 'DONE'
+                 end
+              endcase
+           endrep until subtype eq 'DONE'
+              
+           if type eq 'sky' then $
+             type = 'DONE'
+           if type eq 'lamp' then $
+             type = 'sky'
+           if skyflat_dirs[i] eq 'NONE' then $
+             type = 'DONE'
+        endrep until type eq 'DONE'
+
+     endelse ;; No error
+
+     CATCH, /CANCEL
   endfor
-  CATCH, /CANCEL
+
+  dbclose ;; Just in case
+  dbname = 'ssg_reduce'
+  oldpriv=!priv
+  !priv = 2
+  dbopen, dbname, 1
+  dbupdate, entries, 'lampflat_dir, skyflat_dir, flat_cut, sky_cut', $
+            lampflat_dirs, skyflat_dirs, flat_cuts, sky_cuts
+  
+  dbclose
+  !priv=oldpriv
+  message, /INFORMATIONAL, 'Updated flatfield info in ' + dbname
+
 
 end

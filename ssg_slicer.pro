@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_slicer.pro,v 1.2 2002/11/21 20:05:56 jpmorgen Exp $
+; $Id: ssg_slicer.pro,v 1.3 2003/03/10 18:32:42 jpmorgen Exp $
 
 ; ssg_slicer.  morph image to reflect distortions induced by slicer
 ; rotation and lens aberration.  
@@ -12,7 +12,7 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
   if N_elements(im_or_fname) eq 0 then $
     message, 'ERROR: no filename or image supplied'
   if size(im_or_fname, /TNAME) eq 'STRING' then $
-    im=ssgread(im_or_fname, hdr, /DATA) $ ; make sure orientation is correct
+    im=ssgread(im_or_fname, hdr, eim, ehdr, /DATA) $
   else im = im_or_fname
   if N_elements(size(im, /DIMENSIONS)) ne 2 then $
     message, 'ERROR: specify a valid filename or 2D array'
@@ -53,6 +53,7 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
         endfor
      endelse
   endif
+
   slicer = in_slicer
   if N_elements(slicer) eq 0 then return, im
 
@@ -69,6 +70,8 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
     npd = asize[2]              ; # of poly coef in disp direction
 
   asize=size(im) & nx=asize[1] & ny=asize[2]
+  sli_cent = sxpar(hdr, 'SLI_CENT', count=count)
+  if count eq 0 then sli_cent = nx/2.
 
   ;; Collapse for speed
   if keyword_set(blocking) then begin
@@ -91,9 +94,9 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
   for iy = 0,ny-1 do begin
      trow[*] = im[*,iy]
      ;; x and y are now in pixel number referenced to the center of
-     ;; the image
+     ;; the slicer pattern
      x = indgen(nx) - nx/2.
-     y = iy - ny/2.
+     y = iy - sli_cent
      ;; dx is the array of dispersion direction offsets 
      dx = fltarr(nx)
 

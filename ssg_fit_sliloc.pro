@@ -1,12 +1,11 @@
 ;+
-; $Id: ssg_fit_sliloc.pro,v 1.1 2003/01/14 13:49:04 jpmorgen Exp $
+; $Id: ssg_fit_sliloc.pro,v 1.2 2003/03/10 18:30:33 jpmorgen Exp $
 
-; ssg_fit_camrot.  find the rotation of the camera relative to the
-; flatfield pattern
+; ssg_fit_sliloc.  Fit the slicer location parameters to find good centers
 
 ;-
 
-pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
+pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
                     width=width, noninteractive=noninteractive, write=write
 
 ;  ON_ERROR, 2
@@ -20,8 +19,9 @@ pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind(string("dir=", indir))
-  dbext, entries, "fname, nday, date, bad, m_sli_cent, e_sli_cent, sli_cent", $
-         files, ndays, dates, badarray, m_sli_cents, e_sli_cents, sli_cents
+  dbext, entries, 'fname, nday, date, bad', files, ndays, dates, badarray
+  dbext, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, no_fit', $
+         m_sli_bots, e_sli_bots, sli_bots, m_sli_tops, e_sli_tops, sli_tops, sli_cents, e_sli_cents, no_fits
 
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990,0)
@@ -33,19 +33,22 @@ pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   
   files=strtrim(files)
 
-  ;; Don't work directly with m_sli_cents since we write them to the
-  ;; header below.  Instead work with mf (measured to fit) _sli_cents
-  mf_sli_cents= m_sli_cents
+  ;; Don't work directly with m_sli_bots and tops since we write them to the
+  ;; header below.  Instead work with mf (measured to fit) _sli_*
+  mf_sli_bots= m_sli_bots
+  mf_sli_tops= m_sli_tops
   
+  ;;  Check to see if user wants to redisplay frames marked as bad
   bad_idx = where(badarray ge 4096, count)
   if count gt 0 then begin
-     overlap = where(finite(mf_sli_cents[bad_idx]), count)
+     overlap = where(finite(mf_sli_bots[bad_idx]) or $
+                     finite(mf_sli_tops[bad_idx]), count)
      if count gt 0 then begin
         answer = 'N'
         if NOT keyword_set(noninteractive) then begin
            for ki = 0,1000 do flush_input = get_kbrd(0)
            repeat begin
-              message, /CONTINUE, 'There are some bad files with measured slicer centers.  Would you like to see them again?(Y/[N])'
+              message, /CONTINUE, 'There are some bad files with measured slicer positions.  Consider them for fitting? (Y/[N])'
               answer = get_kbrd(1)
               if byte(answer) eq 10 then answer = 'N'
               answer = strupcase(answer)
@@ -53,14 +56,22 @@ pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
            for ki = 0,1000 do flush_input = get_kbrd(0)
         endif
         if answer eq 'N' then begin
-           mf_sli_cents[bad_idx[overlap]] = !values.f_nan
+           mf_sli_bots[bad_idx[overlap]] = !values.f_nan
+           mf_sli_tops[bad_idx[overlap]] = !values.f_nan
         endif
      endif
   endif
 
-  coefs=jpm_polyfit(ndays-this_nday, mf_sli_cents, order, $
-                    measure_error=e_sli_cents, $
-                    title=string('Slicer pattern center ', indir), $
+  ;; BOTTOM
+  ;;  Check to see if points were excluded before 
+  bad_idx = where((no_fits AND 1) gt 0, count)
+  if count gt 0 then begin
+     message, /CONTINUE, 'NOTE: Previous slicer bottom position fit was performed by excluding some points.  In the menu, select "resurect All points" to see these points.'
+  endif
+
+  coefs=jpm_polyfit(ndays-this_nday, mf_sli_bots, order, $
+                    measure_error=e_sli_bots, bad_idx=bad_idx, $
+                    title=string('Bottom of Slicer Pattern ', indir), $
                     xtickunits='Hours', $
                     xtitle=string('UT time (Hours) ', utdate), $
                     ytitle='Pixels from bottom of image', $
@@ -73,15 +84,61 @@ pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   ;; well determined.
 
   ;; Go ahead and calculate polynomial fit everywhere
-  sli_cents[*] = 0.
+  sli_bots[*] = 0.
   for ci=0,order do begin
-     sli_cents = sli_cents + coefs[ci]*(ndays-this_nday)^ci
+     sli_bots = sli_bots + coefs[ci]*(ndays-this_nday)^ci
   endfor
-  sli_cents = float(sli_cents)
+  sli_bots = float(sli_bots)
   ;; But only keep it where the error bars are negative
-  meas_idx = where(e_sli_cents gt 0 and finite(mf_sli_cents), count)
+  meas_idx = where(e_sli_bots gt 0 and finite(mf_sli_bots), count)
   if count gt 0 then $
-    sli_cents[meas_idx] = mf_sli_cents[meas_idx]
+    sli_bots[meas_idx] = mf_sli_bots[meas_idx]
+  ;; And record which values were not fit in no_fit for future
+  ;; reference
+  bad_idx = where(finite(mf_sli_bots) eq 0, count)
+  if count gt 0 then $
+    no_fits[bad_idx] = no_fits[bad_idx] OR 1
+
+  ;; TOP
+  ;;  Check to see if points were excluded before 
+  bad_idx = where((no_fits AND 2) gt 0, count)
+  if count gt 0 then begin
+     message, /CONTINUE, 'NOTE: Previous slicer top position fit was performed by excluding some points.  In the menu, select "resurect All points" to see these points.'
+  endif
+
+  coefs=jpm_polyfit(ndays-this_nday, mf_sli_tops, order, $
+                    measure_error=e_sli_tops, bad_idx=bad_idx, $
+                    title=string('Top of Slicer Pattern ', indir), $
+                    xtickunits='Hours', $
+                    xtitle=string('UT time (Hours) ', utdate), $
+                    ytitle='Pixels from bottom of image', $
+                    noninteractive=noninteractive, /MJD)
+                   
+  ;; Go ahead and calculate polynomial fit everywhere
+  sli_tops[*] = 0.
+  for ci=0,order do begin
+     sli_tops = sli_tops + coefs[ci]*(ndays-this_nday)^ci
+  endfor
+  sli_tops = float(sli_tops)
+  ;; But only keep it where the error bars are negative
+  meas_idx = where(e_sli_tops gt 0 and finite(mf_sli_tops), count)
+  if count gt 0 then $
+    sli_tops[meas_idx] = mf_sli_tops[meas_idx]
+  ;; And record which values were not fit in no_fit for future
+  ;; reference
+  bad_idx = where(finite(mf_sli_tops) eq 0, count)
+  if count gt 0 then $
+    no_fits[bad_idx] = no_fits[bad_idx] OR 2
+
+  ;; CENTER, which is what we really want
+  sli_cents = (sli_bots + sli_tops) / 2.
+  e_sli_cents = sqrt(e_sli_bots^2 + e_sli_tops^2)
+  ;; Propagate negative error bars to indicate we had a dubious
+  ;; measurement
+  bad_idx = where(e_sli_bots le 0 or e_sli_tops le 0, count)
+  if count gt 0 then begin
+     e_sli_cents[bad_idx] = -e_sli_cents[bad_idx]
+  endif
 
   if NOT (keyword_set(noninteractive) and $
           keyword_set(write)) then begin
@@ -96,12 +153,14 @@ pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
      if answer eq 'Y' then write=1
   endif
 
+  
   ;; Now write the information to the FITS headers
   if keyword_set(write) then begin
      oldpriv=!priv
      !priv = 2
      dbopen, dbname, 1
-     dbupdate, entries, 'sli_cent', sli_cents
+     dbupdate, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, no_fit', $
+         m_sli_bots, e_sli_bots, sli_bots, m_sli_tops, e_sli_tops, sli_tops, sli_cents, e_sli_cents, no_fits
      dbclose
      !priv=oldpriv
      message, /INFORMATIONAL, 'Updated slicer center stuff in ' + dbname
@@ -114,12 +173,19 @@ pro ssg_fit_slicent, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
-           im = readfits(files[i], hdr, silent=silent) ; Just reading fits header
-           sxaddhist, string('(ssg_fit_slicent.pro) ', systime(/UTC), ' UT'), hdr
-           sxaddpar, hdr, 'M_SLICEN', m_sli_cents[i], 'Measured slicer center'
-           sxaddpar, hdr, 'E_SLICEN', e_sli_cents[i], 'Measured slicer center error'
-           sxaddpar, hdr, 'SLI_CENT', sli_cents[i], 'Predicted slicer center'
-           writefits, files[i], im, hdr
+           im = ssgread(files[i], hdr, eim, ehdr)
+           sxaddhist, string('(ssg_fit_sliloc.pro) ', systime(/UTC), ' UT'), hdr
+           sxaddhist, string('(ssg_fit_sliloc.pro) Added *SLI* keywords.  Image not modified'), hdr
+           sxaddpar, hdr, 'SLI_BOT', sli_bots[i], 'Slicer bottom edge, pix from bot of image'
+           sxaddpar, hdr, 'M_SLIBOT', m_sli_bots[i], 'Measured slicer bottom'
+           sxaddpar, hdr, 'E_SLIBOT', e_sli_bots[i], 'Measured slicer bottom error'
+           sxaddpar, hdr, 'SLI_TOP', sli_tops[i], 'Slicer top edge'
+           sxaddpar, hdr, 'M_SLITOP', m_sli_tops[i], 'Measured slicer top'
+           sxaddpar, hdr, 'E_SLITOP', e_sli_tops[i], 'Measured slicer top error'
+           sxaddpar, hdr, 'NO_FIT', no_fits[i], 'Bitmap flag indicating use in polynomial fits'
+           sxaddpar, hdr, 'SLI_CENT', sli_cents[i], 'Best slicer center'
+           sxaddpar, hdr, 'E_SLICEN', e_sli_cents[i], 'Slicer center error'
+           ssgwrite, files[i], im, hdr, eim, ehdr
         endelse ;; CATCH if err
      endfor ;; all files in directory
      CATCH, /CANCEL

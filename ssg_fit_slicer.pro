@@ -1,20 +1,18 @@
 ;+
-; $Id: ssg_fit_slicer.pro,v 1.2 2002/12/16 13:38:53 jpmorgen Exp $
+; $Id: ssg_fit_slicer.pro,v 1.3 2003/03/10 18:30:26 jpmorgen Exp $
 
 ; ssg_fit_slicer.  find the rotation of the camera relative to the
 ; flatfield pattern
 
 ;-
 
-pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
-                    width=width, noninteractive=noninteractive, write=write, $
+pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
+                    noninteractive=noninteractive, write=write, $
                     noshape=noshape
 
 ;  ON_ERROR, 2
   cd, indir
   if N_elements(order) eq 0 then order=0
-  if NOT keyword_set(sigma_cut) then sigma_cut=5
-  if NOT keyword_set(width) then width=3
 
   silent = 1
   if keyword_set(verbose) then silent = 0
@@ -31,7 +29,7 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
   
   files=strtrim(files)
 
@@ -78,12 +76,14 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   for ipxd=0, npxd-1 do begin
      for ipd=0, npd-1 do begin
         index = ipxd + square_test*ipd
+        print, ndays
         coefs=jpm_polyfit(ndays-this_nday, $
                           m_slicers[index,*], order, $
                           title=string('Slicer coefficient ', ipxd, ipd), $
                           xtitle=string('UT time (Hours) ', utdate), $
                           ytitle='Coefficient value', $
-                          xtickunits='Hours', noninteractive=noninteractive)
+                          xtickunits='Hours', $
+                          noninteractive=noninteractive, /MJD)
         
         slicers[index,*] = 0
         for ci=0,order do begin
@@ -124,9 +124,9 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
-           im = readfits(files[i], hdr, silent=silent) ; Just reading fits header
+           im = ssgread(files[i], hdr, eim, ehdr)
            sxaddhist, string('(ssg_fit_slicer.pro) ', systime(/UTC), ' UT'), hdr
-           sxaddhist, string('(ssg_fit_slicer.pro) sigma_cut= ', sigma_cut), hdr
+           sxaddhist, string('(ssg_fit_slicer.pro) Added SLICER* keywords.  Image not modified'), hdr
            for ipxd = 0, npxd - 1 do begin
               for ipd = 0,npd-1 do begin
                  index = ipxd + square_test*ipd
@@ -136,7 +136,7 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
                            'Slicer shape coefficient (see ssg_slicer.pro)'
               endfor
            endfor
-           writefits, files[i], im, hdr
+           ssgwrite, files[i], im, hdr, eim, ehdr
         endelse ;; CATCH if err
      endfor ;; all files in directory
      CATCH, /CANCEL

@@ -1,11 +1,11 @@
-; $Id: ssg_mark_bad.pro,v 1.1 2002/12/16 13:37:10 jpmorgen Exp $
+; $Id: ssg_mark_bad.pro,v 1.2 2003/03/10 18:32:26 jpmorgen Exp $
 
-; ssg_markbad.pro.  displays a graph like jpm_polyfit + allows the
+; ssg_mark_bad.pro.  displays a graph like jpm_polyfit + allows the
 ; user to display images + spectra (left button) mark things as bad
 ; (middle button), and exit (right button)
 
 
-function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=winnum, spec_winnum=spec_winnum, xtitle=xtitle, ytitle=ytitle, xtickunits=xtickunits, measure_errors=measure_errors, legend=legend_text, reuse=reuse
+function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=winnum, spec_winnum=spec_winnum, xtitle=xtitle, ytitle=ytitle, xtickunits=xtickunits, measure_errors=measure_errors, legend=legend_text, reuse=reuse, MJD=MJD
 
   if NOT keyword_set(winnum) then winnum=7
   if NOT keyword_set(spec_winnum) then spec_winnum=6
@@ -46,17 +46,29 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
   window,spec_winnum, title='Spectral preview'
   window,winnum, title=title
   nmarked = 0
-  repeat begin
 
+  ;; Ndays are referenced to modified Julian day.  IDL plotting
+  ;; routines are referenced to JD, so there needs to be an offset in
+  ;; the displayed values, but not in the calulated values.
+  plotx = x
+  if keyword_set(MJD) then $
+    plotx = x-0.5
+
+  repeat begin
      redisp = 1
      wset,winnum
-     good_idx = where(finite(x) eq 1 and finite(y) eq 1, count)
+     good_idx = where(finite(x) eq 1 and $
+                      finite(y) eq 1, count)
+     if keyword_set(measure_errors) then $
+       good_idx = where(finite(x) eq 1 and $
+                        finite(y) eq 1 and $
+                        measure_errors gt 0, count)
      if count eq 0 then return, x
-     plot, x[good_idx], py[good_idx,0], $
+     plot, plotx[good_idx], py[good_idx,0], $
            title=title, $
            xtickunits=xtickunits, $
-           xrange=[min(x[good_idx], /NAN), $
-                   max(x[good_idx], /NAN)], $
+           xrange=[min(plotx[good_idx], /NAN), $
+                   max(plotx[good_idx], /NAN)], $
            yrange=[min(py[good_idx,0], /NAN), $
                    max(py[good_idx,0], /NAN)], $
            xstyle=2, ystyle=2, psym=plus, $
@@ -64,12 +76,12 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
            ytitle=ytitle
 ;           xstyle=2, ystyle=2, psym=plus, $
      if keyword_set(measure_errors) then $
-       oploterr, x[good_idx], py[good_idx,0], measure_errors[good_idx,0]
+       oploterr, plotx[good_idx], py[good_idx,0], measure_errors[good_idx,0]
 
      psymlist = mypsym[0]
      for pi = 1, nplots-1 do begin
         psymlist = [psymlist, mypsym[pi mod N_elements(mypsym)]]
-        oplot, x[good_idx], py[good_idx,pi], psym=psymlist[pi]
+        oplot, plotx[good_idx], py[good_idx,pi], psym=psymlist[pi]
         if keyword_set(measure_errors) then $
           oploterr, x[good_idx], py[good_idx,pi], measure_errors[good_idx,pi]
      endfor
@@ -77,7 +89,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
        legend, legend_text, psym=psymlist
 
      ;; User selects a bad point
-     message, /CONTINUE, 'Use left button to select a single point.  Lots of information will be displayed.  If you left drag over may points, they will be selected without displaying information.  Press the middle button to mark the currently selected point(s) as bad.  It/they will be removed from the graph.  The right button to exits.'
+     message, /CONTINUE, 'Use left button to select a single point.  Lots of information will be displayed.  If you left drag over may points, they will be selected without displaying information.  Press the right button to mark the currently selected point(s) as bad.  Middle button to exits.'
      cursor, x1, y1, /DOWN, /DATA
      cursor, x2, y2, /UP, /DATA
      ;; Get the corners straight
@@ -94,7 +106,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
         nmarked = 0
         for xidx = 0, N_elements(x) - 1 do begin
            for pidx = 0,nplots-1 do begin
-              if x1 lt x[xidx] and x[xidx] lt x2 and $
+              if x1 lt plotx[xidx] and plotx[xidx] lt x2 and $
                 y1 lt y[xidx,pidx] and y[xidx,pidx] lt y2 then begin
                  ;; Check initialization of marked_idx
                  if nmarked eq 0 then begin
@@ -111,7 +123,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
         endfor
         ;; We didn't find any points in our region
         if nmarked eq 0 then begin
-           dxs = x - x1
+           dxs = plotx - x1
            dys = fltarr(N_elements(x), nplots)
            for pi = 0, nplots-1 do begin
               dys[*,pi] = py[*,pi] - y1
@@ -151,25 +163,54 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
      endif ;; leftmost mouse button
 
      if !MOUSE.button eq 2 then begin
-
-        for ki = 0,1000 do flush_input = get_kbrd(0)
-        repeat begin
-           message, /CONTINUE, 'Mark ' + string(nmarked) + ' point(s) as bad (Y/[N])'
-           answer = get_kbrd(1)
-           if byte(answer) eq 10 then answer = 'N'
-           answer = strupcase(answer)
-        endrep until answer eq 'Y' or answer eq 'N'
-        if answer eq 'Y' then begin
-           x[marked_idx] = !values.f_nan
-           nmarked = get_kbrd(1)
-        endif
-        for ki = 0,1000 do flush_input = get_kbrd(0)
-     endif
-
-     if !MOUSE.button eq 4 then begin
         message, /CONTINUE, 'DONE'
         redisp = 0
      endif
+
+     if !MOUSE.button eq 4 then begin
+        if keyword_set(measure_errors) then begin
+           message, /CONTINUE, 'Preparing to mark ' + string(nmarked) + ' point(s) as bad'
+           print, '(M) bad Measurement in an otherwise good file (multiplies error bars by -1 so point(s) will be replaced by a polynomial fit, (you decide later if you want to exclude these points from the polynomial fit)'
+           print, '(F) bad File (will be excluded from all subsequent analysis)'
+           print, '(Q) quit menu with no changes'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+           repeat begin
+              message, /CONTINUE, '[M], F, Q?'
+              answer = get_kbrd(1)
+              if byte(answer) eq 10 then answer = 'M'
+              for ki = 0,1000 do flush_input = get_kbrd(0)
+              answer = strupcase(answer)
+           endrep until $
+             answer eq 'M' or $
+             answer eq 'F' or $
+             answer eq 'Q'
+           if answer eq 'M' then begin
+              if nplots gt 1 then begin
+                 message, /CONTINUE, 'ERROR: sorry, can''t select this option in multiple plot mode yet.  modify upstream code to give me just one plot at a time'
+              endif else begin
+                 measure_errors[marked_idx] = -measure_errors[marked_idx]
+              endelse
+           endif
+           if answer eq 'F' then begin
+              x[marked_idx] = !values.f_nan
+           endif
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+        endif else begin ;; without error bars
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+           repeat begin
+              message, /CONTINUE, 'Mark ' + string(nmarked) + ' point(s) as permanently bad (Y/[N])'
+              answer = get_kbrd(1)
+              if byte(answer) eq 10 then answer = 'N'
+              answer = strupcase(answer)
+           endrep until answer eq 'Y' or answer eq 'N'
+           if answer eq 'Y' then begin
+              x[marked_idx] = !values.f_nan
+              nmarked = get_kbrd(1)
+           endif
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+        endelse ;; without error bars
+     endif ;; Mouse 4
+
   endrep until redisp eq 0
 
 

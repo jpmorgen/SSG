@@ -1,19 +1,21 @@
 ;+
-; $Id: ssg_get_camrot.pro,v 1.3 2002/12/16 13:39:01 jpmorgen Exp $
+; $Id: ssg_get_camrot.pro,v 1.4 2003/03/10 18:31:09 jpmorgen Exp $
 
 ; ssg_get_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
 
 ;-
 
-pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, maxiter=maxiter
+pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, maxiter=maxiter, maxangle=maxangle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
 
 ;  ON_ERROR, 2
   cd, indir
-  ;; This really converges fast on decent files.  --> I am not sure
-  ;; why the data files take so many iterations, even though they
-  ;; aproach their end values in about the same time....
   if NOT keyword_set(maxiter) then maxiter=10  
+  if NOT keyword_set(start_angle) then start_angle=0.
+  if NOT keyword_set(nsteps) then nsteps=25
+  if NOT keyword_set(max_angle) then max_angle = 0.25
+  if NOT keyword_set(trimspec) then trimspec=16
+  params = [0, start_angle]
 
   silent = 1
   if keyword_set(verbose) then silent = 0
@@ -41,25 +43,27 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
   ;; measured on the ones where we can't measure it.
   entries = dbfind(string("dir=", indir))
 
-;  dbext, entries, "fname, nday, date, typecode, bad, m_cam_rot, m_cam_cent", $
-;         files, ndays, dates, typecodes, badarray, m_cam_rots, m_cam_cents
-  dbext, entries, "fname, nday, date, typecode, bad, m_sli_cent, sli_cent, m_cam_rot", $
-         files, ndays, dates, typecodes, badarray, m_sli_cents, sli_cents, m_cam_rots
+  dbext, entries, 'fname, nday, date, typecode, bad', $
+         files, ndays, dates, typecodes, badarray
+  dbext, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, m_cam_rot, e_cam_rot', $
+         m_sli_bots, e_sli_bots, sli_bots, m_sli_tops, e_sli_tops, sli_tops, sli_cents, e_sli_cents, m_cam_rots, e_cam_rots
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
   
   files=strtrim(files)
   if NOT keyword_set(review) then begin ; We really want to do all the fitting
 
-;;  correlations = fltarr(nsteps)
      m_cam_rots[*] = !values.f_nan
 
-     if keyword_set(showplots) then window,6
+     if keyword_set(showplots) then begin
+        window,6
+        window,7
+     endif
 
      ngood = 0
      err=0
@@ -72,91 +76,133 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
            if badarray[i] ge 4096 then message, 'BAD FILE, use display, ssg_spec_extract, and look at the header if you are unsure why'
-           if typecodes[i] lt 3 then message, 'Can''t get a good camera rotation measurement from bias, dark, or comp images'
-;;        if typecodes[i] eq 5 then message, 'Camera parameters can in principle be measured from object spectra, but there seem to be other effects I don''t understand causing variation.  So let''s skip them for now.'
+           if typecodes[i] lt 2 then message, 'Can''t get a camera rotation measurement from bias or dark images'
 
-           im = ssgread(files[i], hdr, /DATA)
+           im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
            biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
            if count eq 0 then message, 'WARNING: works better if you call ssg_biassub first', /CONTINUE
 
            asize = size(im) & nx = asize(1) & ny = asize(2)
 
-           ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
+           ;; Trim off the ends of the spectrum to prevent any weird
+           ;; CCD edge effects from bothering us
+           if trimspec gt 0 then begin
+              im[0:trimspec-1,*] 	= !values.f_nan
+              im[nx-trimspec-1:nx-1,*] 	= !values.f_nan
+           endif
+           ;; Borrow some code from ssg_lightsub to get rid of any
+           ;; background light problem (particularly troublesome in
+           ;; comps).  ssg_lightsub works better with the rotation
+           ;; taken out, which is why we don't do it for real before
+           ;; now.
+           sli_bots = floor(sli_bots)
+           sli_tops = ceil(sli_tops)
+           edge_im = fltarr(nx,ny-(sli_tops[i]-sli_bots[i]))
+           edge_im[*,0:sli_bots[i]-1] = im[*,0:sli_bots[i]-1]
+           edge_im[*,sli_bots[i]:ny-(sli_tops[i]-sli_bots[i])-1] = $
+             im[*,sli_tops[i]:ny-1]
+           edge_spec = fltarr(nx)
+           for ix=0,nx-1 do begin
+              ;; Calculate median only, since there is certain to be
+              ;; contamination from the wing of the light coming through
+              ;; the slicer/exit slit jaws that would mess up the average
+              edge_spec[ix] = median(edge_im[ix,*])
+           endfor
+           ;;plot, edge_spec
+           template = template_create(im, edge_spec)
+           im = im - template
 
-           template = template_create(im, med_spec)
-           im = im/template
+           if keyword_set(showplots) then wset,7
+           ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
+                             hdr, spec, xdisp, showplots=showplots, $
+                             med_spec=med_spec, med_xdisp=med_xdisp, /average
 
-           ;; Mark likely cosmic rays as NAN
-           badim = mark_cr(im)
-           badidx = where(badim gt 0, count)
-           if count gt 0.01*N_elements(im) then $
-             message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
-           if count gt 0 then $
-             im[badidx] = !values.f_nan
+           ;; For everything but comps, remove cosmic rays.  CR
+           ;; removal from comps doesn't work very well because of
+           ;; high contrast in good signal
+           if typecodes[i] gt 2 then begin
+              template = template_create(im, normalize(med_spec))
+              im = im/template
+              ;; Mark likely cosmic rays as NAN
+              badim = mark_cr(im)
+              badidx = where(badim gt 0, count)
+              if count gt 0.01*N_elements(im) then $
+                message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
+              if count gt 0 then $
+                im[badidx] = !values.f_nan
+           endif ;; not a comp
 
            if keyword_set(TV) then display, im, /reuse
 
-;        ;; Make a reference image to rotate around 
-;        ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
-;
-;        ;; Tried using averages and got about the same answer.  This
-;        ;; is probably better, since it gets rid of cosmic ray hits
-;        ;; automatically.
-;        ref_im=template_create(im, med_xdisp)
-;
-;        ;; Center of the data image should be close enough to the
-;        ;; real center of the spectral image so that rotating the
-;        ;; reference image back and forth doesn't create offset
-;        ;; problems, which would skew the results.
-;        for ri=0,nsteps-1 do begin
-;           angle=stepsize*(ri-nsteps/2.)
-;           rot_im=rot(ref_im, angle, /PIVOT,  $
-;                      1., nx/2., sli_cents[i], $
-;                      cubic=-0.5, missing = !values.f_nan)
-;           correlations[ri] = total(im*rot_im,/NAN)
-;        endfor
-;        xaxis = stepsize*indgen(nsteps) - stepsize*nsteps/2.
-;        fit = mpfitpeak(xaxis, correlations, params, nterms=nterms)
-;
-;        if keyword_set(showplots) then begin
-;           wset,6
-;           plot, xaxis, correlations, psym=asterisk, title=files[i], $
-;                 xtitle='Angle of reference image (degrees)', $
-;                 ytitle='Correlation coefficient'
-;           oplot, xaxis, fit, linestyle=solid
-;        endif
-;        if abs(params[1]) gt stepsize*nsteps/2. then $
-;          message, 'WARNING: measured rotation angle of ' + string(params[1]) + ' outside the region of angles tried.  Assuming file is OK, consider increasing nsteps and/or stepsize'
-;        m_cam_rots[i] = params[1]
-
-
-           asize=size(im) & nx=asize[1] & ny=asize[2]
            ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
 
-           ;; Tried using averages and got about the same answer.  This
-           ;; is probably better, since it gets rid of cosmic ray hits
-           ;; automatically.
-           ref_im=template_create(im, med_xdisp)
+           if typecodes[i] gt 2 then begin
+              ;; For non-comp images, this removes additional cosmic
+              ;; ray effects
+              ref_im=template_create(im, med_xdisp)
+           endif else begin
+              ;; For the comps, the median xdisp spectrum is 0, so use
+              ;; the average instead
+              ref_im=template_create(im, xdisp)
+           endelse
+
 
            ;; Here is a trick to speed automation.  The measured slicer
            ;; center should be the best one to do this rotation about.
            ;; I want to fit the slicer centers as a function of time to
            ;; see how flatfields, etc. should be aligned or thrown out
            ;; Just in case something wasn't assigned
-           sli_cent = m_sli_cents[i]
+           sli_cent = sli_cents[i]
            if NOT finite(sli_cent) then $
              sli_cent = sli_cents[i]
            if sli_cent eq 0 or NOT finite(sli_cent) then $
              sli_cent = ny/2.
 
-           ;; Incidently, this code could also be used to fit the slicer center
-           message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
-           to_pass = { image:im, ref_im:ref_im, sli_cent:sli_cent }
-           M_cam_rots[i] = tnmin('camrot_compare', 0., $
-                                 FUNCTARGS=to_pass, /AUTODERIVATIVE, $
-                                 /MAXIMIZE, MAXITER=MAXITER)
-           
+           num_tries = 0
+           repeat begin
+              center = params[1]
+;           ;; Incidently, this code could also be used to fit the slicer center
+;           message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
+;           to_pass = { image:im, ref_im:ref_im, sli_cent:sli_cent }
+;           max_center = tnmin('camrot_compare', 0., $
+;                              FUNCTARGS=to_pass, /AUTODERIVATIVE, $
+;                              /MAXIMIZE, MAXITER=MAXITER, $
+;                              FGUESS=total(im^2, /NAN))
+;
+;           print, max_center
 
+              stepsize = max_angle*2./nsteps
+              correlations = fltarr(nsteps)
+
+              ;; Center of the data image should be close enough to
+              ;; the real center of the spectral image so that
+              ;; rotating the reference image back and forth doesn't
+              ;; create offset problems, which would skew the results.
+              angles = stepsize*(indgen(nsteps) - nsteps/2.) + center
+
+              for ri=0,nsteps-1 do begin
+                 rot_im=ssg_camrot(ref_im, angles[ri], nx/2., sli_cent)
+                 correlations[ri] = total(im*rot_im,/NAN)
+              endfor
+              fit = mpfitpeak(angles, correlations, params, nterms=nterms, $
+                              error=sqrt(correlations), perror=perror, $
+                              /POSITIVE)
+           
+              if keyword_set(showplots) then begin
+                 wset,6
+                 plot, angles, correlations, psym=asterisk, title=files[i], $
+                       xtitle='Angle of reference image (degrees)', $
+                       ytitle='Correlation coefficient', $
+                       yrange=[min(correlations), max(correlations)], ystyle=2
+                 oplot, angles, fit, linestyle=solid
+                 oploterr, angles, correlations, sqrt(correlations)
+              endif
+              num_tries = num_tries + 1
+           endrep until abs(params[1] - center) lt stepsize*nsteps/3. $
+             or num_tries eq 3
+           m_cam_rots[i] = params[1]
+           e_cam_rots[i] = perror[1]
+           print, params[1], perror[1]
            ngood = ngood + 1
         endelse ;; CATCH if err
      endfor ;; all files in directory
@@ -167,17 +213,18 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
 
   if NOT keyword_set(noninteractive) then begin
      marked_ndays = ssg_mark_bad(ndays, m_cam_rots, $
+                                 measure_errors=e_cam_rots, $
                                  title=string('Camera rotation in ', indir), $
                                  xtickunits='Hours', $
                                  xtitle=string('UT time (Hours) ', utdate), $
                                  ytitle='Angle (degrees clockwise)', $
-                                 window=7)
+                                 window=7, /MJD)
 
      dbclose
      
      bad_idx = where(finite(marked_ndays) eq 0, count)
-     ;; Beware the cumulative effect here
-     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 2048
+
+     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] OR 2048
 
      if NOT keyword_set(write) then begin
         for ki = 0,1000 do flush_input = get_kbrd(0)
@@ -197,7 +244,8 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
      oldpriv=!priv
      !priv = 2
      dbopen, dbname, 1
-     dbupdate, entries, 'bad, m_cam_rot', badarray, m_cam_rots
+     dbupdate, entries, 'bad, m_cam_rot, e_cam_rot', $
+               badarray, m_cam_rots, e_cam_rots
      dbclose
      !priv=oldpriv
      message, /INFORMATIONAL, 'Updated camera rotation values in ' + dbname

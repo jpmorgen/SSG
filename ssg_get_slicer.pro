@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_slicer.pro,v 1.3 2002/12/16 13:39:51 jpmorgen Exp $
+; $Id: ssg_get_slicer.pro,v 1.4 2003/03/10 18:31:38 jpmorgen Exp $
 
 ; ssg_get_slicer.  derive slicer shape parameters and record them in
 ; the database
@@ -21,7 +21,7 @@ function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, sli
   if N_elements(im_or_fname) eq 0 then $
     message, 'ERROR: no filename or image supplied'
   if size(im_or_fname, /TNAME) eq 'STRING' then $
-    im=readfits(im_or_fname, hdr) $
+    im=ssgread(im_or_fname, hdr) $
   else im = im_or_fname
   if N_elements(size(im, /DIMENSIONS)) ne 2 then $
     message, 'ERROR: specify a valid filename or a 2D array to display.'
@@ -83,7 +83,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
 
 
   if NOT keyword_set(review) then begin ; We really want to do all the fitting
@@ -109,45 +109,47 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
            if badarray[i] gt 4095 then message, 'Bad = ' + string(badarray[i])
            if typecodes[i] ne 2 then message, 'Can only get a slicer shape from comps at the moment'
 
-           im = ssgread(files[i], hdr, /DATA)
-           flatfile = strtrim(sxpar(hdr,'FLATFILE',COUNT=count))
-           if count eq 0 then message, 'WARNING: works better if you call ssg_flatfield first', /CONTINUE
-
-           cam_rot = strtrim(sxpar(hdr,'CAM_ROT',COUNT=count))
-           if count eq 0 then message, 'ERROR: file '+ files[i] + ' does not have a CAM_ROT keyword.  You need to run ssg_[get&fit]_camrot stuff first'
-           im = rot(im, -cam_rot, cubic=-0.5)
-           sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated temporarily by ssg_get_slicer'
-
-           flat=ssgread(flatfile, fhdr)
-           cam_rot = strtrim(sxpar(fhdr,'CAM_ROT',COUNT=count))
-           if count eq 0 then message, 'ERROR: file '+ flatfile + ' does not have a CAM_ROT keyword.  You need to run ssg_[get&fit]_camrot stuff first'
-           flat = rot(flat, -cam_rot, cubic=-0.5)
-
-           if N_elements(flat_cut) eq 0 then begin
-              flat_cut = sxpar(fhdr, 'FLAT_CUT', count=count)
-              if count eq 0 then message, 'ERROR: no FLAT_CUT found in flatfield file.  You must therefore specify flat_cut (value below which flatfield image is not divided) on the command line.  0.75 should work OK'
+           im = ssgread(files[i], hdr, /DATA, /TRIM)
+           asize=size(im) & nx=asize[1] & ny=asize[2]
+           sli_cent = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
+           if count eq 0 then begin
+              message, 'WARNING: SLI_CENT keyword missing.  Using center of image.  Try running ssg_[get & fit]_sliloc for better results.  Using the center of the image for now', /CONTINUE
+              sli_cent = ny/2.
            endif
-
-           ;; Remove cosmic ray hits
-           ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer, /AVERAGE
+           sli_bot = strtrim(sxpar(hdr,'SLI_BOT',COUNT=count))
+           if count eq 0 then begin
+              message, 'WARNING: SLI_BOT keyword missing.  Try running ssg_[get & fit]_sliloc for better results', /CONTINUE
+              sli_bot = 0
+           endif
+           sli_top = strtrim(sxpar(hdr,'SLI_TOP',COUNT=count))
+           if count eq 0 then begin
+              message, 'WARNING: SLI_TOP keyword missing.  Try running ssg_[get & fit]_sliloc for better results', /CONTINUE
+              sli_top = ny-1
+           endif
+           ;; Remove cosmic ray hits.
+           edge_mask = ssg_edge_mask(im, hdr)
+           ssg_spec_extract, im + edge_mask, hdr, spec, xdisp, $
+                             med_spec=med_spec, med_xdisp=med_xdisp, $
+                             slicer=slicer, /AVERAGE
            template = template_create(im, med_spec, xdisp)
            template = ssg_slicer(im, hdr, slicer=slicer, /DISTORT)
            sigma_im = template_statistic(im, template, /POISSON)
            mask_im = mark_bad_pix(sigma_im, cutval=cr_cutval)
            badidx = where(mask_im gt 0, count)
            if count gt 0 then im[badidx] = !values.f_nan
-
-           ;; Mask out bad flatfield regions
-           flat = normalize(flat, flat_cut)
-
-           bad_idx = where(flat le flat_cut, count)
-           if count gt 0 then begin
-              im[bad_idx] = !values.f_nan
-              message, /CONTINUE, 'Setting unflattened pixels of ' + files[i] + ' to NAN'
+           ;; Now that we have danced around the NAN problem in
+           ;; mark_bad_pix, we can put all the NANs into im
+           im = im + edge_mask
+           
+           ;; Derotate
+           cam_rot = strtrim(sxpar(hdr,'CAM_ROT',COUNT=count))
+           if count eq 0 then begin
+              message, 'WARNING: CAM_ROT keyword missing.  Using 0', /CONTINUE
+              cam_rot = 0
            endif
+           im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
 
-           ;; Make a smaller image that includes just good rows.
-           asize=size(im) & nx=asize[1] & ny=asize[2]
+           ;; Make a smaller image that includes just good rows.  
            firsty = 0
            repeat begin
               temp = where(finite(im[*,firsty]), count)
@@ -160,10 +162,21 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
            endrep until count ne 0
 
            im = im[*,firsty:lasty]
+
+           ;; Now adjust the reference point of SLI* to reflect the
+           ;; trimmed rows so that ssg_slicer functions properly
+           sli_bot = sli_bot - firsty
+           if sli_bot lt 0 then sli_bot = 0
+           sli_top = sli_top - firsty
+           if sli_top gt ny then sli_top = ny
+           sli_cent = sli_cent - firsty
+           sxaddpar, hdr, 'SLI_BOT', sli_bot
+           sxaddpar, hdr, 'SLI_TOP', sli_top
+           sxaddpar, hdr, 'SLI_CENT', sli_cent
            asize=size(im) & nx=asize[1] & ny=asize[2]
 
            if keyword_set(TV) then display, im, /reuse, $
-             title='Raw comp image'
+             title='Input comp image'
            
 ;         ;; We want to single out narrow, bright lines from the data to
 ;         ;; do our fitting on
@@ -179,7 +192,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 ;        display, ssg_slicer(im, hdr, slicer=slicer, /EXTRACT) ;, /reuse
 
            if keyword_set(showplots) then begin
-              wset,3
+              wset,winnum
               ssg_spec_extract, im, hdr, slicer=slicer_in, showplots=showplots, /TOTAL
            endif
 
@@ -248,18 +261,19 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
   if NOT keyword_set(noninteractive) then begin
      ;; --> I am not sure if this is correct as far as 
-     marked_ndays = ssg_mark_bad(ndays, rotate(slicers,1), $
+     print, ndays-this_nday
+     marked_ndays = ssg_mark_bad(ndays, rotate(slicers,4), $
                                  title=string('Slicer shape coefs in ', indir), $
                                  xtickunits='Hours', $
                                  xtitle=string('UT time (Hours) ', utdate), $
                                  ytitle='Slicer_shape_coef', $
-                                 window=7)
+                                 window=7, /MJD)
 
      dbclose
 
      bad_idx = where(finite(marked_ndays) eq 0, count)
-     ;; Beware the cumulative effect here
-     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 16384
+
+     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] OR 16384
 
      if NOT keyword_set(write) then begin
         for ki = 0,1000 do flush_input = get_kbrd(0)

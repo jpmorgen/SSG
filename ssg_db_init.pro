@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.4 2002/12/16 13:43:25 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.5 2003/03/10 18:28:11 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -20,7 +20,8 @@
 ; tree.
 
 ;-
-pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
+pro ssg_db_init, indir
+, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
 
 
   ;; Avoid errors from db stuff about not being able to write in a
@@ -77,10 +78,10 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
      CATCH, err
      if err ne 0 then begin
         message, /NONAME, !error_state.msg, /CONTINUE
-        message, 'skipping ' + shortfile+ ' which does not a proper raw SSG FITS file',/CONTINUE
+        message, 'skipping ' + shortfile+ ' which does not appear to be a proper raw SSG FITS file',/CONTINUE
      endif else begin
         message,'Checking '+ shortfile, /INFORMATIONAL
-        im=readfits(files[i], hdr, SILENT=silent) ; This will raise an error if not FITS
+        im=ssgread(files[i], hdr) ; This will raise an error if not FITS
         nday = sxpar(hdr, 'NDAY', count=count)
         if count gt 0 then begin
            message, 'WARNING: file ' + shortfile + ' has already been reduced.', /CONTINUE

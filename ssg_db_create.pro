@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_create.pro,v 1.6 2002/12/16 13:41:04 jpmorgen Exp $
+; $Id: ssg_db_create.pro,v 1.7 2003/03/10 18:28:02 jpmorgen Exp $
 
 ; ssg_db_create  Creates the SSG database structures from scratch.
 ; Hopfully this won't be used very often!  If necessary, however, this
@@ -81,38 +81,53 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   ;; I'd like to make these B*2, but dbext translates that into a 1
   ;; byte variable.
   printf, lun, 'bad		I*2		bitmap'
-; 16384=unspecified (e.g. bad slicer shape or diseprsion for the whole night)
-; 8192=overclock
-; 4096=slicer center
-; 2048=camera rotation
-; 1024=wavelen scale gap
-; 512=spectral extraction
-; ???=slicer shape
-; 128=IP
-; 64=extraction, maybe these should be negative....=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
-  printf, lun, 'proc_flag	I*2		processing progress flag, 0=nothing' ;, 1=
+;; 16384=unspecified (e.g. bad slicer shape or diseprsion for the whole night)
+;; 8192=overclock
+;; 4096=slicer position
+;; 2048=camera rotation
+;; 1024=wavelen scale gap
+;; 512=spectral extraction
+;; ???=slicer shape
+;; 128=IP
+;; 64=extraction, maybe these should be negative....=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
+  printf, lun, 'no_fit		I*2		bitmap flag for polynomial fitting.'
+;; Bits indicate which to exclude
+;; 1 = slicer bottom
+;; 2 = slicer top
+;; 3 = camera rotation
+
   printf, lun, 'gain		R*4		derived gain, electrons per adu'
   printf, lun, 'rdnoise		R*4		derived read noise, electrons'
   printf, lun, 'n_ovrclk	I*2		number of overclock rows'
   printf, lun, 'med_ovrclk(800) R*4		median overclock spectrum'
   printf, lun, 'av_ovrclk(800)	R*4		average overclock spectrum, CR removed'
-  printf, lun, 'pred_ovrclk(800) R*4		predicted overclock spectrum'
+  printf, lun, 'back_light(800) R*4		median spectrum of background light from edge of image'
   printf, lun, 'med_bias	R*4		median bias value from overclock region'
   printf, lun, 'av_bias		R*4		average bias value from overclock region'
   printf, lun, 'stdev_bias	R*4		stdev bias value from overclock region'
-  printf, lun, 'pred_bias(10)	R*4		10th order polynomial describing time variation of bias x0=nday'
-  printf, lun, 'pred_bias0	R*4		predicted bias at , x0=fix(nday,0)'
+  printf, lun, 'med_back	R*4		median background value from edges of image'
+  printf, lun, 'av_back		R*4		average background value from edges of image'
+  printf, lun, 'stdev_back	R*4		stdev background value from edge of image'
   printf, lun, 'bias_fname	C*80		bias image associated with this file'
   printf, lun, 'dark_fname	C*80		dark image associated with this file'
-  printf, lun, 'flat_fname	C*80		flatfield image associated with this file'
-  printf, lun, 'm_sli_cent	R*4		Measured slicer central pixel in cross-disp direction.'
-  printf, lun, 'sli_cent	R*4		Predicted slicer central pixel in cross-disp direction.'
+  printf, lun, 'lampflat_dir	C*80		directory containing reduced lamp flats'
+  printf, lun, 'skyflat_dir	C*80		directory containing reduced sky flats'
+  printf, lun, 'm_sli_bot	R*4		Measured slicer bottom edge (pix from bottom of image)'
+  printf, lun, 'e_sli_bot	R*4		Measured slicer bottom edge error'
+  printf, lun, 'sli_bot		R*4		Slicer bottom edge to use'
+  printf, lun, 'm_sli_top	R*4		Measured slicer top edge (pix from bottom of image)'
+  printf, lun, 'e_sli_top	R*4		Measured slicer top edge error'
+  printf, lun, 'sli_top		R*4		Slicer top edge to use'
+  printf, lun, 'sli_cent	R*4		Best slicer center'
+  printf, lun, 'e_sli_cent	R*4		Slicer center error'
   printf, lun, 'm_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
+  printf, lun, 'e_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
   printf, lun, 'cam_rot		R*4		Predicted camera rotation based on fit'
   printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefsexpressing measured spectral variation of slicer shape.' ;  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
   printf, lun, 'slice(100)	R*4		Predicted slicer shape for this image'
-  printf, lun, 'flat_cut	R*4		flatfield value below which all pixels are set to 0'
-  printf, lun, 'cut_val		R*4		Using template image, sigma value above which pixel is assumed to be a cosmic ray hit'
+  printf, lun, 'flat_cut	R*4		flatfield value below which all pixels are set to NAN'
+  printf, lun, 'sky_cut		R*4		skyflat value below which all pixels are set to NAN'
+  printf, lun, 'cr_cut		R*4		Using a template image, sigma value above which pixel is assumed to be a cosmic ray hit'
   printf, lun, 'ncr		R*4		estimated number of cosmic ray hits inside flatcut'
   printf, lun, 'nbad		I*2		number of bad pixels (from CR and bad cols) inside flatcut'
   printf, lun, 'm_IP(100)	R*4		10x10 array describing instrument profile.  Like slice shape, reference is midpoint'
@@ -161,30 +176,41 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'dewtemp		I4		dew,temp,C'
   printf, lun, 'db_date		A11		DATABASE,UPDATE,YYYY-MM-DD'
   printf, lun, 'nday		F11.5		DECIMAL,DAY,>90/01/01'
-  printf, lun, 'typecode	I4		0b1di,2c3f,4s5o'
+  printf, lun, 'typecode	I4		0b1d,2c3f,4s5o'
   printf, lun, 'bad		I4		0,is,good'
+  printf, lun, 'no_fit		I4		poly,fit,flag'
   printf, lun, 'gain		F7.3		calc,gain,e_/DN'
   printf, lun, 'rdnoise		F7.3		calc,rdnoise,e_'
   printf, lun, 'n_ovrclk	I4		novr,clck,rows'
   printf, lun, 'med_ovrclk	F7.3		median,overclk,spec'
   printf, lun, 'av_ovrclk	F7.3		avovrc,spec,no_CR'
-  printf, lun, 'pred_ovrclk	F7.3		predic,overclk,spec'
+  printf, lun, 'back_light	F7.3		backgd,light,spec'
   printf, lun, 'med_bias	F7.3		median,ovrclk,value'
   printf, lun, 'av_bias		F7.3		averag,ovrclk,value'
   printf, lun, 'stdev_bias	F7.3		stdev,ovrclk,value'
-  printf, lun, 'pred_bias	F7.3		predic,ovrclk,value'
-  printf, lun, 'pred_bias0	F7.3		predic,bval,nday.0'
+  printf, lun, 'med_bias	F7.3		median,backgd,value'
+  printf, lun, 'av_bias		F7.3		averag,backgd,value'
+  printf, lun, 'stdev_bias	F7.3		stdev,backgd,value'
   printf, lun, 'bias_fname	A80		bias,reference,file'
   printf, lun, 'dark_fname	A80		dark,reference,file'
-  printf, lun, 'flat_fname	A80		flatfield,reference,file'
-  printf, lun, 'm_sli_cent	F7.3		measred,slicer,center'
-  printf, lun, 'sli_cent	F7.3		predict,slicer,center'
+  printf, lun, 'lampflat_flat	A80		flatfield,reference,dir'
+  printf, lun, 'skyflat_flat	A80		skyflatreference,dir'
+  printf, lun, 'm_sli_bot	F7.3		measred,slicer,bottom'
+  printf, lun, 'e_sli_bot	F7.3		slicer,bottom,error'
+  printf, lun, 'sli_bot		F7.3		to_use,slicer,bottom'
+  printf, lun, 'm_sli_top	F7.3		measred,slicer,top'
+  printf, lun, 'e_sli_top	F7.3		slicer,top,error'
+  printf, lun, 'sli_top		F7.3		to_use,slicer,top'
+  printf, lun, 'sli_cent	F7.3		best,slicer,center'
+  printf, lun, 'e_sli_cent	F7.3		slicer,center,error'
   printf, lun, 'm_cam_rot	F7.3		measred,cam_rot,clockws'
-  printf, lun, 'cam_rot		F7.3		predict,cam_rot,clockws'
+  printf, lun, 'e_cam_rot	F7.3		measred,cam_rot,error'
+  printf, lun, 'cam_rot		F7.3		to_use,cam_rot,clockws'
   printf, lun, 'm_slice		F7.3		measred,slicer,shape'
   printf, lun, 'slice		F7.3		pred,slicer,shape'
   printf, lun, 'flat_cut	F7.3		flat,cut,4trim'
-  printf, lun, 'cut_val		F7.3		cosmic,ray,cutval'
+  printf, lun, 'sky_cut		F7.3		sky,cut,4trim'
+  printf, lun, 'cr_cut		F7.3		cosmic,ray,cutval'
   printf, lun, 'ncr		F7.3		est,number,CR'
   printf, lun, 'm_IP		F7.3		measred,inst,prof'
   printf, lun, 'IP		F7.3		pred,inst,prof'
@@ -223,8 +249,8 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'av_bias		sort/index'
   printf, lun, 'pred_bias0	sort/index'
 ;  printf, lun, 'camera_rot	sort/index'
-  printf, lun, 'flat_cut	sort/index'
-  printf, lun, 'cut_val		sort/index'
+;  printf, lun, 'flat_cut	sort/index'
+;  printf, lun, 'cr_cut		sort/index'
   printf, lun, 'ncr		sort/index'
   printf, lun, 'nbad		sort/index'
   printf, lun, 'med_spec	sort/index'

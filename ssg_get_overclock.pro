@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_overclock.pro,v 1.4 2002/12/16 13:39:06 jpmorgen Exp $
+; $Id: ssg_get_overclock.pro,v 1.5 2003/03/10 18:31:31 jpmorgen Exp $
 
 ; ssg_get_overclock.  collects information on the CCD overclock region
 ; to put into the reduction database.
@@ -34,7 +34,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind(string("dir=", indir))
-  dbext, entries, "fname, nday, date, bad, n_ovrclk, med_ovrclk, av_ovrclk, pred_ovrclk, med_bias, av_bias, stdev_bias", files, ndays, dates, badarray, n_ovrclk, med_ovrclk, av_ovrclk, pred_ovrclk, med_bias, av_bias, stdev_bias
+  dbext, entries, "fname, nday, date, bad, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias, stdev_bias", files, ndays, dates, badarray, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias, stdev_bias
 
   files=strtrim(files)
   nf = N_elements(files)
@@ -59,11 +59,10 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
      stdev_bias [*]   = !values.f_nan
      med_ovrclk [*,*] = !values.f_nan
      av_ovrclk  [*,*] = !values.f_nan
-     pred_ovrclk[*,*] = !values.f_nan
 
      for i=0,nf-1 do begin
         message, 'Looking at ' + files[i], /CONTINUE
-        CATCH, err
+;        CATCH, err
         if err ne 0 then begin
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
@@ -74,7 +73,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
              message, /CONTINUE, 'WARNING: bias info already in database'
            ;; Make sure image is in proper orientation, no FITS files are
            ;; written, so this doesn't junk up the header
-           bias_im = ssgread(files[i], hdr, /BIAS) 
+           bias_im = ssgread(files[i], hdr, eim, ehdr, /BIAS) 
            asize=size(bias_im) & nx=asize[1] & ny=asize[2]
            n_ovrclk[i] = ny
 
@@ -134,13 +133,13 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
                                  xtitle=string('UT time (Hours) ', utdate), $
                                  ytitle='Overlclock value (DN)', $
                                  legend = ['Median', 'Average'], $
-                                 window = 3, /reuse)
+                                 window = 3, /reuse, /MJD)
      
      dbclose
 
      bad_idx = where(finite(marked_ndays) eq 0, count)
-     ;; Beware the cumulative effect here
-     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 8192
+
+     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] OR 8192
 
      if NOT keyword_set(write) then begin
         for ki = 0,1000 do flush_input = get_kbrd(0)
@@ -160,7 +159,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
      oldpriv=!priv
      !priv = 2
      dbopen, dbname, 1
-     dbupdate, entries, 'bad, n_ovrclk, med_ovrclk, av_ovrclk, pred_ovrclk, med_bias, av_bias', badarray, n_ovrclk, med_ovrclk, av_ovrclk, pred_ovrclk, med_bias, av_bias
+     dbupdate, entries, 'bad, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias', badarray, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias
      dbclose
      !priv=oldpriv
      message, /INFORMATIONAL, 'Updated overclock and bad assignment stuff in ' + dbname

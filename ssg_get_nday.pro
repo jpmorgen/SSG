@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_nday.pro,v 1.3 2002/12/16 13:40:43 jpmorgen Exp $
+; $Id: ssg_get_nday.pro,v 1.4 2003/03/10 18:31:24 jpmorgen Exp $
 
 ; ssg_get_nday 
 ;
@@ -40,10 +40,14 @@
 ;-
 function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
 
-  nday = 0.
+  nday = 0.D
+  ;; If we are not regenerating, do a quick header read
   if NOT keyword_set(regenerate) then begin
      nday = sxpar(hdr, 'NDAY', count=count)
-     if count gt 0 then return, nday
+     if count gt 0 then begin
+        formatted = string(format='(f11.5)', nday)
+        return, nday
+     endif
   endif
 
   sxaddhist, string('(ssg_get_nday.pro) ', systime(/UTC), ' UT'), hdr
@@ -90,8 +94,9 @@ function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
   nday = rawjd + (darktime/2.)/3600./24. - (julday(1,1,1990,0)-2400000.)
   sxaddpar, hdr, 'NDAY', nday, 'Decimal days of obs. midpoint since 1990-1-1T12:00:00 UT'
 
-  ;; ssg_exceptions may modify nday
-  ssg_exceptions, im, hdr
+  ;; ssg_exceptions should not modify nday, since that is what
+  ;; ssg_fix_head is for
+  ;;ssg_exceptions, im, hdr
   nday = sxpar(hdr, 'NDAY')
   formatted = string(format='(f11.5)', nday)
 

@@ -1,12 +1,12 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.4 2002/12/16 13:43:15 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.5 2003/03/10 18:27:02 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
 
 ;-
 pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigma_cut=cutval
-  ON_ERROR, 2
+;  ON_ERROR, 2
   cd, indir
   if NOT keyword_set(outname) then outname = 'bestbias.fits'
   if NOT keyword_set(badpix) then badpix = 5
@@ -28,7 +28,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   night_av = mean(av_biases)
 
   ;; Read in an image to set up the bestbias header
-  im = ssgread(files[0], hdr)
+  im = ssgread(files[0], hdr, eim, ehdr)
   sxaddhist, string('(ssg_biasgen.pro) ', systime(/UTC), ' UT'), hdr
 
   asize=size(im) & nx=asize[1] & ny=asize[2]
@@ -39,6 +39,8 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   sxaddpar, hdr, 'PARENTH', getenv("HOST"), ' hostname'
   sxaddpar, hdr, 'PARENTD', cwd, ' current working directory'
   sxaddpar, hdr, 'PARENT', files[0], ' first bias file in directory'
+  sxaddpar, hdr, 'RAWFILE', 'NONE', ' Product of reduced files in PARENTD'
+  sxaddpar, hdr, 'SSGFILE', outname, ' Name of this file'
 
   if keyword_set(TV) then display, av_im, hdr, title = 'Single bias image'
   if keyword_set(showplots) then window, 6, title='Bias histogram'
@@ -50,7 +52,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
         message, /NONAME, !error_state.msg, /CONTINUE
         message, 'skipping ' + files[i], /CONTINUE
      endif else begin
-        im = ssgread(files[i], ihdr) ; Make sure image is in proper orientation
+        im = ssgread(files[i], ihdr, eim, ehdr)
 
         if N_elements(av_im) ne N_elements(im) then $
           message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
@@ -68,7 +70,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
            message, /CONTINUE, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(data_med) + '+/-' + string(stdev) + ' median of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' Checking average overclock value'
            if (abs(data_med - av_biases[i]) gt $
                (stdev + stdev_biases[i])) then begin
-              badarray[i] = badarray[i] + 16384
+              badarray[i] = badarray[i] OR 16384
               ;; This message is caught by the code above, skipping
               ;; the code below.
               message, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(data_med) + '+/-' + string(stdev) + ' average of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' The difference is too great, so I will mark this image as bad in the database'
@@ -85,7 +87,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
 
         ;; Make sure not too much of the array is contaminated 
         if count gt 0.01*N_elements(mask_im) then begin
-           badarray[i] = badarray[i] + 16384
+           badarray[i] = badarray[i] OR 16384
            ;; This message is caught by the code above, skipping the
            ;; code below.
            message, 'WARNING: Bias ' + files[i] + ' has more than 1% bright pixels.  Marking it bad in the database'
@@ -155,11 +157,27 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   av_im = av_im / count_im
   sxaddhist, string('(ssg_biasgen.pro) divided by good pixel counting image'), hdr
 
-  ;; Create median bias image
+  ;; Create median bias image and error array.  Mark missing pixels
+  ;; with NAN so median and stddev ignore them.  The error here is
+  ;; actually a subtle point.  I think the stddev taken in this way
+  ;; is a measure of the uncertainty on a single bias frame.  Since
+  ;; each image has a single measurement of the bias in it, this is
+  ;; the appropriate error for its subtraction.  The flatfield, on the
+  ;; other hand is measuring total electrons collected in a stack of
+  ;; images, so we want Poisson statistics there.  Also, the bias
+  ;; value is in DN, with some other statistical determination
+  ;; (e.g. Johnson noise on the amplifier resistors, or something).
+  ;; In the absense of a good independent measure like Poisson
+  ;; statistics with a known parent population, the stddev is a
+  ;; reasonable approximation
+  bad_idx = where(stack_im eq 0, count)
+  if count gt 0 then $
+    stack_im[bad_idx] = !values.f_nan
   med_im=fltarr(nx,ny)
   for i=0,nx-1 do begin
      for j=0,ny-1 do begin
         med_im[i,j] = median(stack_im[*,i,j])
+        eim[i,j] = stddev(stack_im[*,i,j], /NAN)
      endfor
   endfor
 
@@ -189,7 +207,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
 
 
   ;; Write out the bestbias image
-  writefits, outname, av_im, hdr
+  ssgwrite, outname, av_im, hdr, eim, ehdr
   message, /INFORMATIONAL, 'Wrote file ' + outname
 
   ;; Update the bad column in the database, if necessary

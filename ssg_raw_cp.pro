@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_raw_cp.pro,v 1.4 2002/12/16 13:43:20 jpmorgen Exp $
+; $Id: ssg_raw_cp.pro,v 1.5 2003/03/10 18:32:33 jpmorgen Exp $
 
 ; ssg_raw_cp.  Copies ssg FITS files from indir to outdir.  Only
 ; copies files that are registered as good files in the database (see
@@ -58,6 +58,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         ;; by multiple filenames.  This will raise an error if not
         ;; FITS, which is fine, since entries[i] will be left=-1
         im=ssgread(files[i], hdr) 
+        asize=size(im) & nx=asize[1] & ny=asize[2]
 
         nday = ssg_get_nday(hdr, formatted=formatted_nday)
 
@@ -113,11 +114,17 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
            message, 'WARNING: file ' + shortoutfile + ' found in ' + outdir + ' use /OVERWRITE keyword to replace'
         endif
         
-        message, /INFORMATIONAL, 'Writing ' + outfile
-        ;; Code from writefits so that I have control over verbosity
-        ;; (no silent keyword for writefits)
-        check_fits, im, hdr, /UPDATE, /FITS, SILENT=silent
-        writefits, outfile, im, hdr
+        message, /INFORMATIONAL, 'Creating error extension and writing ' + outfile
+
+        ;;  Make a simple FITS header for the extension
+        sxaddpar, hdr, 'EXTEND', 'T', 'SSG error array is appended'
+        sxaddpar, ehdr, 'XTENSION', 'IMAGE', 'IMAGE extension'
+        sxaddpar, ehdr, 'NAXIS', sxpar(hdr, 'NAXIS'), 'Number of data axes'
+        sxaddpar, ehdr, 'NAXIS1', nx
+        sxaddpar, ehdr, 'NAXIS2', ny
+        sxaddpar, ehdr, 'EXTNAME', 'ERROR', 'Statistical errors of primary array'
+        eim = fltarr(nx,ny)
+        ssgwrite, outfile, im, hdr, eim, ehdr
         ngood=ngood+1
 
      endelse ;; CATCH if err

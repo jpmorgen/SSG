@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_extract.pro,v 1.3 2002/12/16 13:40:54 jpmorgen Exp $
+; $Id: ssg_extract.pro,v 1.4 2003/03/10 18:29:52 jpmorgen Exp $
 
 ; ssg_extract extract 1D spectra from a directory full of SSG images
 
@@ -55,7 +55,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn, noninteractive=nonint
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
 
   if keyword_set(showplots) then window,winnum, $
     title='Extracted Spectrum'
@@ -88,12 +88,13 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn, noninteractive=nonint
         fname = files[i]
         if typecodes[i] eq 5 then begin
            temp=strsplit(files[i], '.fits', /extract)
-           fname=temp[0]+'.red.fits'
+           fname=temp[0]+'educed.fits'
         endif
         shortfile= strmid(fname, $
                           strpos(fname, '/', /REVERSE_SEARCH) + 1)
 
-        im = ssgread(fname, hdr)
+        im = ssgread(fname, hdr, eim, ehdr, /DATA, /TRIM)
+        im = im + ssg_edge_mask(im, hdr)
         asize=size(im) & nx=asize[1] & ny=asize[2]
  
        if keyword_set(TV) then display, im, hdr, /reuse
@@ -125,15 +126,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn, noninteractive=nonint
         ;; direction.  This means multiplying up dim pixels, so we
         ;; should get their uncertainties too.
 
-        ;; Make sure we take out the flatfield just like we put it in
-        flatfile = strtrim(sxpar(hdr,'FLATFILE',COUNT=count))
-        flat = ssgread(flatfile, fhdr)
-        flat_cut = sxpar(hdr, 'FLAT_CUT')
-        flat = ssg_flat_align(im, hdr, flat, fhdr, /quiet)
-        flat = normalize(flat, flat_cut)
-        ;; im/flat should be the true electron count of the image.
-        ;; Work with it's square, since that is what we really want
-        err2_im = im/flat
+        err2_im = eim^2
 
         
         ;; Now make a template to of the cross-dispersion spectrum,
@@ -194,13 +187,13 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn, noninteractive=nonint
               signal = column[sort_idx[is]]
               err2 = e2col[sort_idx[is]]
               noise = column[sort_idx[is+1]]
-              while is lt ngood_xd-2 and $
-                noise gt sqrt(err2)/sn do begin
-                 is = is + 1
-                 signal = signal + noise
-                 err2 = err2 + e2col[sort_idx[is+1]]
-                 noise = column[sort_idx[is+1]]
-              endwhile
+;              while is lt ngood_xd-2 and $
+;                noise gt sqrt(err2)/sn do begin
+;                 is = is + 1
+;                 signal = signal + noise
+;                 err2 = err2 + e2col[sort_idx[is+1]]
+;                 noise = column[sort_idx[is+1]]
+;              endwhile
               if is eq 0 then begin
                 ;; Just accept the whole column
                 signal = total(column[good_idx])
@@ -224,7 +217,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn, noninteractive=nonint
                     if keyword_set(gap) then begin
                        message,'WARNING: wavelength disontinuity between channel ' + string(last_good_disp) + ' and ' +  string(last_good_disp + 1) , /CONTINUE
                        if NOT keyword_set(marked_bad) then begin
-                          badarray[i] = badarray[i] + 1024 
+                          badarray[i] = badarray[i] OR 1024 
                           marked_bad = 1
                        endif
                        gap = 0
@@ -323,12 +316,14 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn=sn, noninteractive=nonint
                                  xtickunits='Hours', $
                                  xtitle=string('UT time (Hours) ', utdate), $
                                  ytitle='Spectral value (electrons/s)', $
-                                 window=7, legend=['Median spectral value', 'Average spectral value'])
+                                 window=7, legend=['Median spectral value', $
+                                                   'Average spectral value'], $
+                                 /MJD)
      
      dbclose
      
      bad_idx = where(finite(marked_ndays) eq 0, count)
-     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 512
+     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] OR 512
      
      if NOT keyword_set(write) then begin
         for ki = 0,1000 do flush_input = get_kbrd(0)

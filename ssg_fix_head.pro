@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fix_head.pro,v 1.1 2003/03/03 22:40:36 jpmorgen Exp $
+; $Id: ssg_fix_head.pro,v 1.2 2003/03/10 18:30:41 jpmorgen Exp $
 
 ; ssg_fix_head.  Fix up Y2K problems with the FITS headers ON THE RAW
 ; FILES.  Saves a copy of all the files in the directory just in case
@@ -27,8 +27,8 @@ pro ssg_fix_head, indir, outdir
   CATCH, err
   if err ne 0 then begin
      message, /NONAME, !error_state.msg, /CONTINUE
-     message, /CONTINUE, 'ERROR: specify an output directory that is writable by you '
-     stop
+     message, /CONTINUE, 'WARNING: output directory ' + outdir + ' is not writable by you.  Using /tmp instead '
+     outdir = '/tmp'
   endif else begin
      testname = string(outdir, '/test_ssg_fix_head_writable')
      writefits, testname, [0]
@@ -50,7 +50,9 @@ pro ssg_fix_head, indir, outdir
   if count eq 1 then $
     message, 'ERROR: Program did not terminate properly.  I suggest you start over with a tar xvf '+ outname + ' and move that file to a different name'
 
-  spawn, 'tar cvf ' + outname + ' ' + 'test_ssg_fix_head_writable'
+  cd, outdir
+  spawn, 'tar cvf ' + outname + ' test_ssg_fix_head_writable'
+  cd, indir
 
   ;; Now fix the headers.  Only bad files are rewritten
   nf = N_elements(files)
@@ -206,7 +208,7 @@ pro ssg_fix_head, indir, outdir
      message, /INFORMATIONAL, 'Compressing ' + string(outname)
      spawn, 'gzip ' + outname
   endif else begin
-     message, /INFORMATIONAL, 'No bad SSG headers found, removing' + outname
+     message, /INFORMATIONAL, 'No bad SSG headers found.  No files in ' + indir + ' need to be modified'
      spawn, 'rm ' + outname
   endelse
 

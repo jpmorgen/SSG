@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.6 2002/12/16 13:34:35 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.7 2003/03/10 18:31:16 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -297,7 +297,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
 
   
   files=strtrim(files)
@@ -317,7 +317,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
-           im = ssgread(files[i], hdr, /DATA)
+           im = ssgread(files[i], hdr, /DATA, /TRIM)
            asize = size(im) & nx = asize(1) & ny = asize(2)
 
            ssg_spec_extract, im, hdr, spec, xdisp, /TOTAL
@@ -398,7 +398,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            ;; Fit one line at a time, starting from the highest.
            ;; Fit the next line using the residuals, etc.
            ;; Fo one last fit with everything in to make sure thing
-           ;; settle.
+           ;; settles.
 
            n_params = 0
            n_lines = 0
@@ -437,7 +437,8 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                          {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Area'}]
 
               to_pass = { N_continuum:N_continuum }
-              params = mpfitfun('voigt_spec', pix_axis, residual, sqrt(spec), $
+              params = mpfitfun('voigt_spec', pix_axis, residual, $
+                                sqrt(abs(spec)), $
                                 params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                                 PARINFO=parinfo)
 
@@ -461,7 +462,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
               if end_of_loop then begin
                  ;; Do one last fit with all parameters free
                  final_params = mpfitfun('voigt_spec', $
-                                         pix_axis, spec, sqrt(spec), $
+                                         pix_axis, spec, sqrt(abs(spec)), $
                                          [params[0:N_continuum-1], vps], $
                                          FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                                          PERROR=perror, MAXITER=maxiter)
@@ -596,7 +597,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                                title=string("Dispersion relation for comp ", files[i]), $
                                xtitle='Pixels ref to center of image', $
                                ytitle='Best guess association to atlas line', $
-                               noninteractive=noninteractive)
+                               noninteractive=noninteractive, /MJD)
            print, coefs
            disp_arrays[0:order,i] = coefs
            ngood = ngood + 1
@@ -618,14 +619,14 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                        xtickunits='Hours', $
                        xtitle=string('UT time (Hours) ', utdate), $
                        ytitle='Coef value', $
-                       window=7)
+                       window=7, /MJD)
      endfor
 
      dbclose
 
      bad_idx = where(finite(marked_ndays) eq 0, count)
-     ;; Beware the cumulative effect here
-     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 16384
+
+     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] OR 16384
 
      if NOT keyword_set(write) then begin
         for ki = 0,1000 do flush_input = get_kbrd(0)

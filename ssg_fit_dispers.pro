@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_dispers.pro,v 1.1 2002/12/16 13:38:12 jpmorgen Exp $
+; $Id: ssg_fit_dispers.pro,v 1.2 2003/03/10 18:30:16 jpmorgen Exp $
 
 ; ssg_fit_dispers.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -45,7 +45,7 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(ndays)     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
   
   files=strtrim(files)
 
@@ -71,7 +71,7 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
                        title=string('Dispersion coefficient ', ido), $
                        xtitle=string('UT time (Hours) ', utdate), $
                        ytitle='Coefficient value', $
-                       xtickunits='Hours', noninteractive=noninteractive)
+                       xtickunits='Hours', noninteractive=noninteractive, /MJD)
      
      dispers[ido,*] = 0
      for ci=0,order do begin    ; That is order of fit vs time, not dispersion order
@@ -113,15 +113,16 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
-           im = readfits(files[i], hdr, silent=silent) ; Just reading fits header
+           im = ssgread(files[i], hdr, eim, ehdr)
            sxaddhist, string('(ssg_fit_dispers.pro) ', systime(/UTC), ' UT'), hdr
+           sxaddhist, string('(ssg_fit_dispers.pro) Added DISPERS* keywords.  Image not modified'), hdr
            for ido = 0, max_order - 1 do begin
                  sxaddpar, hdr, $
                            string(format='("DISPERS", i1)', ido), $
                            dispers[ido,i], $
                            'Dispersion coef (ref to image center)'
            endfor
-           writefits, files[i], im, hdr
+           ssgwrite, files[i], im, hdr, eim, ehdr
         endelse ;; CATCH if err
      endfor ;; all files in directory
      CATCH, /CANCEL
