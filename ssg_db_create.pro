@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_create.pro,v 1.4 2002/11/21 20:03:06 jpmorgen Exp $
+; $Id: ssg_db_create.pro,v 1.5 2002/12/06 17:29:31 jpmorgen Exp $
 
 ; ssg_db_create  Creates the SSG database structures from scratch.
 ; Hopfully this won't be used very often!  If necessary, however, this
@@ -75,11 +75,20 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'camtemp		I*2		camera temperature, Celsius'
   printf, lun, 'dewtemp		I*2		dewar temperature, Celsius'
   printf, lun, 'db_date		C*10		database update date (yyyy-mm-dd UT)'
-  printf, lun, 'nday		R*4		decimal day since 1990-Jan-01 (midpoint)'
+  printf, lun, 'nday		R*8		decimal day since 1990-Jan-01 (midpoint)'
   printf, lun, 'typecode	B*1		0=bias,1=dark,2=comp,3=flat,4=sky flat, 5=object'
   ;; I'd like to make these B*2, but dbext translates that into a 1
   ;; byte variable.
-  printf, lun, 'bad		I*2		bitmap';16384=overclock,8192=camera rotation, 4096=flattening, 2048=cosmic ray, 1024=slicer shape, 512=wavelen scale, 128=IP, 64=extraction, maybe these should be negative....=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
+  printf, lun, 'bad		I*2		bitmap'
+; 16384=unspecified (e.g. bad slicer shape or diseprsion for the whole night)
+; 8192=overclock
+; 4096=slicer center
+; 2048=camera rotation
+; 1024=wavelen scale gap
+; 512=spectral extraction
+; ???=slicer shape
+; 128=IP
+; 64=extraction, maybe these should be negative....=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
   printf, lun, 'proc_flag	I*2		processing progress flag, 0=nothing';, 1=
   printf, lun, 'gain		R*4		derived gain, electrons per adu'
   printf, lun, 'rdnoise		R*4		derived read noise, electrons'
@@ -95,19 +104,23 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'bias_fname	C*80		bias image associated with this file'
   printf, lun, 'dark_fname	C*80		dark image associated with this file'
   printf, lun, 'flat_fname	C*80		flatfield image associated with this file'
-  printf, lun, 'comp_fname	C*80		comp spectrum associated with this file'
+  printf, lun, 'm_sli_cent	R*4		Measured slicer central pixel in cross-disp direction.'
+  printf, lun, 'sli_cent	R*4		Predicted slicer central pixel in cross-disp direction.'
   printf, lun, 'm_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
   printf, lun, 'cam_rot		R*4		Predicted camera rotation based on fit'
-  printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefs'; expressing spectral variation of slicer shape.  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
+  printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefsexpressing measured spectral variation of slicer shape.';  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
   printf, lun, 'slice(100)	R*4		Predicted slicer shape for this image'
   printf, lun, 'flat_cut	R*4		flatfield value below which all pixels are set to 0'
   printf, lun, 'cut_val		R*4		Using template image, sigma value above which pixel is assumed to be a cosmic ray hit'
   printf, lun, 'ncr		R*4		estimated number of cosmic ray hits inside flatcut'
   printf, lun, 'nbad		I*2		number of bad pixels (from CR and bad cols) inside flatcut'
-  printf, lun, 'IP(1000)	R*4		10x10x10 array describing instrument profile.  Like slice shape, reference is midpoint '
+  printf, lun, 'm_IP(100)	R*4		10x10 array describing instrument profile.  Like slice shape, reference is midpoint'
+  printf, lun, 'IP(100)		R*4		Predicted IP for this spectrum'
+  printf, lun, 'm_dispers(10)	R*4		up to 10 polynomial coefficients describing measured dispersion relation.  Ref to  midpoint '
+  printf, lun, 'dispers(10)	R*4		individually fit dispersion (starts with time varying fit to m_dispers'
   printf, lun, 'wavelen(800)	R*4		wavelength axis (angstroms), no offset'
   printf, lun, 'spectrum(800)	R*4		bias subtracted, flatfielded, derotated, CR rejected spectrum'
-  printf, lun, 'spec_err(400)	R*4		statistical error on spectrum'
+  printf, lun, 'spec_err(800)	R*4		statistical error on spectrum'
   printf, lun, 'cross_disp(400)	R*4		bias subtracted, flatfielded, derotated, CR rejected cross-dispersion spectrum'
   printf, lun, 'cross_err(400)	R*4		statistical error on cross dispersion spectrum'
   printf, lun, 'med_spec	R*4		median spectral value'
@@ -163,15 +176,19 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'bias_fname	A80		bias,reference,file'
   printf, lun, 'dark_fname	A80		dark,reference,file'
   printf, lun, 'flat_fname	A80		flatfield,reference,file'
-  printf, lun, 'comp_fname	A80		comp_lamp,reference,file'
+  printf, lun, 'm_sli_cent	F7.3		measred,slicer,center'
+  printf, lun, 'sli_cent	F7.3		predict,slicer,center'
   printf, lun, 'm_cam_rot	F7.3		measred,cam_rot,clockws'
   printf, lun, 'cam_rot		F7.3		predict,cam_rot,clockws'
-  printf, lun, 'slice_shape	F7.3		slicer,shape,time'
-  printf, lun, 'flat_cut	F7.3		flat,cut,'
+  printf, lun, 'm_slice		F7.3		measred,slicer,shape'
+  printf, lun, 'slice		F7.3		pred,slicer,shape'
+  printf, lun, 'flat_cut	F7.3		flat,cut,4trim'
   printf, lun, 'cut_val		F7.3		cosmic,ray,cutval'
   printf, lun, 'ncr		F7.3		est,number,CR'
-  printf, lun, 'nbad		I4		num,bad,pix'
-  printf, lun, 'wavelen		F9.3		wavelen,angst,no_offset'
+  printf, lun, 'm_IP		F7.3		measred,inst,prof'
+  printf, lun, 'IP		F7.3		pred,inst,prof'
+  printf, lun, 'm_dispers	F9.3		measred,dispers,relate'
+  printf, lun, 'dispers		F9.3		dispers,relate,poly'
   printf, lun, 'spectrum	F7.3		spec,flat,no_CR'
   printf, lun, 'spec_err	F7.3		spec,stat,err'
   printf, lun, 'cross_disp	F7.3		cross,disp,spec'
@@ -225,10 +242,12 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 ;  printf, lun, 'cr_vers		sort/index'
 ;  printf, lun, 'spec_vers	sort/index'
 
+  ;; Unfortunately, one pointer cannot point to more than one
+  ;; database.  If I really need to reference back, I'll have to
+  ;; fiddle
   printf, lun, ' '
   printf, lun, '#pointers'
   printf, lun, 'nday              ', files[1]
-  printf, lun, 'nday              ', files[2]
 
   close, lun
   free_lun, lun
@@ -242,17 +261,45 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, '6000'
   printf, lun, ' '
   printf, lun, '#items'
-  printf, lun, 'nday		R*4		decimal day since 1990-Jan-01 (midpoint)'
-  printf, lun, 'fit_date	C*10		database update date (yyyy-mm-dd)'
-  printf, lun, 'nfree		I*2		number of free parameters'
-  printf, lun, 'chisq		R*4		chi^2'
-  printf, lun, 'redchisq	R*4		reduced chi^2'
-  printf, lun, 'fun_type(100)	B*1		0=none, 1=voigt, 2=saturated line, 3=broad atm line'
-  printf, lun, 'params(1000)	R*4		10x100 array of best fit parameters'
-  printf, lun, 'param_constr(1000) R*4		10x100 array of parameter constraints'
-  printf, lun, 'param_err(2000)	R*4		20x100 array of parameter error bars (assume asymmetric)'
-  printf, lun, 'model_spec(800)	R*4		model spectrum'
-  printf, lun, 'mod_stat_err(800) R*4		statistical error bars on model spectrum'
+  printf, lun, 'nday		R*8		decimal day since 1990-Jan-01 (midpoint)'
+  printf, lun, 'new_spec	I*2		Flag indicating a new spectrum has been generated since last fit'
+  printf, lun, 'bad		I*2		bitmap'
+  printf, lun, 'm_dispers(10)	R*4		up to 10 polynomial coefficients describing measured dispersion relation.  Ref to  midpoint '
+  printf, lun, 'dispers(10)	R*4		individually fit dispersion (starts with time varying fit to m_dispers'
+   printf, lun, 'wavelen(800)	R*4		wavelength axis (angstroms), no offset'
+   printf, lun, 'spectrum(800)	R*4		bias subtracted, flatfielded, derotated, CR rejected spectrum'
+   printf, lun, 'spec_err(800)	R*4		statistical error on spectrum'
+   printf, lun, 'cross_disp(400)	R*4		bias subtracted, flatfielded, derotated, CR rejected cross-dispersion spectrum'
+   printf, lun, 'cross_err(400)	R*4		statistical error on cross dispersion spectrum'
+   printf, lun, 'med_spec	R*4		median spectral value'
+   printf, lun, 'av_spec		R*4		average spectral value'
+   printf, lun, 'min_spec	R*4		minimum spectral value'
+   printf, lun, 'max_spec	R*4		maximum spectral value'
+   printf, lun, 'med_cross	R*4		median cross dispersion value'
+   printf, lun, 'av_cross	R*4		average cross dispersion value'
+   printf, lun, 'min_cross	R*4		minimum cross dispersion value'
+   printf, lun, 'max_cross	R*4		maximum cross dispersion value'
+   printf, lun, 'm_IP(100)	R*4		10x10 array describing instrument profile.  Like slice shape, reference is midpoint'
+   printf, lun, 'IP(100)		R*4		Predicted IP for this spectrum'
+   printf, lun, 'fit_date	C*10		database update date (yyyy-mm-dd)'
+   printf, lun, 'nfree		I*2		number of free parameters'
+   printf, lun, 'chisq		R*8             chi^2'
+   printf, lun, 'redchisq	R*8             reduced chi^2'
+   printf, lun, 'value(300)	R*8             value       '
+   printf, lun, 'fixed(300)	R*8             fixed       '
+   printf, lun, 'limited(300)	R*8             limited     '    
+   printf, lun, 'limits(300)	R*8             limits      '    
+   printf, lun, 'parname(300)	C*20		parname     '    
+   printf, lun, 'tied(300)	C*80		tied        '    
+   printf, lun, 'vfID(300)	I*2             vfID        '    
+   printf, lun, 'ssgID(300)	I*2             ssgID       '    
+   printf, lun, 'ssggroupID(300)	I*2             ssggroupID  '    
+   printf, lun, 'ssgrwl(300)	R*8             ssgrwl      '    
+   printf, lun, 'ssgowl(300)	R*8             ssgowl      '    
+   printf, lun, 'ssglink(300)	C*80		ssglink     '    
+   printf, lun, 'ssgdop(300)	I*2		ssgdop      '    
+   printf, lun, 'model_spec(800)	R*4		model spectrum'
+   printf, lun, 'mod_stat_err(800) R*4		statistical error bars on model spectrum'
   printf, lun, 'weighting(800)	R*4		this spectrum multiplies the error bars used for the fit so points far from the line of interest are weighted less'
   printf, lun, 'cen_weight	R*4		center pixel of weighting function, 0=not a simple V-shaped function'
   printf, lun, 'med_weight	R*4		median of weighting function'
@@ -266,33 +313,22 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, ' '
   printf, lun, '#formats'
   printf, lun, 'nday		F11.5		DECIMAL,DAY,>90/01/01'
-  printf, lun, 'fit_date	A11		database update date (yyyy-mm-dd)'
-  printf, lun, 'fit_num		I4		fit#,0=,only'
-  printf, lun, 'nfree		I4		num,free,para'
-  printf, lun, 'chisq		F7.3		chi,squared,'
-  printf, lun, 'redchisq	F7.3		reduced,chi,squared'
-  printf, lun, 'fun_type	I4		func,type,1=vt'
-  printf, lun, 'params		F7.3		param,array,'
-  printf, lun, 'param_constr	F7.3		param,cons,traints'
-  printf, lun, 'param_err	F7.3		param,errors,asymm'
-  printf, lun, 'model_spec	f7.3		model,spec,'
-  printf, lun, 'mod_stat_err	f7.3		model,stat,error'
-  printf, lun, 'weighting	f7.3		weight,error,spec'
-  printf, lun, 'cen_weight	f7.3		center,weight,funct'
-  printf, lun, 'med_weight	f7.3		median,weight,funct'
-  printf, lun, 'av_weight	f7.3		avg,weight,funct'
-  printf, lun, 'min_weight	f7.3		min,weight,funct'
-  printf, lun, 'max_weight	f7.3		max,weight,funct'
-  printf, lun, 'weight_vers	I4		weig,func,vers'
-  printf, lun, 'fit_vers	I4		fit,vers,'
+
 
   printf, lun, ' '
   printf, lun, '#index'
   printf, lun, 'nday		sort/index'
-  printf, lun, 'fit_num		sort/index'
+  printf, lun, 'med_spec	sort/index'
+  printf, lun, 'av_spec		sort/index'
+  printf, lun, 'min_spec	sort/index'
+  printf, lun, 'max_spec	sort/index'
+  printf, lun, 'med_cross	sort/index'
+  printf, lun, 'av_cross	sort/index'
+  printf, lun, 'min_cross	sort/index'
+  printf, lun, 'max_cross	sort/index'
+  printf, lun, 'fit_vers	sort/index'
   printf, lun, 'nfree		sort/index'
   printf, lun, 'chisq		sort/index'
-  printf, lun, 'fun_type	sort/index'
   printf, lun, 'cen_weight	sort/index'
   printf, lun, 'med_weight	sort/index'
   printf, lun, 'av_weight	sort/index'
@@ -301,10 +337,12 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'weight_vers	sort/index'
   printf, lun, 'fit_vers	sort/index'
 
+  ;; Unfortunately, one pointer cannot point to more than one
+  ;; database.  If I really need to reference back, I'll have to
+  ;; fiddle
   printf, lun, ' '
   printf, lun, '#pointers'
   printf, lun, 'nday              ', files[0]
-  printf, lun, 'nday              ', files[2]
 
   close, lun
   free_lun, lun
@@ -323,7 +361,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, '#items'
   printf, lun, 'date              C*10         yyyy-mm-dd'
   printf, lun, 'time              C*8          hh:mm:ss (start:UT)'
-  printf, lun, 'nday              R*4          decimal day since 1990-Jan-01 (midpoint)'
+  printf, lun, 'nday              R*8          decimal day since 1990-Jan-01 (midpoint)'
   printf, lun, 'object            C*13         object name'
   printf, lun, 'obj_code          B*1          object code (Jup=0,Io=1,Europa=2,Ganymede=3,Callst=4,Sky=5)'
   printf, lun, 'line              C*7          line of observation ([O I],Na D,H-alpha(6563A))   '
@@ -475,9 +513,11 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'dec               sort/index'
   printf, lun, 'line              index'
              
+  ;; Unfortunately, one pointer cannot point to more than one
+  ;; database.  If I really need to reference back, I'll have to
+  ;; fiddle
   printf, lun, ' '
   printf, lun, '#pointers'
-  printf, lun, 'nday              ', files[0]
   printf, lun, 'nday              ', files[1]
 
   close, lun
@@ -488,7 +528,9 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   !priv=2
   for i=0,nf-1 do begin
      message, 'Initializing '+files[i]+'  database', /CONTINUE
-     dbcreate, files[i], newindex, newdb
+     ;; The /EXTERNAL is important for binary compatibility between
+     ;; the Suns and PCs
+     dbcreate, files[i], newindex, newdb, /EXTERNAL
   endfor
   !priv=oldpriv
 
