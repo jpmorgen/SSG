@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_dispers.pro,v 1.2 2003/03/10 18:30:16 jpmorgen Exp $
+; $Id: ssg_fit_dispers.pro,v 1.3 2003/06/11 18:16:28 jpmorgen Exp $
 
 ; ssg_fit_dispers.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -58,7 +58,7 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
 
   max_order=0
   for i=0,nf-1 do begin
-     junk = where(finite(m_dispers[*,i]) and m_dispers[*,i] ne 0, count)
+     junk = where(finite(m_dispers[*,i]) eq 1 and m_dispers[*,i] ne 0, count)
      if count gt max_order then max_order = count
   endfor
   if max_order eq 0 then message, 'ERROR: No dispersion coefficients found.  Did you run ssg_get_dispers?  Did you fix up the database creation code?'

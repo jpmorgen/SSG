@@ -1,19 +1,18 @@
 ;+
-; $Id: ssg_get_camrot.pro,v 1.4 2003/03/10 18:31:09 jpmorgen Exp $
+; $Id: ssg_get_camrot.pro,v 1.5 2003/06/11 18:16:20 jpmorgen Exp $
 
 ; ssg_get_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
 
 ;-
 
-pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, maxiter=maxiter, maxangle=maxangle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
+pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, maxiter=maxiter, max_angle=max_angle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
 
 ;  ON_ERROR, 2
   cd, indir
   if NOT keyword_set(maxiter) then maxiter=10  
   if NOT keyword_set(start_angle) then start_angle=0.
   if NOT keyword_set(nsteps) then nsteps=25
-  if NOT keyword_set(max_angle) then max_angle = 0.25
   if NOT keyword_set(trimspec) then trimspec=16
   params = [0, start_angle]
 
@@ -79,8 +78,19 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
            if typecodes[i] lt 2 then message, 'Can''t get a camera rotation measurement from bias or dark images'
 
            im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
-           biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
-           if count eq 0 then message, 'WARNING: works better if you call ssg_biassub first', /CONTINUE
+           test = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
+           if count eq 0 then message, 'ERROR: you must call ssg_[get&fit]_sliloc first'
+
+           if NOT keyword_set(max_angle) then begin
+              max_angle = 0.25
+              ;; Binned measurments can use smaller angles 
+              ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
+              if count gt 0 then begin
+                 if ccdsum eq '1 4' then begin
+                    max_angle = max_angle/4.
+                 endif
+              endif
+           endif
 
            asize = size(im) & nx = asize(1) & ny = asize(2)
 
@@ -95,8 +105,8 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
            ;; comps).  ssg_lightsub works better with the rotation
            ;; taken out, which is why we don't do it for real before
            ;; now.
-           sli_bots = floor(sli_bots)
-           sli_tops = ceil(sli_tops)
+           sli_bots = ceil(sli_bots)
+           sli_tops = floor(sli_tops)
            edge_im = fltarr(nx,ny-(sli_tops[i]-sli_bots[i]))
            edge_im[*,0:sli_bots[i]-1] = im[*,0:sli_bots[i]-1]
            edge_im[*,sli_bots[i]:ny-(sli_tops[i]-sli_bots[i])-1] = $
@@ -153,9 +163,9 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
            ;; see how flatfields, etc. should be aligned or thrown out
            ;; Just in case something wasn't assigned
            sli_cent = sli_cents[i]
-           if NOT finite(sli_cent) then $
+           if finite(sli_cent) eq 0 then $
              sli_cent = sli_cents[i]
-           if sli_cent eq 0 or NOT finite(sli_cent) then $
+           if sli_cent eq 0 or finite(sli_cent) eq 0 then $
              sli_cent = ny/2.
 
            num_tries = 0

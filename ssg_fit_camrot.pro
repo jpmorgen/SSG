@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_camrot.pro,v 1.5 2003/03/10 18:30:06 jpmorgen Exp $
+; $Id: ssg_fit_camrot.pro,v 1.6 2003/06/11 18:16:34 jpmorgen Exp $
 
 ; ssg_fit_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -41,7 +41,7 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, $
   ;;  Check to see if user wants to redisplay frames marked as bad
   bad_idx = where(badarray ge 2048, count)
   if count gt 0 then begin
-     good_idx = where(finite(mf_cam_rots[bad_idx]), count)
+     good_idx = where(finite(mf_cam_rots[bad_idx]) eq 1, count)
      if count gt 0 then begin
         answer = 'N'
         if NOT keyword_set(noninteractive) then begin
@@ -87,7 +87,7 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, $
   endfor
   cam_rots=float(cam_rots)
   ;; But only keep it where the error bars are negative
-  meas_idx = where(e_cam_rots gt 0 and finite(m_cam_rots), count)
+  meas_idx = where(e_cam_rots gt 0 and finite(m_cam_rots) eq 1, count)
   if count gt 0 then $
     cam_rots[meas_idx] = m_cam_rots[meas_idx]
   ;; And record which values were not fit in no_fit for future

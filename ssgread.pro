@@ -1,4 +1,4 @@
-; $Id: ssgread.pro,v 1.4 2003/03/10 18:32:57 jpmorgen Exp $
+; $Id: ssgread.pro,v 1.5 2003/06/11 18:08:33 jpmorgen Exp $
 
 ; sshread uses ccdread to get an Stellar SpectroGraph image and
 ; rotates it to the correct orientation for easy spectral extraction
@@ -62,12 +62,15 @@ function ssgread, fname_or_im, hdr, eim, ehdr, TV=tv, REUSE=reuse, zoom=zoom, VE
         test = sxpar(hdr, 'IRAFNAME', count=count)
         if count eq 0 then $
           message, 'WARNING: No IRAFNAME keyword.'
-        observat = sxpar(hdr, 'OBSERVAT')
+        ;; Really old files don't have these, so put them in
+        observat = sxpar(hdr, 'OBSERVAT', count=count)
+        if count eq 0 then begin
+           observat = 'NSO'
+           sxaddpar, hdr, 'OBSERVAT', observat, 'observatory'
+        endif
         if strtrim(observat) ne 'NSO' then $
-          message, 'WARNING: OBSERVAT keyword is ' + string(observat) + ' not NSO'
-        test = sxpar(hdr, 'PROPID', count=count)
-        if count eq 0 then $
-          message, 'WARNING: No PROPID keyword.'
+          message, 'OBSERVAT keyword is ' + string(observat) + ' not NSO'
+
      endelse ;; no error
      CATCH, /CANCEL
 
@@ -114,6 +117,10 @@ function ssgread, fname_or_im, hdr, eim, ehdr, TV=tv, REUSE=reuse, zoom=zoom, VE
 
            sxaddhist, string('(ssgread.pro) so blue is left, slice 1 is bottom.'), hdr
            sxaddhist, string('(ssgread.pro) Modified *SEC keywords to reflect rotation.'), hdr
+           ;; Knock out last column, since that generally is messed up
+           im[nx-1,*] = !values.f_nan
+           sxaddhist, string('(ssgread.pro) Set last column to NAN'), hdr
+
         endif else $
           sxaddhist, string('(ssgread.pro) image already has blue left, slice 1 bottom'), hdr
      endelse
@@ -173,12 +180,12 @@ function ssgread, fname_or_im, hdr, eim, ehdr, TV=tv, REUSE=reuse, zoom=zoom, VE
            ;; The standard I am adopting is to have the whole 800
            ;; dispersion direction pixels repersented.  If there are
            ;; any ones to trim, they should be set to NAN
-           bias_im = fltarr(nx, coords[3]-coords[2]+1)
+           bias_im = fltarr(coords[1]-coords[0]+1, coords[3]-coords[2]+1)
            ;; There are no errors yet on a bias
            if keyword_set(eim) then $
              bias_eim = bias_im
            bias_im[*] = !values.f_nan
-           bias_im[coords[0]:coords[1],*] = $
+           bias_im[*,*] = $
              im[coords[0]:coords[1],coords[2]:coords[3]]
            sxaddhist, string('(ssgread.pro) extracted BIASSEC region'), hdr
         endelse

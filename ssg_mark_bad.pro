@@ -1,4 +1,4 @@
-; $Id: ssg_mark_bad.pro,v 1.2 2003/03/10 18:32:26 jpmorgen Exp $
+; $Id: ssg_mark_bad.pro,v 1.3 2003/06/11 18:11:35 jpmorgen Exp $
 
 ; ssg_mark_bad.pro.  displays a graph like jpm_polyfit + allows the
 ; user to display images + spectra (left button) mark things as bad
@@ -11,6 +11,10 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
   if NOT keyword_set(spec_winnum) then spec_winnum=6
   ;; check to see if y is a set of axes to plot
 
+  y_save = y
+  bad_stack = intarr(N_elements(x))
+  bad_stack[*] = -1
+
   ;; I am not sure if this fiddling is necessary, but I do want to
   ;; have simple code below in the loop
   py = y
@@ -20,7 +24,10 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
      py = make_array(N_elements(y),1)
      py[*,0] = y
   endif
-  nplots = size(y, /N_DIMENSIONS)
+  if nplots eq 2 then begin
+     asize = size(y)
+     nplots = asize[2]
+  endif
 
   if keyword_set(legend_text) and N_elements(legend_text) ne nplots then $
     message, 'ERROR: legend needs to have the same number Yaxes you have'
@@ -43,9 +50,9 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
   dash_3dot = 4
   long_dash=5
 
+  nmarked = 0
   window,spec_winnum, title='Spectral preview'
   window,winnum, title=title
-  nmarked = 0
 
   ;; Ndays are referenced to modified Julian day.  IDL plotting
   ;; routines are referenced to JD, so there needs to be an offset in
@@ -69,8 +76,8 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
            xtickunits=xtickunits, $
            xrange=[min(plotx[good_idx], /NAN), $
                    max(plotx[good_idx], /NAN)], $
-           yrange=[min(py[good_idx,0], /NAN), $
-                   max(py[good_idx,0], /NAN)], $
+           yrange=[min(py[good_idx,*], /NAN), $
+                   max(py[good_idx,*], /NAN)], $
            xstyle=2, ystyle=2, psym=plus, $
            xtitle=xtitle, $
            ytitle=ytitle
@@ -89,7 +96,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
        legend, legend_text, psym=psymlist
 
      ;; User selects a bad point
-     message, /CONTINUE, 'Use left button to select a single point.  Lots of information will be displayed.  If you left drag over may points, they will be selected without displaying information.  Press the right button to mark the currently selected point(s) as bad.  Middle button to exits.'
+     message, /CONTINUE, 'Use left button to select a single point; lots of information will be displayed.  If you left drag over may points, they will be selected without displaying information.  Middle button brings up menu that lets you exit, delete selected points, or resurrect all deleted points.   Right button resurrects points one-by-one that were marked as bad in this session.'
      cursor, x1, y1, /DOWN, /DATA
      cursor, x2, y2, /UP, /DATA
      ;; Get the corners straight
@@ -159,15 +166,42 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
            if nmarked gt 1 then $
              message, /CONTINUE, 'Selecting ' + string(nmarked) + ' entries.'
         endelse
-        
-     endif ;; leftmost mouse button
+     endif ;; mouse 1
 
-     if !MOUSE.button eq 2 then begin
-        message, /CONTINUE, 'DONE'
-        redisp = 0
-     endif
+     if !MOUSE.button eq 2 and nmarked eq 0 then begin
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+        message, /CONTINUE, 'No points marked.  Does that mean you want to:'
+        print, 'Quit/eXit (permanent write can be avoided later)'
+        print, 'Continue'
+        print, 'resurect All points'
+        answer = ''
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+        repeat begin
+           message, /CONTINUE, '[Q/X], C, A?'
+           answer = get_kbrd(1)
+           if byte(answer) eq 10 then answer = 'Q'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+           answer = strupcase(answer)
+        endrep until $
+          answer eq 'Q' or $
+          answer eq 'X' or $
+          answer eq 'C' or $
+          answer eq 'A'
 
-     if !MOUSE.button eq 4 then begin
+        if answer eq 'A' then begin
+           y = y_save
+           if keyword_set(measure_errors) then $
+             measure_errors = abs(measure_errors)
+        endif ;; A
+
+        if answer eq 'Q' or answer eq 'X' then begin
+           message, /CONTINUE, 'DONE'
+           return, x
+        endif ;; Q/X
+
+     endif  ;; Mouse 2 and nothing marked
+
+     if !MOUSE.button eq 2 and nmarked gt 0 then begin
         if keyword_set(measure_errors) then begin
            message, /CONTINUE, 'Preparing to mark ' + string(nmarked) + ' point(s) as bad'
            print, '(M) bad Measurement in an otherwise good file (multiplies error bars by -1 so point(s) will be replaced by a polynomial fit, (you decide later if you want to exclude these points from the polynomial fit)'
@@ -184,18 +218,21 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
              answer eq 'M' or $
              answer eq 'F' or $
              answer eq 'Q'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
            if answer eq 'M' then begin
               if nplots gt 1 then begin
-                 message, /CONTINUE, 'ERROR: sorry, can''t select this option in multiple plot mode yet.  modify upstream code to give me just one plot at a time'
+                 message, /CONTINUE, 'ERROR: sorry, can''t select this option in multiple plot mode yet.  Modify upstream code to give me just one plot at a time'
               endif else begin
-                 measure_errors[marked_idx] = -measure_errors[marked_idx]
+                 measure_errors[marked_idx] = -abs(measure_errors[marked_idx])
               endelse
            endif
+
            if answer eq 'F' then begin
               x[marked_idx] = !values.f_nan
            endif
-           for ki = 0,1000 do flush_input = get_kbrd(0)
-        endif else begin ;; without error bars
+
+        endif else begin
+           ;; NO ERROR BARS
            for ki = 0,1000 do flush_input = get_kbrd(0)
            repeat begin
               message, /CONTINUE, 'Mark ' + string(nmarked) + ' point(s) as permanently bad (Y/[N])'
@@ -203,13 +240,32 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
               if byte(answer) eq 10 then answer = 'N'
               answer = strupcase(answer)
            endrep until answer eq 'Y' or answer eq 'N'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
            if answer eq 'Y' then begin
               x[marked_idx] = !values.f_nan
               nmarked = get_kbrd(1)
            endif
-           for ki = 0,1000 do flush_input = get_kbrd(0)
         endelse ;; without error bars
+
+        ;; Remember which things we marked as bad so we can resurrect them
+        for i=0,nmarked-1 do begin
+           push, marked_idx[i], bad_stack, null=-1
+        endfor
+        nmarked = 0
+
+     endif ;; Mouse 2
+
+     if !MOUSE.button eq 4 then begin
+        idx = pop(bad_stack, null=-1)
+        if idx eq -1 then begin
+           message, /CONTINUE, 'ALL POINTS RESURRECTED'
+        endif else begin
+           y[idx] = y_save[idx]
+           if keyword_set(measure_errors) then $
+             measure_errors[idx] = abs(measure_errors[idx])
+        endelse
      endif ;; Mouse 4
+
 
   endrep until redisp eq 0
 

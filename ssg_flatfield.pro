@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatfield.pro,v 1.4 2003/03/10 18:30:56 jpmorgen Exp $
+; $Id: ssg_flatfield.pro,v 1.5 2003/06/11 18:07:50 jpmorgen Exp $
 
 ; ssg_flatfield Divide comp and object images by flatfield, recording
 ; flatfield name in database.  If specified, also divide by the sky
@@ -81,16 +81,14 @@ pro ssg_flatfield, indir, lampflat_dir=lampflat_dir, skyflat_dir=skyflat_dir, fl
 
               ;; Get the flat_cut parameter
               if type eq 'lamp' then begin
-                 if N_elements(flat_cut) eq 0 then begin
+                 if keyword_set(flat_cut) then begin
+                    ff_flat_cut = flat_cut
+                 endif else begin
                     ff_flat_cut = sxpar(fhdr, 'FLAT_CUT', count=count)
                     if count eq 0 then message, 'ERROR: no FLAT_CUT found in flatfield file.  You must therefore specify flat_cut (value below which flatfield image is not divided) on the command line.'
-                 endif
-                 ;; Not the greatest logic here, since a flatcut of 0
-                 ;; might be desirable.  You'd have to use a small
-                 ;; number, then
-                 if flat_cuts[i] eq 0 then $
-                   flat_cuts[i] = ff_flat_cut
+                 endelse
 
+                 flat_cuts[i] = ff_flat_cut
                  sxaddpar, hdr, 'FLAT_CUT', flat_cuts[i], ' cut for flatfield normalization'
                  ;; The current versions of the IDL FITS stuff trims
                  ;; keywords to 8 characters
@@ -98,19 +96,16 @@ pro ssg_flatfield, indir, lampflat_dir=lampflat_dir, skyflat_dir=skyflat_dir, fl
 
               ;; Get the sky_cut parameter
               if type eq 'sky' then begin
-                 if N_elements(sky_cut) eq 0 then begin
+                 if keyword_set(sky_cut) then begin
+                    ff_flat_cut = sky_cut
+                 endif else begin
                     ff_flat_cut = sxpar(fhdr, 'SKY_CUT', count=count)
-                    if count eq 0 then message, 'ERROR: no SKY_CUT found in flatfield file.  You must therefore specify sky_cut (value below which skyflat image is not divided) on the command line.'
-                 endif
-                 ;; Not the greatest logic here, since a flatcut of 0
-                 ;; might be desirable.  You'd have to use a small
-                 ;; number, then
-                 if sky_cuts[i] eq 0 then $
-                   sky_cuts[i] = ff_flat_cut
-                 
+                    if count eq 0 then message, 'ERROR: no SKY_CUT found in flatfield file.  You must therefore specify sky_cut (value below which flatfield image is not divided) on the command line.'
+                 endelse
+
+                 sky_cuts[i] = ff_flat_cut
                  sxaddpar, hdr, 'SKY_CUT', sky_cuts[i], ' cut for skyflat normalization'
               endif  ;; sky flat
-
 
 
               ;; If we have a sky flat, we don't want to divide the
@@ -131,7 +126,12 @@ pro ssg_flatfield, indir, lampflat_dir=lampflat_dir, skyflat_dir=skyflat_dir, fl
                  flat = normalize(flat, ff_flat_cut, factor=factor)
                  feim = feim*factor
 
-                 good_idx = where(flat gt ff_flat_cut, count, complement=bad_idx)
+                 ;; Decide which flatfield pixels to divide.  We want
+                 ;; to avoid pixels less than the flat_cut, except for
+                 ;; pixels = 0, which will end up being NAN in the
+                 ;; final image (this is how deep dust spots are measured)
+                 good_idx = where(flat gt ff_flat_cut or flat eq 0, count)
+
                  if count eq 0 then message, 'ERROR: no good pixels in flatfield'
 
                  ;; This is the actual flatfielding code.  Do the

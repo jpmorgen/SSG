@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_spec_extract.pro,v 1.3 2003/03/10 18:32:49 jpmorgen Exp $
+; $Id: ssg_spec_extract.pro,v 1.4 2003/06/11 18:15:53 jpmorgen Exp $
 
 ; ssg_spec_extract.  Extract dispersion and cross-dispersion spectra
 ; from a SSG file or image/header pair.  Automatically de-rotates
@@ -9,7 +9,7 @@
 
 pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, sigma_cut=sigma_cut, showplots=showplots, sli_cent=sli_cent, center=center, cam_rot=cam_rot, slicer=slicer, blocking=blocking, average=av, total=tot, title=title, sli_bot=sli_bot, sli_top=sli_top
 
-  ON_ERROR, 2
+;  ON_ERROR, 2
   if N_elements(im_or_fname) eq 0 then $
     message, 'ERROR: no filename or image supplied'
   if size(im_or_fname, /TNAME) eq 'STRING' then $
@@ -64,7 +64,7 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
 
   ;; Dispersion 
   for si=0,nx-1 do begin
-     good_idx = where(finite(im[si,*]), count)
+     good_idx = where(finite(im[si,*]) eq 1, count)
      if count gt 0 then begin
         if keyword_set(tot) then begin
            spec[si] = total(im[si,good_idx])*sli_height/count;
@@ -78,7 +78,7 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
 
   ;; Cross-dispersion
   for di=0,ny-1 do begin
-     good_idx = where(finite(im[*,di]), count)
+     good_idx = where(finite(im[*,di]) eq 1, count)
      if count gt 0 then begin
         if keyword_set(tot) then begin
            xdisp[di] = total(im[good_idx,di])*nx/count ;
@@ -112,11 +112,11 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
   bunit = sxpar(hdr, 'BUNIT', count=count)
   if count eq 0 then bunit = 'DN'
 
-  !p.multi=[0,2]
+  !p.multi=[0,0,2]
   plot,spec, linestyle=solid, $
        title=title, $
-       xtitle='Pixel (dispersion direction)', $
-       ytitle=string('Value (', bunit, '), average solid, median dotted'), $
+       xtitle='Pixel (dispersion direction, average solid, median dotted)', $
+       ytitle=string('Value (', bunit, ')'), $
        yrange=[min([spec,med_spec],/NAN), max([spec,med_spec],/NAN)], $
        ystyle=2
   oplot, med_spec, linestyle=dotted
@@ -124,7 +124,7 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
   plot,xdisp, linestyle=solid, $
        title=title, $
        xtitle='Pixel (cross-dispersion direction)', $
-       ytitle=string('Value (', bunit, '), average solid, median dotted'), $
+       ytitle=string('Value (', bunit, ')'), $
        yrange=[min([xdisp,med_xdisp],/NAN), max([xdisp,med_xdisp],/NAN)], $
        ystyle=2
               

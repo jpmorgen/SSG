@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_slicer.pro,v 1.4 2003/03/10 18:31:38 jpmorgen Exp $
+; $Id: ssg_get_slicer.pro,v 1.5 2003/06/11 18:05:00 jpmorgen Exp $
 
 ; ssg_get_slicer.  derive slicer shape parameters and record them in
 ; the database
@@ -64,7 +64,6 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
   silent = 1
   if keyword_set(verbose) then silent = 0
-  if NOT keyword_set(blocking) then blocking = 10
   if NOT keyword_set(cr_cutval) then cr_cutval = 10
   if NOT keyword_set(winnum) then winnum = 6
 
@@ -90,7 +89,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
      slicers[*] = !values.f_nan
      
-     if NOT keyword_set(slicer_in) then slicer_in=fltarr(1)
+     if NOT keyword_set(slicer_in) then slicer_in=0
      if keyword_set(showplots) then begin
         ;;window,2, title='Raw comp spectra'
         window,winnum, title='Cleaned comp spectra'
@@ -113,30 +112,34 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
            asize=size(im) & nx=asize[1] & ny=asize[2]
            sli_cent = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
            if count eq 0 then begin
-              message, 'WARNING: SLI_CENT keyword missing.  Using center of image.  Try running ssg_[get & fit]_sliloc for better results.  Using the center of the image for now', /CONTINUE
+              message, 'ERROR: SLI_CENT keyword missing.  Using center of image.  Try running ssg_[get & fit]_sliloc for better results.';  Using the center of the image for now', /CONTINUE
               sli_cent = ny/2.
            endif
-           sli_bot = strtrim(sxpar(hdr,'SLI_BOT',COUNT=count))
+           sli_bot = float(sxpar(hdr,'SLI_BOT',COUNT=count))
            if count eq 0 then begin
               message, 'WARNING: SLI_BOT keyword missing.  Try running ssg_[get & fit]_sliloc for better results', /CONTINUE
               sli_bot = 0
            endif
-           sli_top = strtrim(sxpar(hdr,'SLI_TOP',COUNT=count))
+           sli_top = float(sxpar(hdr,'SLI_TOP',COUNT=count))
            if count eq 0 then begin
               message, 'WARNING: SLI_TOP keyword missing.  Try running ssg_[get & fit]_sliloc for better results', /CONTINUE
               sli_top = ny-1
            endif
-           ;; Remove cosmic ray hits.
+
+           if NOT keyword_set(blocking) then $
+             blocking = round((sli_top - sli_bot)/20.)
+
+           ;; Remove cosmic ray hits.--try it without
            edge_mask = ssg_edge_mask(im, hdr)
-           ssg_spec_extract, im + edge_mask, hdr, spec, xdisp, $
-                             med_spec=med_spec, med_xdisp=med_xdisp, $
-                             slicer=slicer, /AVERAGE
-           template = template_create(im, med_spec, xdisp)
-           template = ssg_slicer(im, hdr, slicer=slicer, /DISTORT)
-           sigma_im = template_statistic(im, template, /POISSON)
-           mask_im = mark_bad_pix(sigma_im, cutval=cr_cutval)
-           badidx = where(mask_im gt 0, count)
-           if count gt 0 then im[badidx] = !values.f_nan
+;           ssg_spec_extract, im + edge_mask, hdr, spec, xdisp, $
+;                             med_spec=med_spec, med_xdisp=med_xdisp, $
+;                             slicer=slicer, /AVERAGE
+;           template = template_create(im, med_spec, xdisp)
+;           template = ssg_slicer(im, hdr, slicer=slicer, /DISTORT)
+;           sigma_im = template_statistic(im, template, /POISSON)
+;           mask_im = mark_bad_pix(sigma_im, cutval=cr_cutval)
+;           badidx = where(mask_im gt 0, count)
+;           if count gt 0 then im[badidx] = !values.f_nan
            ;; Now that we have danced around the NAN problem in
            ;; mark_bad_pix, we can put all the NANs into im
            im = im + edge_mask
@@ -152,12 +155,12 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
            ;; Make a smaller image that includes just good rows.  
            firsty = 0
            repeat begin
-              temp = where(finite(im[*,firsty]), count)
+              temp = where(finite(im[*,firsty]) eq 1, count)
               if count eq 0 then firsty = firsty + 1
            endrep until count ne 0
            lasty = ny-1
            repeat begin
-              temp = where(finite(im[*,lasty]), count)
+              temp = where(finite(im[*,lasty]) eq 1, count)
               if count eq 0 then lasty = lasty - 1
            endrep until count ne 0
 
@@ -199,6 +202,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
            asize = size(slicer_in)
            if asize(0) eq 0 then $
              slicer_in = [slicer_in] ; Needs to be an array
+           asize = size(slicer_in)
            npxd = asize[1]
            npd = 0
            if asize[0] gt 1 then npd = asize[2]
@@ -227,6 +231,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
            message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
            to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd] }
+
            slicer = tnmin('slicer_compare', slicer_in, $
                           FUNCTARGS=to_pass, /AUTODERIVATIVE, $
                           /MAXIMIZE)
@@ -261,7 +266,6 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
   if NOT keyword_set(noninteractive) then begin
      ;; --> I am not sure if this is correct as far as 
-     print, ndays-this_nday
      marked_ndays = ssg_mark_bad(ndays, rotate(slicers,4), $
                                  title=string('Slicer shape coefs in ', indir), $
                                  xtickunits='Hours', $

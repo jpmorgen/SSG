@@ -1,12 +1,12 @@
 ;+
-; $Id: ssg_fit_sliloc.pro,v 1.2 2003/03/10 18:30:33 jpmorgen Exp $
+; $Id: ssg_fit_sliloc.pro,v 1.4 2003/06/11 18:11:18 jpmorgen Exp $
 
 ; ssg_fit_sliloc.  Fit the slicer location parameters to find good centers
 
 ;-
 
-pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
-                    width=width, noninteractive=noninteractive, write=write
+pro ssg_fit_sliloc, indir, VERBOSE=verbose, flat_only=flat_only, order=order, $
+                    noninteractive=noninteractive, write=write
 
 ;  ON_ERROR, 2
   cd, indir
@@ -19,7 +19,8 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind(string("dir=", indir))
-  dbext, entries, 'fname, nday, date, bad', files, ndays, dates, badarray
+  dbext, entries, 'fname, nday, date, bad, typecode', $
+         files, ndays, dates, badarray, typecodes
   dbext, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, no_fit', $
          m_sli_bots, e_sli_bots, sli_bots, m_sli_tops, e_sli_tops, sli_tops, sli_cents, e_sli_cents, no_fits
 
@@ -41,8 +42,8 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
   ;;  Check to see if user wants to redisplay frames marked as bad
   bad_idx = where(badarray ge 4096, count)
   if count gt 0 then begin
-     overlap = where(finite(mf_sli_bots[bad_idx]) or $
-                     finite(mf_sli_tops[bad_idx]), count)
+     overlap = where(finite(mf_sli_bots[bad_idx]) eq 1 or $
+                     finite(mf_sli_tops[bad_idx]) eq 1, count)
      if count gt 0 then begin
         answer = 'N'
         if NOT keyword_set(noninteractive) then begin
@@ -61,6 +62,19 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
         endif
      endif
   endif
+
+  ;; Handle the flat_only case
+  if keyword_set(flat_only) then begin
+     non_flat_idx = where(typecodes lt 3 or typecodes gt 4, count)
+     if count eq 0 then begin
+        message, 'WARNING: nothing but flats in ' + string(indir), /continue
+     endif else begin
+        e_sli_bots[non_flat_idx] = -abs(e_sli_bots[non_flat_idx])
+        e_sli_tops[non_flat_idx] = -abs(e_sli_tops[non_flat_idx])
+        no_fits[non_flat_idx] = no_fits[non_flat_idx] OR 3
+     endelse
+  endif
+
 
   ;; BOTTOM
   ;;  Check to see if points were excluded before 
@@ -89,12 +103,13 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
      sli_bots = sli_bots + coefs[ci]*(ndays-this_nday)^ci
   endfor
   sli_bots = float(sli_bots)
-  ;; But only keep it where the error bars are negative
-  meas_idx = where(e_sli_bots gt 0 and finite(mf_sli_bots), count)
+  ;; Put back the good measurements
+  meas_idx = where(e_sli_bots gt 0 and finite(m_sli_bots) eq 1, count)
   if count gt 0 then $
-    sli_bots[meas_idx] = mf_sli_bots[meas_idx]
-  ;; And record which values were not fit in no_fit for future
-  ;; reference
+    sli_bots[meas_idx] = m_sli_bots[meas_idx]
+  ;; Reset this bit on no_fits and record which values were not fit in
+  ;; no_fit for future reference
+  no_fits = no_fits and NOT 1
   bad_idx = where(finite(mf_sli_bots) eq 0, count)
   if count gt 0 then $
     no_fits[bad_idx] = no_fits[bad_idx] OR 1
@@ -121,11 +136,12 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, order=order, $
   endfor
   sli_tops = float(sli_tops)
   ;; But only keep it where the error bars are negative
-  meas_idx = where(e_sli_tops gt 0 and finite(mf_sli_tops), count)
+  meas_idx = where(e_sli_tops gt 0 and finite(m_sli_tops) eq 1, count)
   if count gt 0 then $
-    sli_tops[meas_idx] = mf_sli_tops[meas_idx]
+    sli_tops[meas_idx] = m_sli_tops[meas_idx]
   ;; And record which values were not fit in no_fit for future
   ;; reference
+  no_fits = no_fits and NOT 2
   bad_idx = where(finite(mf_sli_tops) eq 0, count)
   if count gt 0 then $
     no_fits[bad_idx] = no_fits[bad_idx] OR 2

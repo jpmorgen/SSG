@@ -1,13 +1,12 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.3 2003/05/01 17:55:33 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.4 2003/06/11 18:11:42 jpmorgen Exp $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
 ; pattern at the center in the image in the dispersion direction
 
 ;-
 
-pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoom, pos=pos, nsteps=nsteps, contrast=contrast_in, write=write, noninteractive=noninteractive, review=review, window=winnum, rwindow=rwinnum, bot_lim=bot_lim_in, top_lim=top_lim_in, plot=plot
-
+pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoom, pos=pos, write=write, noninteractive=noninteractive, review=review, window=winnum, rwindow=rwinnum, plot=plot, limits=in_limits
 
 ;  ON_ERROR, 2
   cd, indir
@@ -65,6 +64,10 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
 
      if keyword_set(showplots) then window,winnum
 
+     ;; Make a loop to do the flats first, from which we get a good
+     ;; idea of where to look for the edges in the objects and comps,
+     ;; where edges don't show as well.
+     repeat begin
      for i=0,nf-1 do begin
         message, 'Looking at ' + files[i], /CONTINUE
         CATCH, err
@@ -73,32 +76,27 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
            if badarray[i] ge 8192 then message, 'BAD FILE, use display, ssg_spec_extract, and look at the header if you are unsure why'
-           if typecodes[i] lt 2 then message, 'It doesn''t make sense to get a slicer center from bias or dark images'
-CATCH, /cancel
+           if typecodes[i] lt 2 then message, 'Skipping bias/dark images'
+
+           ;; Set threshold and contrast for flats + override if we
+           ;; are looking at something else
+           threshold = 1.       ; Use the max
+           contrast = 0.6       ; Flats always have good contrast
+           if (typecodes[i] le 2 or typecodes[i] ge 5) then begin
+              ;; Check to see if we are getting our preliminary edge position
+              if NOT keyword_set(good_lim) then $
+                message, 'Skipping object/comp until a good preliminary edge position is found'
+              ;; Threshold still wants to be 1 for the max, but the
+              ;; contrast is generally much worse on these, so only go
+              ;; a little ways down the peak
+              threshold = 1.
+              contrast = 0.2
+           endif
+           CATCH, /cancel
+
            im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
            biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
            if count eq 0 then message, 'WARNING: works better if you call ssg_biassub first', /CONTINUE
-
-           ;; Contrast is the contrast on the first derivative of the
-           ;; cross dispersion spectrum, so it can be a bit higher
-           ;; than you'd think just looking at the function itself.  A
-           ;; contrast of 0.1 seems to be too low for rough comps,
-           ;; since it catches the very edge of the light outside of
-           ;; the slicer.
-           if NOT keyword_set(contrast_in) then begin
-              ;; Unbinned measurements don't have the greatest S/N
-              contrast_in=0.05
-              ;; Binned measurments have better S/N
-              ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
-              if count gt 0 then begin
-                 if ccdsum eq '1 4' then begin
-                    contrast_in = 0.01
-                 endif
-              endif
-           endif
-           contrast = contrast_in
-           if typecodes[i] eq 2 then contrast = max([10*contrast, .9])
-
 
            asize = size(im) & nx = asize(1) & ny = asize(2)
 
@@ -117,48 +115,69 @@ CATCH, /cancel
            ;; have converted to electrons,  these should be the square
            ;; root of the counts in those channels
            npts = N_elements(y)
-           if keyword_set(bot_lim_in) then $
-             bot_lim = bot_lim_in $
-           else $
-             bot_lim = npts/4
-           if keyword_set(top_lim_in) then $
-             top_lim = top_lim_in $
-           else $
-             top_lim = bot_lim*1.5
-           top_lim = npts - top_lim
-           bot_y =  y[0:bot_lim]
-           top_y = y[top_lim:npts-1]
-           bot_ey =  sqrt(ey2[0:bot_lim])
-           top_ey = sqrt(ey2[top_lim:npts-1])
-           
+           if keyword_set(in_limits) then begin
+              limits = in_limits
+           endif else begin
+              if keyword_set(good_lim) then begin
+                 limits = good_lim
+              endif else begin
+                 limits = [0,npts/2.,npts/2,npts-1]
+              endelse
+           endelse
+           if limits[0] lt 0 then limits[0] = 0
+           if limits[1] ge npts then begin
+              message, /CONTINUE, 'WARNING: strange value on sli_bot upper limit'
+              limits[1] = npts-1
+           endif
+           if limits[1] ge npts then begin
+              message, /CONTINUE, 'WARNING: strange value on sli_top lower limit'
+              limits[1] = 0
+           endif
+           if limits[3] ge npts then limits[3] = npts-1
+
            if keyword_set(plot) then $
              title = "Slicer Bottom, derivative"
-           m_sli_bots[i]  = edge_find(bot_y, 'left' , contrast=contrast, $
-                                      yerr=top_ey, error=temp, $
-                                      plot=title) $
-                            + 0 
+           m_sli_bots[i]  = ssg_edge_find(y, 'left', threshold=threshold, $
+                                          contrast=contrast, $
+                                          limits=[limits[0],limits[1]], $
+                                          yerr=sqrt(ey2), error=temp, $
+                                          plot=title)
+
            e_sli_bots[i] = temp
 
            if keyword_set(plot) then begin
-              wait, 1
+              wait, 0.3
               title = "Slicer Top, derivative"
            endif
-           m_sli_tops[i] = edge_find(top_y, 'right', contrast=contrast, $
-                                     yerr=bot_ey, error=temp, $
-                                     plot=title) $
-                           + top_lim
+           m_sli_tops[i] = ssg_edge_find(y, 'right', threshold=threshold, $
+                                         contrast=contrast, $
+                                         limits=[limits[2],limits[3]], $
+                                         yerr=sqrt(ey2), error=temp, $
+                                         plot=title)
+
            e_sli_tops[i] = temp
            ngood = ngood + 1
            if keyword_set(showplots) then begin
-              wait, 1
+              wait, 0.3
               plot, y, title='cross-dispersion spectrum'
               plots, [m_sli_bots[i], m_sli_bots[i]], [-1E32, 1E32]
               plots, [m_sli_tops[i], m_sli_tops[i]], [-1E32, 1E32]
-              wait, 1
            endif
-              
         endelse ;; CATCH if err
      endfor ;; all files in directory
+     ;; Use the flatfield edges to define a small region to search
+     ;; over for the rest of the images.  Take a little less than a
+     ;; slice in each direction
+     if NOT keyword_set(good_lim) then begin
+        good_lim = [median(m_sli_bots),median(m_sli_tops)]
+        delta = good_lim[1]-good_lim[0]
+        good_lim = [good_lim[0]-delta/15., good_lim[0]+delta/15., $
+                    good_lim[1]-delta/15., good_lim[1]+delta/15.]
+        
+     endif else begin
+        good_lim = -1
+     endelse
+     endrep until N_elements(good_lim) eq 1
      CATCH, /CANCEL
      if ngood eq 0 then message, 'ERROR: no properly prepared files found, database not updated'
 

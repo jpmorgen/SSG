@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.5 2003/03/10 18:28:11 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.6 2003/06/11 18:16:05 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -20,8 +20,7 @@
 ; tree.
 
 ;-
-pro ssg_db_init, indir
-, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
+pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
 
 
   ;; Avoid errors from db stuff about not being able to write in a
@@ -63,6 +62,7 @@ pro ssg_db_init, indir
   db_date	= 	strarr(ngood)
   nday_arr	=	dblarr(ngood)
   typecode	=	bytarr(ngood)
+  obj_code	=	bytarr(ngood)
   bad		=	intarr(ngood)
   
   err=0
@@ -119,7 +119,7 @@ pro ssg_db_init, indir
                  temp = raw_fname(dup_idx)
                  raw_fname(dup_idx) = shortfile
                  shortfile = temp
-                 message, 'WARNING: I seems to have accepted a a post processed "' + bogus_files[bfi] + '" some time back.  Swapping its name (' + shortfile + ') with what appears to be the real raw filename (' + raw_fname(dup_idx) + ').'
+                 message, 'WARNING: I seem to have accepted a a post processed "' + bogus_files[bfi] + '" some time back.  Swapping its name (' + shortfile + ') with what appears to be the real raw filename (' + raw_fname(dup_idx) + ').'
               endif
            endfor
            message, 'ERROR: post processing file name ' + raw_fname(dup_idx) + ' or ' + shortfile + ' not recognized.  Please add it to the variable ''bogus_files'' in this program'
@@ -174,26 +174,62 @@ pro ssg_db_init, indir
         ;; differentiating between lamp flats and sky flats.
         ;; Assume type is unkown and see if we end up with
         ;; something
-        typecode(ngood) = 255
-        if strcmp(imagetype(ngood), 'zero', 4, /fold_case) then $
-          typecode(ngood) = 0
-        if strcmp(imagetype(ngood), 'dark', 4, /fold_case) then $
-          typecode(ngood) = 1
-        if strcmp(imagetype(ngood), 'comp', 4, /fold_case) then $
-          typecode(ngood) = 2
-        if strcmp(imagetype(ngood), 'flat', 4, /fold_case) then begin
-           typecode(ngood) = 3
-           if (strpos(strlowcase(object(ngood)), 'sky') ne -1) then $
-             typecode(ngood) = 4
+        typecode[ngood] = 255
+        if strcmp(imagetype[ngood], 'zero', 4, /fold_case) then $
+          typecode[ngood] = 0
+        if strcmp(imagetype[ngood], 'bias', 4, /fold_case) then $
+          typecode[ngood] = 0
+        if strcmp(imagetype[ngood], 'dark', 4, /fold_case) then $
+          typecode[ngood] = 1
+        if strcmp(imagetype[ngood], 'comp', 4, /fold_case) then $
+          typecode[ngood] = 2
+        if strcmp(imagetype[ngood], 'flat', 4, /fold_case) then begin
+           typecode[ngood] = 3
+           if (strpos(strlowcase(object[ngood]), 'sky') ne -1) then $
+             typecode[ngood] = 4
         endif
-        if strcmp(imagetype(ngood), 'object', 6, /fold_case) then begin
-           typecode(ngood) = 5
-           if (strpos(strlowcase(object(ngood)), 'sky flat') ne -1) then $
-             typecode(ngood) = 4
+        if strcmp(imagetype[ngood], 'projector flat', 4, /fold_case) then begin
+           typecode[ngood] = 3
+           if (strpos(strlowcase(object[ngood]), 'sky') ne -1) then $
+             typecode[ngood] = 4
         endif
-        if typecode(ngood) eq 255 then $
-          message, 'WARNING: unknown IMAGETYP keyword ' + imagetype(ngood) + ' Please make a typecode for this', /CONTINUE
-        bad		(ngood) = sxpar(hdr, 'SSG_BAD')
+        if strcmp(imagetype[ngood], 'object', 6, /fold_case) then begin
+           typecode[ngood] = 5
+           if (strpos(strlowcase(object[ngood]), 'sky flat') ne -1) then $
+             typecode[ngood] = 4
+        endif
+        if typecode[ngood] eq 255 then $
+          message, 'WARNING: unknown IMAGETYP keyword ' + imagetype[ngood] + ' Please make a typecode for this', /CONTINUE
+
+        ;; obj_code.  Assume type is unknown and see if we end up with
+        ;; something
+        obj_code[ngood] = 255
+        if strpos(strlowcase(object[ngood]), 'jup') ne -1 then $
+          obj_code[ngood] = 0
+        if strpos(strlowcase(object[ngood]), 'io')  ne -1 then $
+          obj_code[ngood] = 1
+        if strpos(strlowcase(object[ngood]), 'eur') ne -1  then $
+          obj_code[ngood] = 2
+        if strpos(strlowcase(object[ngood]), 'gan') ne -1 then $
+          obj_code[ngood] = 3
+        if strpos(strlowcase(object[ngood]), 'call') ne -1 then $
+           obj_code[ngood] = 4
+        if typecode[ngood] ne 4 then begin ;; Not a sky flat
+           if (strpos(strlowcase(object[ngood]), 'sky') ne -1) then $
+             obj_code[ngood] = 5
+        endif
+        ;; I don't really need to assign object codes to these, but
+        ;; might as well for completeness
+        if typecode[ngood] eq 0 then $
+          obj_code[ngood] = 6
+        if typecode[ngood] gt 0 and typecode[ngood] le 4 then $
+          obj_code[ngood] = typecode[ngood] + 5
+        if typecode[ngood] eq 2 then $ ; comp
+          obj_code[ngood] = 7
+        if obj_code[ngood] eq 255 then $
+          message, 'WARNING: unknown OBJECT keyword ' + object[ngood] + ' Please make an obj_code for this or fix the header in ssg_exceptions.  NDAY =  ' + string(nday_arr[ngood]), /CONTINUE
+
+        bad		[ngood] = sxpar(hdr, 'SSG_BAD')
         ngood = ngood + 1
 
      endelse ;; CATCH if err
@@ -257,6 +293,7 @@ pro ssg_db_init, indir
               db_date	[0:ngood-1], $
               nday_arr	[0:ngood-1], $
               typecode	[0:ngood-1], $
+              obj_code	[0:ngood-1], $
               bad	[0:ngood-1]
 
      dbclose

@@ -1,8 +1,7 @@
 ;+
-; $Id: ssg_fit_slicer.pro,v 1.3 2003/03/10 18:30:26 jpmorgen Exp $
+; $Id: ssg_fit_slicer.pro,v 1.4 2003/06/11 18:09:08 jpmorgen Exp $
 
-; ssg_fit_slicer.  find the rotation of the camera relative to the
-; flatfield pattern
+; ssg_fit_slicer.  Fit J-shaped or tilted slices
 
 ;-
 
@@ -48,7 +47,7 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
 
   ;; Get the maximum number of cross-dispersion coefficients used
   repeat begin
-     good_idx = where(finite(m_slicers[npxd,*]), count)
+     good_idx = where(finite(m_slicers[npxd,*]) eq 1, count)
      npxd = npxd + 1
   endrep until count eq 0 or npxd eq max_npxd
   if npxd eq max_npxd then $
@@ -57,7 +56,8 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
   ;; Get the maximum number of dispersion direction coefficients used
   repeat begin
      good_idx = where(finite(m_slicers $
-                             [npd*square_test:(npd+1)*square_test-1,*]), count)
+                             [npd*square_test:(npd+1)*square_test-1,*]) eq 1, $
+                      count)
      npd = npd + 1
   endrep until count eq 0
   npd = npd - 1
@@ -65,8 +65,8 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
 
   if keyword_set(noshape) then begin
      npxd = 1
-     npd = 0
-     m_slicers[*] = 0
+     npd = 1
+     slicers[*] = 0
   endif
   if (npxd eq square_test and npd eq square_test) $
     or (npxd eq 0 and npd eq 0) then $
@@ -76,7 +76,6 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
   for ipxd=0, npxd-1 do begin
      for ipd=0, npd-1 do begin
         index = ipxd + square_test*ipd
-        print, ndays
         coefs=jpm_polyfit(ndays-this_nday, $
                           m_slicers[index,*], order, $
                           title=string('Slicer coefficient ', ipxd, ipd), $

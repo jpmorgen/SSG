@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_overclock.pro,v 1.5 2003/03/10 18:31:31 jpmorgen Exp $
+; $Id: ssg_get_overclock.pro,v 1.6 2003/06/11 18:08:06 jpmorgen Exp $
 
 ; ssg_get_overclock.  collects information on the CCD overclock region
 ; to put into the reduction database.
@@ -62,7 +62,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
 
      for i=0,nf-1 do begin
         message, 'Looking at ' + files[i], /CONTINUE
-;        CATCH, err
+        CATCH, err
         if err ne 0 then begin
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.7 2003/03/10 18:31:16 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.8 2003/06/11 18:07:16 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -66,7 +66,7 @@ function align_disp, in_disp, line, pixel, ref_pixel
 end
 
 ;; make associations between lists.  list2, or the longer list, is
-;; assumed to be the master list.  The indecies of list1 that reflect
+;; assumed to be the master list.  The indexes of list1 that reflect
 ;; the best matches to list2 are returned.  min_diff is the
 ;; cummulative difference between the lists in the best case match
 function list_associate, list, master_list, diffs=diffs
@@ -111,19 +111,21 @@ function list_associate, list, master_list, diffs=diffs
   endfor
   ;; Now see which iteration gave the best overall answer and use it
   ;; to generate the final association list
-  min_diff = min(min_diffs, outer_loop)
+  min_diff = min(min_diffs, il)
   da = diffarray
-  min_diff = min(da[outer_loop, *], iml)
+  min_diff = min(da[il, *], iml)
   associations[il] = iml
+  diffs = fltarr(nl)
+  diffs[il] = min_diff
   da[il, *] = !values.f_nan
   da[*, iml] = !values.f_nan
   ;; Now let the rest fall into place
-  diffs = fltarr(nl)
   for mdi = 1, nl-1 do begin
-     diffs[mdi] =  min(da, min_idx, /NAN)
+     diff =  min(da, min_idx, /NAN)
      il = min_idx[0] mod nl
      iml = fix(min_idx[0]/nl)
      associations[il] = iml
+     diffs[il] = diff
      da[il, *] = !values.f_nan
      da[*, iml] = !values.f_nan
   endfor
@@ -203,7 +205,7 @@ function comp_correlate, disp, no_dp, spec=spec, atlas_params=atlas_params, atla
 end
 
 
-pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_fixed=width_fixed, write=write, review=review, cutval=cutval, MAXITER=maxiter, peak_delta=peak_delta, ref_pixel=ref_pixel_in
+pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, dispers=disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_fixed=width_fixed, write=write, review=review, cutval=cutval, MAXITER=maxiter, peak_delta=peak_delta, ref_pixel=ref_pixel_in
 
 ;  ON_ERROR, 2
   cd, indir
@@ -283,6 +285,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   ;; Get all the files in the directory so we can mark camrot as not
+
   ;; measured on the ones where we can't measure it.
   entries = dbfind("typecode=2", $
                    dbfind("bad<2047", $ ; < is really <=
@@ -317,34 +320,28 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
         endif else begin
-           im = ssgread(files[i], hdr, /DATA, /TRIM)
+           im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
+           temp = sxpar(hdr, 'SLICER00', count=count)
+           if count eq 0 then message, 'ERROR: file '+ files[i] + ' does not have a SLICER* keywords.  You should run ssg_[get&fit]_slicer first'
+
            asize = size(im) & nx = asize(1) & ny = asize(2)
 
            ssg_spec_extract, im, hdr, spec, xdisp, /TOTAL
+           ssg_spec_extract, eim^2, ehdr, spec_err2, xdisp_err2, /TOTAL
 
            npts = N_elements(spec)
            pix_axis = indgen(npts)
            
-           ;; Remove NAN and 0 points, which give mpfit problems.  Hmm
-           ;; there are some poor vartiable name choices here:
-           ;; left_idx and right_idx refer to the first and last good
-           ;; pixel values in the spectrum.  left_ and right_limit
-           ;; refer to the search limit for the peak in the
-           ;; correlation between the measured line list and the atlas
-           ;; (assumingd the input dispersion).  It is the user;'s
-           ;; responsibility to get things lined up properly,
-           ;; otherwise, a false match will be found, since there are
-           ;; so many roughly equally-spaced lines
-           idx = 0
-           while finite(spec(idx)) eq 0 or spec(idx) eq 0 do begin
-              idx = idx+1
-           endwhile
-           left_idx = idx
-           idx = npts-1
-           while finite(spec(idx)) eq 0 or spec(idx) eq 0 do begin
-              idx = idx-1
-           endwhile
-           right_idx = idx
+           ;; Remove NAN and 0 points, which give mpfit problems.  
+           good_idx = where(finite(spec) eq 1 and $
+                            finite(spec_err2) eq 1 and $
+                            spec ne 0, good_count)
+           if good_count eq 0 then $
+             message, 'ERROR: no good points in spectrum of ', files[i]
+
+           temp = pix_axis[good_idx] & pix_axis = temp
+           temp = spec[good_idx] & spec = temp
+           spec_err = sqrt(spec_err2[good_idx])
 
            ;; Ref_pixel is the pixel at which the wavelength =
            ;; dispers[0].  By default, ref_pixel is the middle pixel
@@ -352,7 +349,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            ;; the offset induced by chopping the spectrum short.
            if NOT keyword_set(ref_pixel_in) then $
              ref_pixel_in = npts/2.
-           ref_pixel = ref_pixel_in - left_idx
+           ref_pixel = ref_pixel_in
 
 ;           ;; Left and right limits are absolute pixel distances from
 ;           ;; ref_pix in which to search for our first correlation to
@@ -363,13 +360,6 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
 ;
 ;           l_limit = ref_pixel - left_limit - left_idx
 ;           r_limit = ref_pixel + right_limit - left_idx
-
-
-           ;; Now make our shorted axis
-           temp = pix_axis[left_idx:right_idx] & pix_axis = temp
-           temp =     spec[left_idx:right_idx] &     spec = temp
-
-
 
            ;; CAUTION, the reference for pix_axis and all the dispersion
            ;; calculations is the center of the array, not the edge
@@ -413,7 +403,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                                 parname:'poly continuum'}, $
                                N_continuum)
 
-           model_spec=dblarr(right_idx-left_idx+1)
+           model_spec=dblarr(good_count)
 
            ;; Fit Voigt functions to the comp spectrum
            !p.multi = [0,0,2]
@@ -424,7 +414,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
               ;; Instead of accumulating the parameters while fitting,
               ;; just do them one at a time
               params = [params[0:N_continuum-1], $
-                        next_maxx[0], $ ; center
+                        pix_axis[next_maxx[0]], $ ; center
                         1.5, $  ; Gauss FWHM
                         0, $    ; Lor width
                         next_max[0]] ; Area
@@ -434,22 +424,27 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                          {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Center'}, $
                          {fixed:width_fixed[0], limited:[1,1], limits:[0.D,4.D], parname:'Gauss FWHM'}, $
                          {fixed:width_fixed[1], limited:[1,1], limits:[0.D,4.D], parname:'Lor Width'}, $
-                         {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Area'}]
+                         {fixed:0, limited:[1,0], limits:[0.D,0.D], parname:'Area'}]
 
               to_pass = { N_continuum:N_continuum }
               params = mpfitfun('voigt_spec', pix_axis, residual, $
-                                sqrt(abs(spec)), $
+                                spec_err, $
                                 params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                                 PARINFO=parinfo)
 
-              n_lines = n_lines + 1
-              n_params = N_elements(params)
-              if N_elements(vps) le 1 then begin ; Voigt parameters
-                 vps = params[N_continuum:n_params-1]
+              ;; A hack to see if the area is 0
+              if params[N_continuum+3] eq 0 then begin
+                 message, /continue, 'WARNING:zero line area detected: probably trying to fit residual of poorly fit line--removing this line from fit'
+                 n_expected_lines = n_expected_lines-1
               endif else begin
-                 vps = [vps, params[N_continuum:n_params-1]]
+                 n_lines = n_lines + 1
+                 n_params = N_elements(params)
+                 if N_elements(vps) le 1 then begin ; Voigt parameters
+                    vps = params[N_continuum:n_params-1]
+                 endif else begin
+                    vps = [vps, params[N_continuum:n_params-1]]
+                 endelse
               endelse
-
               model_spec = voigt_spec(pix_axis, $
                                       [params[0:N_continuum-1], vps], $
                                       N_continuum=N_continuum)
@@ -462,13 +457,13 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
               if end_of_loop then begin
                  ;; Do one last fit with all parameters free
                  final_params = mpfitfun('voigt_spec', $
-                                         pix_axis, spec, sqrt(abs(spec)), $
+                                         pix_axis, spec, spec_err, $
                                          [params[0:N_continuum-1], vps], $
                                          FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                                          PERROR=perror, MAXITER=maxiter)
                  model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
               endif
-              if end_of_loop or keyword_set(showplots) then begin
+              if end_of_loop or keyword_set(plot) then begin
                  wset,6
                  ;; Try to line up this plot with jpm_polyfit
                  plot, pix_axis, spec, $
@@ -532,15 +527,15 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                 atlas_params[4*il+2] = med_lor  *dispers[1]
                 atlas_params[4*il+3] = med_area *dispers[1]
             endfor
-            first_pass = fltarr(right_idx-left_idx,2)
-            for ipix=0,right_idx-left_idx-1 do begin
+            first_pass = fltarr(good_count, 2)
+            for ipix=0, good_count - 1 do begin
                 tdisp = align_disp(dispers, dispers[0], ipix, ref_pixel)
                 first_pass[ipix,0] = $
                   line_correlate(tdisp, line_pix=Xs, $
                                  line_list=line_list[atlas_idx], $
                                  ref_pixel=ref_pixel)
                 ;; This makes a pretty crummy guess without good line
-                ;; intinsities 
+                ;; intensities 
                 ;; disp_axis = make_disp_axis(tdisp, pix_axis, ref_pixel)
                 ;; first_pass[ipix,1] = $
                 ;;   comp_correlate(tdisp, spec=spec, $
@@ -551,11 +546,11 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            endfor
            ;; At some point I could make this more interactive
            window, 8 
-           plot, indgen(right_idx-left_idx) + left_idx, first_pass[*,0], $
+           plot, pix_axis, first_pass[*,0], $
              title='Center wavelength finding guide', $
              xtitle=string(format='("Assumed pixel position of ", f9.4)', $
                            dispers[0]), $
-             ytitle='Correlation coefficient'
+             ytitle='Cumulative line position different^2'
 ;           top = max(first_pass[*,0]*10)
 ;           plots, [l_limit+left_idx, l_limit+left_idx], [0,top]
 ;           plots, [r_limit+left_idx, r_limit+left_idx], [0,top]
@@ -580,20 +575,22 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
 ;                      minipix, /NAN)
 ;           minipix = minipix + x1 - peak_delta + left_idx
 
-           junk = min(first_pass[*,0], minipix, /NAN)
-           minipix = minipix + left_idx
+           ;; Limit to the center portion since there are sometimes
+           ;; erroneous matches
+           junk = min(first_pass[npts/4:3*npts/4,0], minipix, /NAN)
+           minipix = minipix + npts/4
            dispers = align_disp(dispers, dispers[0], minipix, ref_pixel)
            close_match = make_disp_axis(dispers, Xs, ref_pixel)
            
-           
-
            associations = list_associate(close_match, line_list, diffs=diffs)
-           bad_idx = where(diffs-median(diffs) gt cutval*meanabsdev(diffs), $
+           bad_idx = where(diffs gt cutval*meanabsdev(diffs), $
                            count)
-           if count gt 0 then Xs[bad_idx] = !values.f_nan
+           ;;if count gt 0 then Xs[bad_idx] = !values.f_nan
+           temp_line_list = line_list[associations]
+           if count gt 0 then temp_line_list[bad_idx] = !values.f_nan
 
-          coefs = jpm_polyfit(Xs[line_sort]-ref_pixel, $
-                               line_list[associations[line_sort]], order, $
+           coefs = jpm_polyfit(Xs[line_sort]-ref_pixel, $
+                               temp_line_list[line_sort], order, $
                                title=string("Dispersion relation for comp ", files[i]), $
                                xtitle='Pixels ref to center of image', $
                                ytitle='Best guess association to atlas line', $
@@ -609,7 +606,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   endif ;; not reviewing
 
   if NOT keyword_set(noninteractive) then begin
-     for io=0, order-1 do begin
+     for io=0, order do begin
         ;; Need to do this otherwise the array ends up being 1 X ngood
         temp = fltarr(ngood)
         temp[*] = disp_arrays[io,*]

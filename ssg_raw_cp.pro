@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_raw_cp.pro,v 1.5 2003/03/10 18:32:33 jpmorgen Exp $
+; $Id: ssg_raw_cp.pro,v 1.6 2003/06/11 18:08:19 jpmorgen Exp $
 
 ; ssg_raw_cp.  Copies ssg FITS files from indir to outdir.  Only
 ; copies files that are registered as good files in the database (see
@@ -18,6 +18,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
   cd, indir
   if NOT keyword_set(outdir) then message, 'ERROR: outdir must be supplied'
   writefits, string(outdir, '/test_ssg_raw_cp_writable'), [0]
+  spawn, string('rm ', outdir, '/test_ssg_raw_cp_writable')
 
   ;; Cut off trailing / from outdir so it looks pretty in database
   if strmid(outdir, 0, 1, /REVERSE_OFFSET) eq '/' then $
@@ -86,13 +87,19 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         ;; the input files.  Here is where that modification is made
         if strmatch(shortinfile, '*.fits*') then begin
            ;; Our normal file name
-           temp=strsplit(shortinfile, '.fits', /extract)
+           temp=strsplit(shortinfile, '.fits', /extract, /regex)
            shortoutfile = temp[0]+'r.fits'
         endif else begin
-           ;; Just in case there is some real file with a funny name.
-           ;; If it is not a real SSG file, that will be caught below
-           message, 'WARNING: non-standard SSG filename, appending an "r" to the name to differentiate original and copy we are doing reductions on', /CONTINUE
-           shortoutfile = shortinfile+'r'
+           if strmatch(shortinfile, '*.fts*') then begin
+              ;; Variant
+              temp=strsplit(shortinfile, '.fts', /extract, /regex)
+              shortoutfile = temp[0]+'r.fits'
+           endif else begin
+              ;; Just in case there is some real file with a funny name.
+              ;; If it is not a real SSG file, that will be caught below
+              message, 'WARNING: non-standard SSG filename, appending an "r" to the name to differentiate original and copy we are doing reductions on', /CONTINUE
+              shortoutfile = shortinfile+'r'
+           endelse
         endelse
 
         entries[i] = db_entry
@@ -114,7 +121,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
            message, 'WARNING: file ' + shortoutfile + ' found in ' + outdir + ' use /OVERWRITE keyword to replace'
         endif
         
-        message, /INFORMATIONAL, 'Creating error extension and writing ' + outfile
+        message, /INFORMATIONAL, 'Creating uncertainty extension and writing ' + outfile
 
         ;;  Make a simple FITS header for the extension
         sxaddpar, hdr, 'EXTEND', 'T', 'SSG error array is appended'
