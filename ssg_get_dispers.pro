@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.5 2002/12/05 03:37:58 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.6 2002/12/16 13:34:35 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -182,49 +182,28 @@ function line_correlate, in_disp, no_dp, line_pix=line_pix, line_list=line_list,
 end
 
 
-function comp_correlate, in_disp, no_dp, spec=spec, line_list=line_list, line_stengths=line_strengths
+function comp_correlate, disp, no_dp, spec=spec, atlas_params=atlas_params, atlas_parinfo=atlas_parinfo, ref_pixel=ref_pixel
 
   ;; Make this function usable in a variety of contexts later
   if n_params() eq 2 then begin
-     if N_elements(in_disp) eq N_elements(no_dp) then $
+     if N_elements(disp) eq N_elements(no_dp) then $
        message, 'ERROR: I think you are asking me to calculate a derivative of the parameters for tnmin.  I don''nt know how to do this.  Make sure you specify /AUTODERIVATIVE with tnmin'
   endif
 
   if NOT keyword_set(spec) then message, 'ERROR: I need a spectrum to compare things with'
-  if NOT keyword_set(line_list) then message, 'ERROR: I need a line list to compare things with'
-
-  num_lines = N_elements(line_list)
-  if NOT keyword_set(line_strengths) then begin
-     line_strengths = spec
-  endif 
-
+  if NOT keyword_set(atlas_params) then message, 'ERROR: I need a line list to compare things with'
 
   npts = N_elements(spec)
-  disp_axis = dblarr(npts)
-  pix_axis = indgen(npts) - npts/2
-  order = N_elements(in_disp)
-  for di = 0,order-1 do begin
-     disp_axis = disp_axis + in_disp[di]*pix_axis^di
-  endfor
-  
-  y=fltarr(npts)
-  y = deltafn(line_list, line_strengths, y, Xaxis = disp_axis)
+  pix_axis = indgen(npts)
+  disp_axis = make_disp_axis(disp, pix_axis, ref_pixel)
+  y = voigtfn(atlas_params, disp_axis)
 
-
-;   print, in_disp
-;   print,minmax(disp_axis)
-;   print,minmax(y)
-;   print,minmax(spec)
-  
-  plot,disp_axis, y
-  oplot,disp_axis, spec, linestyle=2
-;  wait, 0.5
   return, total(y*spec,/NAN)
 
 end
 
 
-pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_fixed=width_fixed, write=write, review=review, cutval=cutval, MAXITER=maxiter
+pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_fixed=width_fixed, write=write, review=review, cutval=cutval, MAXITER=maxiter, peak_delta=peak_delta, ref_pixel=ref_pixel_in
 
 ;  ON_ERROR, 2
   cd, indir
@@ -239,11 +218,13 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   
   if NOT keyword_set(order) then order=2
   if NOT keyword_set(disp) then disp = 6300
+  if NOT keyword_set(peak_delta) then peak_delta = 5
+
 
   ;; Make sure we don't modify any external variables and build up a
   ;; list of defaults coefs politely
   in_disp = disp
-  if N_elements(in_disp) eq 1 then in_disp = [in_disp, 0.055]
+  if N_elements(in_disp) eq 1 then in_disp = [in_disp, 0.03]
   while N_elements(in_disp) lt order+1 do $
     in_disp = [in_disp, 0]
 
@@ -307,11 +288,11 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
                    dbfind("bad<2047", $ ; < is really <=
                           dbfind(string("dir=", indir))))
 
-  dbext, entries, "fname, nday, date, m_dispers", $
-         files, ndays, dates, disp_arrays
+  dbext, entries, "fname, nday, date, bad, m_dispers", $
+         files, ndays, dates, badarray, disp_arrays
   nf = N_elements(files)
 
-  jds = ndays + julday(1,1,1990)
+  jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
@@ -343,9 +324,17 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
 
            npts = N_elements(spec)
            pix_axis = indgen(npts)
-
-           ;; Remove NAN and 0 points, which give mpfit problems.  -->
-           ;; Make sure our spectral axis starts at 0, though
+           
+           ;; Remove NAN and 0 points, which give mpfit problems.  Hmm
+           ;; there are some poor vartiable name choices here:
+           ;; left_idx and right_idx refer to the first and last good
+           ;; pixel values in the spectrum.  left_ and right_limit
+           ;; refer to the search limit for the peak in the
+           ;; correlation between the measured line list and the atlas
+           ;; (assumingd the input dispersion).  It is the user;'s
+           ;; responsibility to get things lined up properly,
+           ;; otherwise, a false match will be found, since there are
+           ;; so many roughly equally-spaced lines
            idx = 0
            while finite(spec(idx)) eq 0 or spec(idx) eq 0 do begin
               idx = idx+1
@@ -357,13 +346,30 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
            endwhile
            right_idx = idx
 
-           ;; IMPORTANT!!  I want to define ref_pixel to always be the
-           ;; middle pixel of the original image.  That means I need
-           ;; to account for the offset induced by chopping the
-           ;; spectrum short.
-           ref_pixel = npts/2. - left_idx
+           ;; Ref_pixel is the pixel at which the wavelength =
+           ;; dispers[0].  By default, ref_pixel is the middle pixel
+           ;; of the original image.  That means I need to account for
+           ;; the offset induced by chopping the spectrum short.
+           if NOT keyword_set(ref_pixel_in) then $
+             ref_pixel_in = npts/2.
+           ref_pixel = ref_pixel_in - left_idx
+
+;           ;; Left and right limits are absolute pixel distances from
+;           ;; ref_pix in which to search for our first correlation to
+;           ;; the line list.  There are lots of comp lines, so if this
+;           ;; is not relatively narrow, you find false peaks
+;           if NOT keyword_set(left_limit) then left_limit = npts/8
+;           if NOT keyword_set(right_limit) then right_limit = npts/8
+;
+;           l_limit = ref_pixel - left_limit - left_idx
+;           r_limit = ref_pixel + right_limit - left_idx
+
+
+           ;; Now make our shorted axis
            temp = pix_axis[left_idx:right_idx] & pix_axis = temp
            temp =     spec[left_idx:right_idx] &     spec = temp
+
+
 
            ;; CAUTION, the reference for pix_axis and all the dispersion
            ;; calculations is the center of the array, not the edge
@@ -463,75 +469,119 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
               endif
               if end_of_loop or keyword_set(showplots) then begin
                  wset,6
+                 ;; Try to line up this plot with jpm_polyfit
                  plot, pix_axis, spec, $
-                       title=string("Spectrum of comp ", files[i]), $
-                       xtitle='Pixels', $
-                       ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
+                   title=string("Spectrum of comp ", files[i]), $
+                   xtitle='Pixels', $
+                   ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model'), $
+                   xstyle=2, ystyle=2
                  oplot, pix_axis, model_spec, linestyle=dotted
                  plot, pix_axis, residual, $
-                       title=string("Fit residual "), $
-                       xtitle='Pixels ref to center of image', $
-                       ytitle=string(sxpar(hdr, 'BUNIT'))
-              endif
-           endrep until end_of_loop
+                   title=string("Fit residual "), $
+                   xtitle='Pixels ref to center of image', $
+                   ytitle=string(sxpar(hdr, 'BUNIT')), $
+                   xstyle=2, ystyle=2
+               endif
+            endrep until end_of_loop
 
+
+            !p.multi = 0
+
+            if n_lines ne n_expected_lines then $
+              message, 'Unsure how to proceed'
+
+
+            ;; Extract line pixel values from parameter list
+            ;; Strip off continuum
+            n_params = N_elements(final_params)
+            vps = final_params[N_continuum:n_params-1]
+            verrors = perror[N_continuum:n_params-1]
+            Xs = dblarr(n_lines)
+            dops = dblarr(n_lines)
+            lors = dblarr(n_lines)
+            areas = fltarr(n_lines)
+            dXs = dblarr(n_lines)
+            for li=0, n_lines-1 do begin
+               Xs[li] = vps[4*li]
+               dops[li]  = vps[4*li+1]*5
+               lors[li]  = vps[4*li+2]
+               areas[li] = vps[4*li+3]
+               dXs[li] = verrors[4*li]
+            endfor
+
+            line_sort=sort(Xs)
+
+            ;; Sweep our initial guess at the central wavelength along
+            ;; the whole spectrum and see what lines up the best
+
+            ;; First make a synthetic Voigtfn parameter list for the
+            ;; atlas spectrum.  In the absense of an actual fit atlas
+            ;; spectrum, use the median values of our fit spectra to
+            ;; determine a typical width and area for a comp line.  We
+            ;; might want to bump with widths up a bit if we have
+            ;; having trouble finding a single well defined
+            ;; correlation
+            med_dop = median(dops)
+            med_lor = median(lors)
+            med_area = median(areas)
+            atlas_params = fltarr(4*N_elements(atlas_idx))
+            for il=0,N_elements(atlas_idx)-1 do begin
+                atlas_params[4*il+0] = line_list[atlas_idx[il]]
+                atlas_params[4*il+1] = med_dop  *dispers[1]
+                atlas_params[4*il+2] = med_lor  *dispers[1]
+                atlas_params[4*il+3] = med_area *dispers[1]
+            endfor
+            first_pass = fltarr(right_idx-left_idx,2)
+            for ipix=0,right_idx-left_idx-1 do begin
+                tdisp = align_disp(dispers, dispers[0], ipix, ref_pixel)
+                first_pass[ipix,0] = $
+                  line_correlate(tdisp, line_pix=Xs, $
+                                 line_list=line_list[atlas_idx], $
+                                 ref_pixel=ref_pixel)
+                ;; This makes a pretty crummy guess without good line
+                ;; intinsities 
+                ;; disp_axis = make_disp_axis(tdisp, pix_axis, ref_pixel)
+                ;; first_pass[ipix,1] = $
+                ;;   comp_correlate(tdisp, spec=spec, $
+                ;;                  atlas_params=atlas_params, $
+                ;;                  atlas_parinfo=atlas_parinfo, $
+                ;;                  ref_pixel=ref_pixel)
+                                                    
+           endfor
+           ;; At some point I could make this more interactive
+           window, 8 
+           plot, indgen(right_idx-left_idx) + left_idx, first_pass[*,0], $
+             title='Center wavelength finding guide', $
+             xtitle=string(format='("Assumed pixel position of ", f9.4)', $
+                           dispers[0]), $
+             ytitle='Correlation coefficient'
+;           top = max(first_pass[*,0]*10)
+;           plots, [l_limit+left_idx, l_limit+left_idx], [0,top]
+;           plots, [r_limit+left_idx, r_limit+left_idx], [0,top]
+
+           message, /CONTINUE, 'Select most likely looking minimum for line search start'
            
-           !p.multi = 0
+;           cursor, x1, y1, /DOWN, /DATA
+;           ;; Left mouse
+;           if !MOUSE.button eq 1 then begin
+;               maxipix = x1
+;           endif
+;
+;           ;;oplot, first_pass[*,1]
+;
+;           ;; Now adjust the dispersion axis to reflect this best
+;           ;; match.  This is dangerous, since it can eaily find a
+;           ;; bogus match, so lets limit to the center 1/4 (now
+;           ;; left_and right_limits + their attended shifts to l_limit
+;           ;; and r_limit
+;           x1 = fix(x1)
+;           junk = min(first_pass[x1-peak_delta:x1+peak_delta,0], $
+;                      minipix, /NAN)
+;           minipix = minipix + x1 - peak_delta + left_idx
 
-           if n_lines ne n_expected_lines then $
-             message, 'Unsure how to proceed'
-
-
-           ;; Extract line pixel values from parameter list
-           ;; Strip off continuum
-           n_params = N_elements(final_params)
-           vps = final_params[N_continuum:n_params-1]
-           verrors = perror[N_continuum:n_params-1]
-           Xs = dblarr(n_lines)
-           dXs = dblarr(n_lines)
-           areas = fltarr(n_lines)
-           for li=0, n_lines-1 do begin
-              Xs[li] = vps[4*li]
-              areas[li] = vps[4*li+3]
-              dXs[li] = verrors[4*li]
-           endfor
-
-           line_sort=sort(Xs)
-
-           ;; tnmin is having a hard time finding the best fit
-           ;; spontaneously, so go through each line and see how things
-           ;; look when we line up on it.  This amounts to a preliminary
-           ;; grid search on the reference wavelength
-           first_pass = fltarr(n_lines, n_expected_lines)
-           tdisp = dispers
-           for icomp=0,n_lines-1 do begin
-              for iatlas=0,n_expected_lines-1 do begin
-                 tdisp = align_disp(dispers, line_list[atlas_idx[iatlas]], $
-                                    Xs[icomp], ref_pixel)
-
-           associations = list_associate(close_match, line_list, diffs=diffs)
-           bad_idx = where(diffs-median(diffs) gt cutval*meanabsdev(diffs), $
-                           count)
-
-                 first_pass[icomp, iatlas] = $
-                   line_correlate(tdisp, line_pix=Xs, $
-                                  line_list=line_list[atlas_idx], $
-                                  ref_pixel=ref_pixel)
-                 ;;print, icomp, iatlas, first_pass[icomp, iatlas]
-              endfor
-           endfor
-           temp = min(first_pass, min_idx, /NAN)
-           ;; Unwrap the index to get a 2D coordinate again.
-           ifit_line = min_idx[0] mod n_lines
-           iline_list = fix(min_idx[0]/n_expected_lines)
-
-           ;; Initialize the dispersion on our best first guess
-           dispers = align_disp(dispers, line_list[atlas_idx[iline_list]], $
-                                Xs[ifit_line], ref_pixel)
-
-           ;; For display purposes (and maybe fitting later), let's see
-           ;; if we can't associate the comp lines to the atlas at this point
-
+           junk = min(first_pass[*,0], minipix, /NAN)
+           minipix = minipix + left_idx
+           dispers = align_disp(dispers, dispers[0], minipix, ref_pixel)
            close_match = make_disp_axis(dispers, Xs, ref_pixel)
            
            
@@ -558,12 +608,18 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   endif ;; not reviewing
 
   if NOT keyword_set(noninteractive) then begin
-     marked_ndays = ssg_mark_bad(ndays, rotate(disp_arrays,3), $
-                                 title=string('Dispersion coefs in ', indir), $
-                                 xtickunits='Hours', $
-                                 xtitle=string('UT time (Hours) ', utdate), $
-                                 ytitle='Coef value', $
-                                 window=7)
+     for io=0, order-1 do begin
+        ;; Need to do this otherwise the array ends up being 1 X ngood
+        temp = fltarr(ngood)
+        temp[*] = disp_arrays[io,*]
+        marked_ndays = $
+          ssg_mark_bad(ndays, temp, $
+                       title=string('Dispersion coefs in ', indir), $
+                       xtickunits='Hours', $
+                       xtitle=string('UT time (Hours) ', utdate), $
+                       ytitle='Coef value', $
+                       window=7)
+     endfor
 
      dbclose
 
