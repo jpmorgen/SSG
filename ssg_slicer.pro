@@ -1,12 +1,12 @@
 ;+
-; $Id: ssg_slicer.pro,v 1.1 2002/11/12 21:31:13 jpmorgen Exp $
+; $Id: ssg_slicer.pro,v 1.2 2002/11/21 20:05:56 jpmorgen Exp $
 
 ; ssg_slicer.  morph image to reflect distortions induced by slicer
 ; rotation and lens aberration.  
 
 ;-
 
-function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extract=extract, distort=distort
+function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extract=extract, distort=distort, delete=delete
 
 ;  ON_ERROR, 2
   if N_elements(im_or_fname) eq 0 then $
@@ -24,9 +24,15 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
   ;; return the original uncorrected array
   if N_elements(in_slicer) eq 0 then begin
      if N_elements(hdr) eq 0 then return, im
-     temp = sxpar(hdr, 'SLICER0*', count=count)
-     if count eq 0 then return, im
-     npxd = count
+     npxd=0
+     repeat begin
+        temp = sxpar(hdr, $
+                     string(format='("SLICER0", i1)', npxd), count=count)
+        npxd = npxd + 1
+     endrep until count eq 0
+     npxd = npxd - 1
+     if npxd eq 0 then return, im
+
      npd = 0
      repeat begin
         temp = sxpar(hdr, $
@@ -40,14 +46,16 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
      endif else begin
         in_slicer = fltarr(npxd,npd)
         for ipxd = 0, npxd - 1 do begin
-           in_slicer[ipxd, ipd] = $
-             sxpar(hdr, string(format='("SLICER", i1, i1)', ipd, ipxd))
+           for ipd = 0, npd - 1 do begin
+              in_slicer[ipxd, ipd] = $
+                sxpar(hdr, string(format='("SLICER", i1, i1)', ipd, ipxd))
+           endfor
         endfor
      endelse
   endif
   slicer = in_slicer
   if N_elements(slicer) eq 0 then return, im
-  if keyword_set(extract) then slicer=-slicer
+
   asize = size(slicer)
   if asize(0) eq 0 then $
     slicer = [slicer]           ; Needs to be an array
@@ -61,6 +69,7 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
     npd = asize[2]              ; # of poly coef in disp direction
 
   asize=size(im) & nx=asize[1] & ny=asize[2]
+
   ;; Collapse for speed
   if keyword_set(blocking) then begin
      orig_im = im
@@ -75,45 +84,58 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
 
   trow = fltarr(nx)
 
-  ;; For each cross-dispersion element, define a dispersion axis
-  ;; remapping.  Reuse x and y variables.  Reference is the center
-  ;; of the image, so polynomials don't have a 0th order term
+  ;; The slicer shape, which is expressed as a polynomial fit in
+  ;; the Y-direction varies slowly as a function of dispersion
+  ;; direction.  This code creates a map of dispersion distortions
+  ;; for each row
   for iy = 0,ny-1 do begin
-     ;; y, the reference for the xdisp polynomial, is 0 at the
-     ;; center of the image
-     y = iy - ny/2.
-     ;; dx0 ends up being a constant offset applied to all
-     ;; dispersion-direction pixels in this particular
-     ;; cross-dispersion element
-     dx0 = 0.
-     for ipxd=0,npxd-1 do begin
-        temp = slicer[ipxd]
-        if npd gt 0 then $
-          temp = slicer[ipxd,0]
-        ;; 0th order is always 0, so just skip it entirely
-        dx0 = dx0 + temp * y^(ipxd+1)
-     endfor                     ; ipxd
-     ;; Now concentrate on the dispersion direction (x).  We can do
-     ;; this as a whole array using interpol.  Again, the center of
-     ;; the image is the origin of the polynomial, but now dx is
-     ;; going to be different for each pixel
+     trow[*] = im[*,iy]
+     ;; x and y are now in pixel number referenced to the center of
+     ;; the image
      x = indgen(nx) - nx/2.
+     y = iy - ny/2.
+     ;; dx is the array of dispersion direction offsets 
      dx = fltarr(nx)
-     if npd gt 0 then begin
-        for ipd=1,npd-1 do begin
-           ;; 0th order is always 0, so just skip it entirely
-           dx = dx + slicer[0,ipd] * x^(ipd+1)
-         endfor                  ; ipd
-      endif
-      trow[*] = im[*,iy]
-      ;; Negative signs on dx0 and dx get the slope in y in the right
-      ;; sense, though since images have y=0 on the bottom, you might
-      ;; think this is backwards.  In any case, it really doesn't
-      ;; matter, since this is the only place things are defined.
-      trow = interpol(trow, x, x + dx0 + dx)
-      im[*,iy] = trow[*]
-  endfor                        ; iy
 
+     ;; This is a little weird, but in the case of dispersion
+     ;; direction modifications, we need a fresh set of coeficients
+     ;; for each x
+     if npd gt 0 then begin
+        coefi = fltarr(nx)
+     endif
+
+     ;; The general scheme is to replace each row in the image with a
+     ;; row that is properly resampled using IDL's interpol routine.
+     ;; The first (maybe only) row in the slicer coefficient array
+     ;; describes how the rows are shifted relative to the center
+     ;; pixel of the image.  The subsequent rows in the slicer array
+     ;; give the perturbation of the initial coefficient as a function
+     ;; of dispersion direction.
+
+     ;; For each cross-dispersion direction coefficient
+     for ipxd=0,npxd-1 do begin
+        if npd eq 0 then begin
+           coefi = slicer[ipxd]
+           dx = dx + coefi * y^(ipxd+1)
+        endif else begin
+           for ipd=0, npd-1 do begin
+              coefi = coefi + slicer[ipxd,ipd] * x^(ipd)
+           endfor               ; ipd
+        endelse
+        ;; 0th order is always 0, so just skip it entirely.  note that
+        ;; this works for both the 1D and vector versions of coefi
+        dx = dx + coefi * y^(ipxd+1)
+     endfor                     ; ipxd
+
+     ;; Having accumulated all the perterbations to the mapping of the
+     ;; X axis, now we are ready to do the shifting, which we run
+     ;; forwards if we are doing /DISTORT and run backwards if we are
+     ;; doing /EXTRACT
+     if keyword_set(extract) then dx = - dx
+
+     trow = interpol(trow, x, x + dx)
+     im[*,iy] = trow[*]
+  endfor                        ; iy
 
   ;; Re-expand if collapsed
   if keyword_set(blocking) then begin
@@ -121,6 +143,17 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
      im = rebin(im, nx, ny-trimrows)
      orig_im[*,trimlow:trimhigh-1] = im[*,*]
      im = orig_im
+  endif
+
+  ;; Delete SLICER keywords if the /EXTRACTed image is being written 
+  if keyword_set(delete) then begin
+     if NOT keyword_set(extract) then $
+       message, 'WARNING: you are deleting a slicer description from a header while distorting.  This is probably a bad idea, but I will do it anyway', /CONITNUE
+     for ipxd = 0, npxd - 1 do begin
+        for ipd = 0, npd - 1 do begin
+           sxdelpar, hdr, string(format='("SLICER", i1, i1)', ipxd, ipd)
+        endfor
+     endfor
   endif
 
   return, im

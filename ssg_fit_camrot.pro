@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_camrot.pro,v 1.2 2002/11/14 19:17:27 jpmorgen Exp $
+; $Id: ssg_fit_camrot.pro,v 1.3 2002/11/21 20:03:25 jpmorgen Exp $
 
 ; ssg_fit_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -18,27 +18,11 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   silent = 1
   if keyword_set(verbose) then silent = 0
 
-  plus = 1
-  asterisk = 2
-  dot = 3
-  diamond = 4
-  triangle = 5
-  square = 6
-  psym_x = 7
-
-  solid=0
-  dotted=1
-  dashed=2
-  dash_dot=3
-  dash_3dot = 4
-  long_dash=5
-
-
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind(string("dir=", indir))
-  dbext, entries, "fname, nday, date, m_cam_rot", files, ndays, dates, m_cam_rot
+  dbext, entries, "fname, nday, date, m_cam_rot, cam_rot", files, ndays, dates, m_cam_rot, cam_rot
   angles = m_cam_rot
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990)
@@ -59,52 +43,17 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   badidx = where(abs(sigmas) gt sigma_cut, count)
   if count gt 0 then angles[badidx] = !values.f_nan
 
-  refit=1
-  if keyword_set(noninteractive) then refit = 0
-  window,7
-  repeat begin
-     good_idx = where(finite(angles), count)
-     if count eq 0 then message, 'ERROR: no good camera rotation measurements found'
-     coefs = poly_fit(ndays-this_nday[good_idx], angles[good_idx], order)
-     
-     cam_rot = fltarr(nf)
-     for ci=0,order do begin
-        cam_rot = cam_rot + coefs[ci]*(ndays-this_nday)^ci
-     endfor
+  coefs=jpm_polyfit(ndays-this_nday, angles, order, $
+                    title=string('Camera rotation angles in ', indir), $
+                    xtitle=string('UT time (Hours) ', utdate), $
+                    ytitle='Angle (degrees)', $
+                    xtickunits='Hours')
+                    
 
-     plot, ndays, angles, $
-           title=string('Camera rotation angles in ', indir), $
-           xtickunits='Hours', $
-           yrange=[min([angles,angles], /NAN), $
-                   max([angles, angles], /NAN)], $
-           xstyle=2, ystyle=2, psym=plus, $
-           xtitle=string('UT time (Hours) ', utdate), $
-           ytitle='Angle (degrees)'
-     oplot, ndays, cam_rot
-     ;;oploterr, ndays, angles, sigmas
-
-     if NOT keyword_set(noninteractive) then begin
-        ;; User selects a bad point
-        message, /CONTINUE, 'Select bad points with leftmost mouse button, rightmost button exits'
-        cursor, badnday, badval, /DOWN, /DATA
-        if !MOUSE.button eq 1 then begin
-           dxs = ndays[good_idx] - badnday
-           dys = angles[good_idx] - badval
-           dists = dxs*dxs + dys*dys
-           junk = min(dists, bad_idx, /NAN)
-           angles[good_idx[bad_idx]] = !values.f_nan
-        endif ;; leftmost mouse button
-        if !MOUSE.button eq 2 then begin
-           message, /CONTINUE, 'HEY, I said left or right buttons, not middle!'
-        endif
-        if !MOUSE.button eq 4 then begin
-           message, /CONTINUE, 'DONE'
-           refit = 0
-        endif
-     endif
-     
-  endrep until refit eq  0
-
+  cam_rot[*] = 0
+  for ci=0,order do begin
+     cam_rot = cam_rot + coefs[ci]*(ndays-this_nday)^ci
+  endfor
 
   if NOT keyword_set(noninteractive) then begin
      if NOT keyword_set(write) then $

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_slicer.pro,v 1.1 2002/11/12 20:48:39 jpmorgen Exp $
+; $Id: ssg_get_slicer.pro,v 1.2 2002/11/21 20:04:23 jpmorgen Exp $
 
 ; ssg_get_slicer.  derive slicer shape parameters and record them in
 ; the database
@@ -45,24 +45,27 @@ function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, sli
   endif
 
   ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer, blocking=blocking, cam_rot=0, /AVERAGE
-  ref_im=template_create(im, med_spec, xdisp, slicer=slicer)
+  ref_im=template_create(im, med_spec, xdisp)
   ref_im = ssg_slicer(ref_im, hdr, slicer=slicer, /DISTORT)
 
-;  display, im, /reuse
-;  wait,0.1
-;  display, ref_im, /reuse
-;  wait,0.2
+  answer = strupcase(get_kbrd(0))
+  if answer eq 'D' then begin
+     display, im, /reuse
+     display, ref_im, /reuse
+  endif
+  if answer eq 'S' then message, 'STOPPING FIT'
   return, total(im*ref_im, /NAN)
 end
 
 pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, blocking=blocking, flat_cut=flat_cut, cr_cutval=cr_cutval, showplots=showplots
 
-  ON_ERROR, 2
+;  ON_ERROR, 2
   cd, indir
 
   silent = 1
   if keyword_set(verbose) then silent = 0
   if NOT keyword_set(blocking) then blocking = 10
+  if NOT keyword_set(cr_cutval) then cr_cutval = 10
 
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
@@ -115,13 +118,14 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
            if count eq 0 then message, 'ERROR: no FLAT_CUT found in flatfield file.  You must therefore specify flat_cut (value below which flatfield image is not divided) on the command line.  0.75 should work OK'
         endif
 
-;        ;; Remove cosmic ray hits
-;        ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer, /AVERAGE
-;        template = template_create(im, spec, xdisp, slicer=slicer)
-;        sigma_im = template_statistic(im, template)
-;        mask_im = mark_bad_pix(sigma_im, cutval=cr_cutval)
-;        badidx = where(mask_im gt 0, count)
-;        if count gt 0 then im[badidx] = !values.f_nan
+        ;; Remove cosmic ray hits
+        ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer, /AVERAGE
+        template = template_create(im, med_spec, xdisp)
+        template = ssg_slicer(im, hdr, slicer=slicer, /DISTORT)
+        sigma_im = template_statistic(im, template)
+        mask_im = mark_bad_pix(sigma_im, cutval=cr_cutval)
+        badidx = where(mask_im gt 0, count)
+        if count gt 0 then im[badidx] = !values.f_nan
 
         ;; Mask out bad flatfield regions
         flat = normalize(flat, flat_cut)
@@ -150,20 +154,23 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
         if keyword_set(TV) then display, im, /reuse
         
-        ;; We want to single out narrow, bright lines from the data to
-        ;; do our fitting on
-        wset,2
-        ssg_spec_extract, im, hdr, spec, xdisp, slicer=slicer_in, showplot=showplots, /TOTAL
-        ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer_in, /AVERAGE
-        back_im = im
-        background = median(med_spec)
-        peak_idx = where(back_im gt background*5, count)
-        if count gt 0 then back_im[peak_idx] = background
-        im = im - back_im
+;         ;; We want to single out narrow, bright lines from the data to
+;         ;; do our fitting on
+;         wset,2
+;         ssg_spec_extract, im, hdr, spec, xdisp, slicer=slicer_in, showplot=showplots, /TOTAL
+;         ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer_in, /AVERAGE
+;         back_im = im
+;         background = median(med_spec)
+;         peak_idx = where(back_im gt background*5, count)
+;         if count gt 0 then back_im[peak_idx] = background
+;         im = im - back_im
         
 ;        display, ssg_slicer(im, hdr, slicer=slicer, /EXTRACT) ;, /reuse
-        wset,3
-        ssg_spec_extract, im, hdr, slicer=slicer_in, showplots=showplots, /TOTAL
+
+        if keyword_set(showplots) then begin
+           wset,3
+           ssg_spec_extract, im, hdr, slicer=slicer_in, showplots=showplots, /TOTAL
+        endif
 
         asize = size(slicer_in)
         if asize(0) eq 0 then $
@@ -194,6 +201,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
 ;        display, ssg_slicer(im, hdr, slicer=slicer, /EXTRACT), /reuse
 
+        message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
         to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd] }
         slicer = tnmin('slicer_compare', slicer_in, $
                        FUNCTARGS=to_pass, /AUTODERIVATIVE, $

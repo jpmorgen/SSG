@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatgen.pro,v 1.4 2002/11/12 21:20:50 jpmorgen Exp $
+; $Id: ssg_flatgen.pro,v 1.5 2002/11/21 20:04:10 jpmorgen Exp $
 
 ; ssg_flatgen Generate a bestflat frame from all the flat images in a
 ; given directory.  Final image is the total number of electrons
@@ -14,8 +14,8 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
   if NOT keyword_set(outname) then outname = 'bestflat.fits'
   if NOT keyword_set(cr_cutval) then cr_cutval = 5
   ;; For normalization
-  if NOT keyword_set(flat_cut) then flat_cut = 0.75
-  if NOT keyword_set(sky_cut) then sky_cut = 0.5
+  if NOT keyword_set(flat_cut) then flat_cut = 0.1
+  if NOT keyword_set(sky_cut) then sky_cut = flat_cut
 
 
   silent = 1

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_create.pro,v 1.3 2002/11/12 20:56:39 jpmorgen Exp $
+; $Id: ssg_db_create.pro,v 1.4 2002/11/21 20:03:06 jpmorgen Exp $
 
 ; ssg_db_create  Creates the SSG database structures from scratch.
 ; Hopfully this won't be used very often!  If necessary, however, this
@@ -101,6 +101,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefs'; expressing spectral variation of slicer shape.  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
   printf, lun, 'slice(100)	R*4		Predicted slicer shape for this image'
   printf, lun, 'flat_cut	R*4		flatfield value below which all pixels are set to 0'
+  printf, lun, 'cut_val		R*4		Using template image, sigma value above which pixel is assumed to be a cosmic ray hit'
   printf, lun, 'ncr		R*4		estimated number of cosmic ray hits inside flatcut'
   printf, lun, 'nbad		I*2		number of bad pixels (from CR and bad cols) inside flatcut'
   printf, lun, 'IP(1000)	R*4		10x10x10 array describing instrument profile.  Like slice shape, reference is midpoint '
@@ -167,6 +168,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'cam_rot		F7.3		predict,cam_rot,clockws'
   printf, lun, 'slice_shape	F7.3		slicer,shape,time'
   printf, lun, 'flat_cut	F7.3		flat,cut,'
+  printf, lun, 'cut_val		F7.3		cosmic,ray,cutval'
   printf, lun, 'ncr		F7.3		est,number,CR'
   printf, lun, 'nbad		I4		num,bad,pix'
   printf, lun, 'wavelen		F9.3		wavelen,angst,no_offset'
@@ -204,15 +206,16 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'pred_bias0	sort/index'
 ;  printf, lun, 'camera_rot	sort/index'
   printf, lun, 'flat_cut	sort/index'
+  printf, lun, 'cut_val		sort/index'
   printf, lun, 'ncr		sort/index'
   printf, lun, 'nbad		sort/index'
   printf, lun, 'med_spec	sort/index'
   printf, lun, 'av_spec		sort/index'
-  printf, lun, 'min_spec	sort/index'
+;  printf, lun, 'min_spec	sort/index'
   printf, lun, 'max_spec	sort/index'
   printf, lun, 'med_cross	sort/index'
   printf, lun, 'av_cross	sort/index'
-  printf, lun, 'min_cross	sort/index'
+;  printf, lun, 'min_cross	sort/index'
   printf, lun, 'max_cross	sort/index'
 ;  printf, lun, 'bias_vers	sort/index'
 ;  printf, lun, 'flat_vers	sort/index'

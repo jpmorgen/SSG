@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biassub.pro,v 1.2 2002/11/12 20:57:57 jpmorgen Exp $
+; $Id: ssg_biassub.pro,v 1.3 2002/11/21 20:02:26 jpmorgen Exp $
 
 ; ssg_biassub Subtract the best bias image from all the (non-bias)
 ; files in the directory
@@ -71,7 +71,7 @@ pro ssg_biassub, indir
         sxaddhist, "(ssg_biassub.pro) Converted DN to electrons using GAIN keyword", hdr
         sxaddpar, hdr, 'BUNIT', 'ELECTRONS', 'Pixel units'
 
-        message, /INFORMATIONAL, 'Writing ' + files[i]
+        message, /INFORMATIONAL, 'Converting to electrons and writing ' + files[i]
         writefits, files[i], im, hdr
 
      endelse
