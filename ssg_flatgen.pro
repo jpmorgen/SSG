@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatgen.pro,v 1.1 2002/11/07 19:39:12 jpmorgen Exp $
+; $Id: ssg_flatgen.pro,v 1.2 2002/11/08 03:12:09 jpmorgen Exp $
 
 ; ssg_flatgen Generate a bestflat frame from all the flat images in a
 ; given directory
@@ -37,7 +37,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
   asize=size(im)
   nx=asize[1]
   ny=asize[2]
-  av_im = fltarr(nx,ny)
+  total_im = fltarr(nx,ny)
   count_im = fltarr(nx,ny)
   stack_im = fltarr(nf,nx,ny)
   cd,current=cwd
@@ -45,7 +45,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
   sxaddpar, hdr, 'PARENTD', cwd, ' current working directory'
   sxaddpar, hdr, 'PARENT', files[0], ' first bias file in directory'
 
-  if keyword_set(TV) then display, av_im, hdr, title = 'Single flat image'
+  if keyword_set(TV) then display, total_im, hdr, title = 'Single flat image'
   if keyword_set(showplots) then begin
      window, 6, title='Spectra of rotation corrected and CR rejected flats'
   endif
@@ -63,7 +63,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
         full_im = ssgread(files[i], ihdr)
         data_im = ssgread(full_im, ihdr, /data)
 
-        if N_elements(av_im) ne N_elements(full_im) then $
+        if N_elements(total_im) ne N_elements(full_im) then $
           message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
 
         cam_rot = sxpar(ihdr, 'CAM_ROT', count=count)
@@ -119,7 +119,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            full_im[badidx] = 0.
            count_im[badidx] = count_im[badidx] - 1
         endif
-        av_im = av_im + full_im
+        total_im = total_im + full_im
         sxaddhist, string(format='("(ssg_flatgen.pro) added ", a, i6, " bad pixels")', files[i], count), hdr
         message, /INFORMATIONAL, 'added ' + files[i] +  string(count) + ' bad pixels'
 
@@ -132,9 +132,12 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
 
   if total(count_im) eq 0 then message, 'ERROR: no good flat frames found in ' + indir + ' file ' + outname + ' not written, database ' + dbname + ' not modified.'
 
-  ;; Create average flatfield image
-  av_im = av_im / count_im
-  sxaddhist, string('(ssg_flatgen.pro) divided by good pixel counting image'), hdr
+  ;; Create flatfield image of total electrons per pixel but taking
+  ;; missing pixels into consideration.  
+  ;; --> Error image will need some tweaking
+  numflats = max(count_im)
+  total_im = total_im / count_im * numflats
+  sxaddhist, string('(ssg_flatgen.pro) accounted for pixels missing from individual flats'), hdr
 
   ;; Create median flatfield image
   med_im=fltarr(nx,ny)
@@ -143,6 +146,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
         med_im[i,j] = median(stack_im[*,i,j])
      endfor
   endfor
+  med_im = med_im* numflats
 
   ;; Create a template with which to compare the median and average
   ;; images in order to get a stdev
@@ -153,18 +157,18 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
   flat_camrot = mean(cam_rots,/NAN)
   sxaddpar, hdr, 'CAM_ROT', flat_camrot, ' Average flatfield camera rotation'
   template = rot(template, flat_camrot, cubic=-0.5)
-  stdev = stddev(av_im-template, /NAN)
+  stdev = stddev(total_im-template, /NAN)
 
   ;; Replace any remaining suspect pixels in the average image with
   ;; median values
-  badidx = where(abs(med_im - av_im) gt stdev, count)
+  badidx = where(abs(med_im - total_im) gt stdev, count)
   if count gt 0 then begin
-     av_im[badidx] = med_im[badidx]
+     total_im[badidx] = med_im[badidx]
      message, /INFORMATIONAL, 'cleaned up ' + string(count) + ' pixels using median of all bias images'
      sxaddhist, string('(ssg_flatgen.pro) cleaned up ', count, ' pixels'), hdr
   endif
 
-  badidx = where(finite(av_im) eq 0, count)
+  badidx = where(finite(total_im) eq 0, count)
   if count gt 0 then message, 'WARNING: ' + string(count) + ' bad pixels found in ' + outname + ' Maybe you ought to be using the TRIMSEC.', /CONTINUE
 
 
@@ -177,47 +181,47 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
         ;; By construction, there should be no spectral features in
         ;; the skyflat
         good_idx = where(skyflat gt skyflat_cut)
-        lamp_and_disp = av_im
+        lamp_and_disp = total_im
         lamp_and_disp[*] = !values.f_nan
         lamp = lamp_and_disp
-        lamp_and_disp[good_idx] = av_im[good_idx]/skyflat[good_idx]
 
+        ssg_spec_extract, total_im, hdr, spec
+        spec_im = template_create(total_im, spec)
+        ;; Try to get rid of any spectral features induced by the dust
+        ;; on the field lens of the spectrograph
+        spec_im=smooth(spec_im, ny/20., /edge_truncate)
+        flat_im = total_im/spec_im
+        lamp[good_idx] = flat_im[good_idx]/skyflat[good_idx]
+        total_im = total_im/lamp
 
-        ssg_spec_extract, lamp_and_disp, hdr, spec, disp, med_spec=med_spec, med_xdisp=med_xdisp
-
-        ;; med_spec left cross-dispersion streaks.  average is a
-        ;; little better
-        disp_spec_im = template_create(lamp_and_disp, spec)
-        lamp[good_idx] = lamp_and_disp[good_idx]/disp_spec_im[good_idx]
-        av_im = av_im/lamp
         sxaddhist, string('(ssg_flatgen.pro) Removed flatlamp artifacts with SKYFLAT'), hdr
         sxaddpar, hdr, 'SKYFLAT', skyflat_name, ' skyflat file'
      endif ;; Real skyflat
   endif
 
-  ;; Normalize
-  good_idx = where(av_im gt flat_cut, count)
-  last_num = 0
-  while last_num ne N_elements(good_idx) do begin
-     if count eq 0 then message, 'ERROR: flat_cut value of ' + string(flat_cut) + ' resulted in no good pixels.  Choose something between 0 and 1'
-     last_num = N_elements(good_idx)
-     av_im = av_im/mean(av_im[good_idx], /NAN)
-     good_idx = where(av_im gt flat_cut, count)
-  endwhile
-  sxaddhist, string('(ssg_flatgen.pro) Normalized image to area inside FLAT_CUT'), hdr
+;   ;; Normalize
+;   good_idx = where(total_im gt flat_cut, count)
+;   last_num = 0
+;   while last_num ne N_elements(good_idx) do begin
+;      if count eq 0 then message, 'ERROR: flat_cut value of ' + string(flat_cut) + ' resulted in no good pixels.  Choose something between 0 and 1'
+;      last_num = N_elements(good_idx)
+;      total_im = total_im/mean(total_im[good_idx], /NAN)
+;      good_idx = where(total_im gt flat_cut, count)
+;   endwhile
+;   sxaddhist, string('(ssg_flatgen.pro) Normalized image to area inside FLAT_CUT'), hdr
 
   sxaddpar, hdr, 'FLAT_CUT', flat_cut, ' cut for normalization'
 
-  bad_idx = where(av_im le flat_cut, count)
-  if count gt 0 then av_im[bad_idx] = !values.f_nan
+  bad_idx = where(total_im le flat_cut, count)
+  if count gt 0 then total_im[bad_idx] = !values.f_nan
 
   window,6, title=string('Spectra of ', outname)
-  ssg_spec_extract, av_im, hdr, spec, xdisp, /showplots
-  display, av_im, hdr, title = 'Best flat image'
+  ssg_spec_extract, total_im, hdr, spec, xdisp, /showplots
+  display, total_im, hdr, title = 'Best flat image'
 
 
   ;; Write out the bestflat image
-  writefits, outname, av_im, hdr
+  writefits, outname, total_im, hdr
   message, /INFORMATIONAL, 'Wrote file ' + outname
 
   ;; Update the bad column in the database, if necessary
