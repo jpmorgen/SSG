@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_camrot.pro,v 1.3 2002/11/21 20:03:25 jpmorgen Exp $
+; $Id: ssg_fit_camrot.pro,v 1.4 2002/12/16 13:38:03 jpmorgen Exp $
 
 ; ssg_fit_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -25,7 +25,7 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   dbext, entries, "fname, nday, date, m_cam_rot, cam_rot", files, ndays, dates, m_cam_rot, cam_rot
   angles = m_cam_rot
   nf = N_elements(files)
-  jds = ndays + julday(1,1,1990)
+  jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
@@ -47,22 +47,26 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
                     title=string('Camera rotation angles in ', indir), $
                     xtitle=string('UT time (Hours) ', utdate), $
                     ytitle='Angle (degrees)', $
-                    xtickunits='Hours')
+                    xtickunits='Hours', noninteractive=noninteractive)
                     
 
-  cam_rot[*] = 0
+  cam_rot[*] = 0.
   for ci=0,order do begin
      cam_rot = cam_rot + coefs[ci]*(ndays-this_nday)^ci
   endfor
+  cam_rot=float(cam_rot)
 
-  if NOT keyword_set(noninteractive) then begin
-     if NOT keyword_set(write) then $
-       repeat begin
+
+  if NOT keyword_set(noninteractive) and $
+    NOT keyword_set(write) then begin
+     for ki = 0,1000 do flush_input = get_kbrd(0)
+     repeat begin
         message, /CONTINUE, 'Write this fit to the database and FITS headers?([Y]/N)'
         answer = get_kbrd(1)
         if byte(answer) eq 10 then answer = 'Y'
         answer = strupcase(answer)
      endrep until answer eq 'Y' or answer eq 'N'
+     for ki = 0,1000 do flush_input = get_kbrd(0)
      if answer eq 'Y' then write=1
   endif
 

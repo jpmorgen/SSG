@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatgen.pro,v 1.5 2002/11/21 20:04:10 jpmorgen Exp $
+; $Id: ssg_flatgen.pro,v 1.6 2002/12/16 13:42:18 jpmorgen Exp $
 
 ; ssg_flatgen Generate a bestflat frame from all the flat images in a
 ; given directory.  Final image is the total number of electrons
@@ -27,23 +27,28 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
   lamp_entries = dbfind("typecode=3", $
                         dbfind("bad<4095", $ ; < is really <=
                                dbfind(string("dir=", indir))))
-  sky_entries = dbfind("typecode=4", $
-                       dbfind("bad<4095", $ ; < is really <=
-                              dbfind(string("dir=", indir))), count=num_skyflats)
-
+   sky_entries = dbfind("typecode=4", $
+                        dbfind("bad<4095", $ ; < is really <=
+                               dbfind(string("dir=", indir))), count=num_skyflats)
+;   ;; DEBUG!
+;   num_skyflats=0
   if num_skyflats eq 0 then $
-    if NOT keyword_set(skyflat_name) then $
-    message, 'WARNING: no sky flats found and skyflat keyword not specified.  ' + outname + ' will have some cross-dispersion contamination from the unavoidable flatlamp bore-siting problem'
+    if NOT keyword_set(skyflat_name) then begin
+     skyflat_name = 'NONE'
+     message, 'WARNING: no sky flats found and skyflat keyword not specified.  ' + outname + ' will have some cross-dispersion contamination from the unavoidable flatlamp bore-siting problem', /CONTINUE
+  endif
 
+  write_name = outname
   ;; Use the same code to build the lamp and sky flats
   repeat begin
      type = 'lamp'
      if num_skyflats gt 0 then type = 'sky'
      entries = lamp_entries
      if num_skyflats gt 0 then entries = sky_entries
-     dbext, entries, "fname, bad, flat_fname, cam_rot, flat_cut", files, badarray, flat_fnames, cam_rots, flat_cuts
+     dbext, entries, "fname, bad, flat_fname, sli_cent, cam_rot, flat_cut", files, badarray, flat_fnames, sli_cents, cam_rots, flat_cuts
      files=strtrim(files)
      nf = N_elements(files)
+
      ;; Read in an image to set up the header
      im = ssgread(files[0], hdr)
      sxaddhist, string('(ssg_flatgen.pro) ', systime(/UTC), ' UT'), hdr
@@ -58,6 +63,14 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
      sxaddpar, hdr, 'PARENTH', getenv("HOST"), ' hostname'
      sxaddpar, hdr, 'PARENTD', cwd, ' current working directory'
      sxaddpar, hdr, 'PARENT', files[0], ' first bias file in directory'
+     flat_sli_cen = mean(sli_cents,/NAN)
+     bad_idx = where(sli_cents ne flat_sli_cen, count)
+     if count gt 0 then begin
+        message, 'WARNING: not all the flats have the same slicer center', /continue
+        sxaddpar, hdr, 'SLI_CEN', flat_sli_cen, ' Average flatfield slicer center'
+     endif else begin
+        sxaddpar, hdr, 'SLI_CEN', flat_sli_cen, ' Uniform flatfield slicer center'
+     endelse
      flat_camrot = mean(cam_rots,/NAN)
      sxaddpar, hdr, 'CAM_ROT', flat_camrot, ' Average flatfield camera rotation'
      
@@ -69,6 +82,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
      err=0
      for i=0,nf-1 do begin
 ;     CATCH, err
+         message, 'Processing ' + type + ' flat ' + files[i], /CONTINUE
         if err ne 0 then begin
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
@@ -90,15 +104,28 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            ;; de-rotation appropriate for this specific image
            ssg_spec_extract, im + edge_mask, ihdr, spec, xdisp, $
                              med_spec=med_spec, med_xdisp=med_xdisp, $
-                             /TOTAL
+                             /AVERAGE
            template = template_create(im, med_spec, med_xdisp)
+; This didn't help POSSION problem
+;           template = template_create(im, spec, xdisp)
 
            ;; Now rotate the template back to the orientation of the
            ;; original images so that we don't smear sharp (bad) features
            ;; in the original images
-           template = rot(template, cam_rots[i], cubic=-0.5)
+           template = rot(template, cam_rots[i], /PIVOT, $
+                          1., nx/2., sli_cents[i], $
+                          cubic=-0.5, missing = !values.f_nan)
 
-           sigma_im = template_statistic(im, template)
+; This made two peaks at around 120 sigma.  I think this is trying to
+; tell me something about Poisson statistics, but I am just being dense!
+;           ;; Make sure template is really close to image in
+;           ;; normalization
+;           template = template*mean(im,/NAN)/mean(template,/NAN)
+
+           sigma_im = template_statistic(im, template);;, /POISSON)
+           ;; Need to get rid of NANs for mark_bad_pix
+           sigma_im[bad_idx] = 0
+
            ;; mark_bad_pix does not return NAN, but rather the number
            ;; of times a pixel is found to be bad as a function of
            ;; size scale
@@ -171,7 +198,9 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
                           med_spec=med_spec, med_xdisp=med_xdisp, $
                           /TOTAL
         template = template_create(med_im, med_spec, med_xdisp)
-        template = rot(template, flat_camrot, cubic=-0.5)
+        template = rot(template, flat_camrot, $
+                       1., nx/2., flat_sli_cen, /PIVOT, $
+                       cubic=-0.5, missing = !values.f_nan)
         stdev = stddev(total_im-template, /NAN)
 
         ;; Replace any remaining suspect pixels in the average image with
@@ -183,8 +212,8 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            sxaddhist, string('(ssg_flatgen.pro) cleaned up ', count, ' pixels'), hdr
         endif
 
-        badidx = where(finite(total_im) eq 0, count)
-        if count gt 0 then message, 'WARNING: ' + string(count) + ' bad pixels found in ' + write_name + ' Maybe you ought to be using the TRIMSEC.', /CONTINUE
+;        badidx = where(finite(total_im) eq 0, total_count)
+;        if count gt 0 then message, 'WARNING: ' + string(count) + ' bad pixels found in ' + write_name + ' Maybe you ought to be using the TRIMSEC.', /CONTINUE
 
         if num_skyflats gt 0 then begin ;; sky flat
            if NOT keyword_set(skyflat_name) then skyflat_name = 'skyflat.fits'
@@ -196,7 +225,9 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            ;; becomes our sky flat
            ssg_spec_extract, total_im, hdr, med_xdisp=med_xdisp, /TOTAL
            total_im = template_create(total_im, med_xdisp)
-           total_im = rot(total_im, flat_camrot, cubic=-0.5)
+           total_im = rot(total_im, flat_camrot, /PIVOT,  $
+                          1., nx/2., flat_sli_cen, $
+                          cubic=-0.5, missing = !values.f_nan)
            sxaddhist, string('(ssg_flatgen.pro) Created slicer response from median cross-disp spectrum'), hdr
            sxaddpar, hdr, 'SKY_CUT', sky_cut, 'cut for normalization'
 
@@ -219,18 +250,27 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
               ;; direction induced by the unavoidable (without lots of
               ;; construction work) bore-siting problem with the flat lamp
               skyflat = normalize(skyflat, sky_cut)
-              bad_idx = where(skyflat le sky_cut)
-              ;; Smooth out the 2D structure in the lamp flat, which
-              ;; is probably dust on the field lens and/or
-              ;; non-uniformities in the CCD.  Soomthing scale is
-              ;; approximately 1/2 a slicer width
-              lamp_im = smooth(total_im / skyflat, ny/20, /edge_truncate)
-              ;; This still has the white light response in it
+              bad_idx = where(skyflat le sky_cut, complement=good_idx)
+              ;; Try to get at the true lamp shape.  Since we have
+              ;; totally smoothed the skyflat in the dispersion
+              ;; direction, any CCD or other 2D cosmetic features,
+              ;; which I will call 'dust' will remain when we do this
+              ;; division: 
+              lamp_and_dust = total_im / skyflat
+              lamp_and_dust[bad_idx] = !values.f_nan
+              ;; To get at the lamp shape, we can smooth out the 2D
+              ;; structure in this image.  Lets use a soomthing scale
+              ;; that is approximately 1/2 a slicer width
+              lamp_im = smooth(lamp_and_dust, ny/20, /NAN)
+              ;; But this still has the white light response in it.
+              ;; Just like the skyflat, we want a lamp_im that is just
+              ;; the cross-dispersion variation
               ssg_spec_extract, lamp_im, hdr, $
                                 lamp_spec, lamp_xdisp, /TOTAL
-              ;; Make a lamp_im that is just cross-dispersion
               lamp_im = normalize(template_create(total_im, lamp_xdisp))
-              lamp_im = rot(lamp_im, flat_camrot, cubic=-0.5)
+              lamp_im = rot(total_im, flat_camrot, /PIVOT,  $
+                            1., nx/2., flat_sli_cen, $
+                            cubic=-0.5, missing = !values.f_nan)
               good_idx = where(skyflat gt sky_cut)
               total_im[good_idx] = total_im[good_idx] / lamp_im[good_idx]
 

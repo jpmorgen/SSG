@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.3 2002/11/12 20:57:07 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.4 2002/12/16 13:43:25 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -23,6 +23,9 @@
 pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
 
 
+  ;; Avoid errors from db stuff about not being able to write in a
+  ;; write-protected data directory
+  cd, '/tmp'
   silent = 1
   if keyword_set(verbose) then silent = 0
   dbclose ;; Just in case
@@ -57,7 +60,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
   camtemp	=	intarr(ngood)
   dewtemp	=	intarr(ngood)
   db_date	= 	strarr(ngood)
-  nday_arr	=	fltarr(ngood)
+  nday_arr	=	dblarr(ngood)
   typecode	=	bytarr(ngood)
   bad		=	intarr(ngood)
   
@@ -74,7 +77,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
      CATCH, err
      if err ne 0 then begin
         message, /NONAME, !error_state.msg, /CONTINUE
-        message, shortfile+ ' is not a recognized SSG FITS file',/CONTINUE
+        message, 'skipping ' + shortfile+ ' which does not a proper raw SSG FITS file',/CONTINUE
      endif else begin
         message,'Checking '+ shortfile, /INFORMATIONAL
         im=readfits(files[i], hdr, SILENT=silent) ; This will raise an error if not FITS
@@ -88,6 +91,39 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
         formatted_nday = string(format='(f11.5)', nday)
 
         ssg_exceptions, im, hdr
+        
+        ;; Check to see if anyone was doing any unauthorized reduction
+        ;; in the raw directory.  The raw FITS headers will be the
+        ;; same, but the filenames will be suspicious.  The only worry
+        ;; is: which comes first--the real data or the processed data?
+        dup_idx = where(abs(nday_arr - nday) le 1E-5, count) 
+        if count ne 0 then begin
+           message, 'WARNING: duplicate nday '+ formatted_nday + ' in ' + indir + ' Checking against known post processing file names' , /CONTINUE
+
+           ;; ADD POST PROCESSING FILE EXTENSIONS OR NAME VARIANTS HERE
+           bogus_files = ['bias', 'comp', 'flat']
+           
+           ;; Check the current file to see if it is the postprocessed
+           ;; one, in which case we just throw it out
+           checkname = strlowcase(shortfile)
+           for bfi = 0,N_elements(bogus_files) - 1 do begin
+              if strpos(checkname, bogus_files[bfi]) ne -1 then $
+                message, 'WARNING: found a post processed "' + bogus_files[bfi] + '" file'
+           endfor
+
+           ;; Now check to see if we already accepted a bogus file
+           checkname = strlowcase(raw_fname(dup_idx))
+           for bfi = 0,N_elements(bogus_files) - 1 do begin
+              if strpos(checkname, bogus_files[bfi]) ne -1 then begin
+                 temp = raw_fname(dup_idx)
+                 raw_fname(dup_idx) = shortfile
+                 shortfile = temp
+                 message, 'WARNING: I seems to have accepted a a post processed "' + bogus_files[bfi] + '" some time back.  Swapping its name (' + shortfile + ') with what appears to be the real raw filename (' + raw_fname(dup_idx) + ').'
+              endif
+           endfor
+           message, 'ERROR: post processing file name ' + raw_fname(dup_idx) + ' or ' + shortfile + ' not recognized.  Please add it to the variable ''bogus_files'' in this program'
+        endif ;; Finding post processing files
+
 
         ;; Setting the image to 0 (or some other scaler) is the flag
         ;; that file should not be added to database
@@ -108,31 +144,31 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
            ndelete = ndelete + 1
         endif 
         if count gt 1 then $
-          message, 'ERROR: duplicate nday '+ formatted_nday + ' found in database' + dbname + ' this should never happen'
+          message, 'ERROR: duplicate nday '+ formatted_nday + ' found in database ' + dbname + ' this should never happen'
         temp=where(nday_arr eq nday, count) 
         if count gt 0 then $
           message, 'ERROR: duplicate nday '+ formatted_nday + ' found in this directory.  You may have to tweak things with the ssg_exceptions.pro'
 
         get_date,today
 
-        raw_dir		(ngood)	= indir
-        raw_fname	(ngood) = shortfile
-        ;;dir		(ngood)	= 
-        ;;fname		(ngood)	= 
-        object		(ngood)	= strtrim(sxpar(hdr, 'OBJECT'))
-        imagetype	(ngood)	= strtrim(sxpar(hdr, 'IMAGETYP'))
-        date		(ngood)	= strtrim(sxpar(hdr, 'DATE-OBS'))
-        time		(ngood)	= strtrim(sxpar(hdr, 'UT'))
-        exptime		(ngood)	= sxpar(hdr, 'EXPTIME')
-        dark		(ngood)	= sxpar(hdr, 'DARKTIME')
-        detector	(ngood)	= strtrim(sxpar(hdr, 'DETECTOR'))
-        hgain		(ngood)	= sxpar(hdr, 'GAIN')
-        dwell		(ngood)	= sxpar(hdr, 'DWELL')
-        hrdnoise	(ngood)	= sxpar(hdr, 'RDNOISE')
-        camtemp		(ngood)	= sxpar(hdr, 'CAMTEMP')
-        dewtemp		(ngood)	= sxpar(hdr, 'DEWTEMP')
-        db_date		(ngood)	= today
-        nday_arr	(ngood)	= sxpar(hdr, 'NDAY')
+        raw_dir		[ngood]  = indir
+        raw_fname	[ngood]  = shortfile
+        ;;dir		[ngood]  = 
+        ;;fname		[ngood]  = 
+        object		[ngood]  = strtrim(sxpar(hdr, 'OBJECT'))
+        imagetype	[ngood]  = strtrim(sxpar(hdr, 'IMAGETYP'))
+        date		[ngood]  = strtrim(sxpar(hdr, 'DATE-OBS'))
+        time		[ngood]  = strtrim(sxpar(hdr, 'UT'))
+        exptime		[ngood]  = sxpar(hdr, 'EXPTIME')
+        dark		[ngood]  = sxpar(hdr, 'DARKTIME')
+        detector	[ngood]  = strtrim(sxpar(hdr, 'DETECTOR'))
+        hgain		[ngood]  = sxpar(hdr, 'GAIN')
+        dwell		[ngood]  = sxpar(hdr, 'DWELL')
+        hrdnoise	[ngood]  = sxpar(hdr, 'RDNOISE')
+        camtemp		[ngood]  = sxpar(hdr, 'CAMTEMP')
+        dewtemp		[ngood]  = sxpar(hdr, 'DEWTEMP')
+        db_date		[ngood]  = today
+        nday_arr	[ngood]  = sxpar(hdr, 'NDAY')
         ;; Typecode takes some guessing, particularly
         ;; differentiating between lamp flats and sky flats.
         ;; Assume type is unkown and see if we end up with

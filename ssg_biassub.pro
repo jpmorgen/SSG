@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biassub.pro,v 1.3 2002/11/21 20:02:26 jpmorgen Exp $
+; $Id: ssg_biassub.pro,v 1.4 2002/12/16 13:44:21 jpmorgen Exp $
 
 ; ssg_biassub Subtract the best bias image from all the (non-bias)
 ; files in the directory
@@ -18,7 +18,7 @@ pro ssg_biassub, indir
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind("typecode>1", $
-                   dbfind("bad<16383", $ ; < is really <=
+                   dbfind("bad<8191", $ ; < is really <=
                           dbfind(string("dir=", indir))))
   dbext, entries, "fname, med_bias, av_bias, stdev_bias, bad, bias_fname", files, med_biases, av_biases, stdev_biases, badarray, bias_fnames
   dbclose

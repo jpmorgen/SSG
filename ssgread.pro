@@ -1,4 +1,4 @@
-; $Id: ssgread.pro,v 1.2 2002/11/12 21:31:34 jpmorgen Exp $
+; $Id: ssgread.pro,v 1.3 2002/12/16 13:44:26 jpmorgen Exp $
 
 ; sshread uses ccdread to get an Stellar SpectroGraph image and
 ; rotates it to the correct orientation for easy spectral extraction
@@ -6,11 +6,12 @@
 ; use the hdr supplied by this routine!  filename can be the image if
 ; you have already read the image in with another routine
 
-function ssgread, fname_or_im, hdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbose, data=data, bias=bias
+function ssgread, fname_or_im, hdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbose, data=data, bias=bias, trimrows=trimrows
 
   ON_ERROR, 2
   silent = 1
   if keyword_set(verbose) then silent = 0
+  if NOT keyword_set(trimrows) then trimrows = 2 
 
   if N_elements(fname_or_im) eq 0 then message, 'ERROR: no filename or image supplied'
   if size(fname_or_im, /TNAME) eq 'STRING' then begin
@@ -29,10 +30,10 @@ function ssgread, fname_or_im, hdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbo
 
   if N_elements(size(im, /DIMENSIONS)) ne 2 then message, 'ERROR: specify a valid FITS filename or a 2D array.'
 
-  asize=size(im)
-  nx=asize[1]
-  ny=asize[2]
+  asize=size(im) & nx=asize[1] & ny=asize[2]
 
+  ;; Add HISTORY first every time we see this file.  The PARENT stuff
+  ;; sticks after the first time
   sxaddhist, string('(ssgread.pro) ', systime(/UTC), ' UT'), hdr
   cd,current=cwd
   temp = sxpar(hdr, 'PARENTH', COUNT=count)
@@ -45,7 +46,39 @@ function ssgread, fname_or_im, hdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbo
   if count eq 0 then $
     sxaddpar, hdr, 'PARENT', filename, ' parent file'
 
-  ;; Flip so blue is to the left, slice 1 is down
+  err = 0
+  CATCH, err
+  if err ne 0 then begin
+     message, /NONAME, !error_state.msg, /CONTINUE
+     message, 'this image is missing some header keywords that would identify it as a McMath-Pierce Stellar Spectrograph CCD image.  I''ll do the best I can, but I am not going to blank out any initial readout rows',/CONTINUE
+  endif else begin
+     trimmed = sxpar(hdr, 'TRIMMED', COUNT=count)
+     if count eq 0 then begin
+        origin = sxpar(hdr, 'ORIGIN')
+        if strtrim(origin) ne 'KPNO-IRAF' then $
+          message, /CONTINUE, 'WARNING: ORIGIN keyword is ' + string(origin) + ' not KPNO-IRAF'
+        test = sxpar(hdr, 'IRAFNAME', count=count)
+        if count eq 0 then $
+          message, /CONTINUE, 'WARNING: No IRAFNAME keyword.'
+        observat = sxpar(hdr, 'OBSERVAT')
+        if strtrim(observat) ne 'NSO' then $
+          message, /CONTINUE, 'WARNING: OBSERVAT keyword is ' + string(observat) + ' not NSO'
+        test = sxpar(hdr, 'PROPID', count=count)
+        if count eq 0 then $
+          message, /CONTINUE, 'WARNING: No PROPID keyword.'
+
+        ;; OK, that is probably enough testing and complaining.  This
+        ;; trimming is done before the rotation
+        if trimrows gt 0 then $
+          im[*,0:trimrows-1] 		= !values.f_nan
+          im[*,ny-trimrows-1:ny-1] 	= !values.f_nan
+        sxaddhist, string('(ssgread.pro) Set TRIMMED first and last readout rows to NAN.'), hdr
+        sxaddpar, hdr, 'TRIMMED', trimrows, 'First and last CCD read rows set to NAN'
+     endif
+  endelse
+  CATCH, /CANCEL
+     
+  ;; Now flip so blue is to the left, slice 1 is down
   err = 0
   CATCH, err
   if err ne 0 then begin
@@ -72,6 +105,13 @@ function ssgread, fname_or_im, hdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbo
   endelse
   CATCH, /CANCEL
 
+  ;; The TRIMSEC keyword could be used to cut out the first couple of
+  ;; rows read, but that gets confusing with the overclock region, so
+  ;; lets just nuke those pixels here
+
+
+  
+
   ;; If /DATA, get non-overclock region 
   if keyword_set (data) then begin
      datasec = strtrim(sxpar(hdr,'DATASEC',COUNT=count))
@@ -93,7 +133,7 @@ function ssgread, fname_or_im, hdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbo
      im = data_im
   endif
 
-  ;; If /BIAS, get non-overclock region 
+  ;; If /BIAS, get overclock region 
   if keyword_set (bias) then begin
      biassec = strtrim(sxpar(hdr,'BIASSEC',COUNT=count))
      if count eq 0 then begin

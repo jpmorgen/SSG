@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_spec_extract.pro,v 1.1 2002/11/12 21:03:30 jpmorgen Exp $
+; $Id: ssg_spec_extract.pro,v 1.2 2002/12/16 13:42:12 jpmorgen Exp $
 
 ; ssg_spec_extract.  Extract dispersion and cross-dispersion spectra
 ; from a SSG file or image/header pair.  Automatically de-rotates
@@ -7,7 +7,7 @@
 
 ;-
 
-pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, sigma_cut=sigma_cut, showplots=showplots, cam_rot=cam_rot, slicer=slicer, blocking=blocking, average=av, total=tot
+pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, sigma_cut=sigma_cut, showplots=showplots, sli_cent=sli_cent, center=center, cam_rot=cam_rot, slicer=slicer, blocking=blocking, average=av, total=tot, title=title
 
   ON_ERROR, 2
   if N_elements(im_or_fname) eq 0 then $
@@ -21,9 +21,7 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
   if NOT keyword_set(av) and NOT keyword_set(tot) then $
     message, 'ERROR: specify /AVERAGE or /TOTAL to determine how the average and median spectra will be returned: e.g. multiplying or dividing by the total number of good pixels'
 
-  asize=size(im)
-  nx=asize[1]
-  ny=asize[2]
+  asize=size(im) & nx=asize[1] & ny=asize[2]
   spec = fltarr(nx)
   xdisp = fltarr(ny)
   med_spec = fltarr(nx)
@@ -34,11 +32,26 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
   xdisp[*] = !values.f_nan
   med_spec[*] = !values.f_nan
   med_xdisp[*] = !values.f_nan
+  ;; Normally we want to have the image pivot in place when derotated
+  ;; so as to avoid any unnecessary translations, but we could choose
+  ;; to center it if we wanted to
+  PIVOT = 1
+  if keyword_set(center) then PIVOT = 0
   if N_elements(cam_rot) eq 0 then $
     cam_rot = sxpar(hdr, 'CAM_ROT') ; 0 if not present
+  if keyword_set(sli_cent) eq 0 then $
+    sli_cent = sxpar(hdr, 'SLI_CENT') ; 0 if not present
+  if sli_cent eq 0 and cam_rot ne 0 then begin
+     message, /CONTINUE, 'WARNING: you want to rotate the image, but have not specified a center (these things should be in the FITS header).  For now I will assume center of image is the center of rotation.'
+     sli_cent = ny/2.
+  endif
+  
+  ;; Camera rotation stuff is easy.  I am not sure if this saves time,
+  ;; but might as well check
+  if cam_rot ne 0 then $
+    im = rot(im, -cam_rot, 1., nx/2., sli_cent, PIVOT=PIVOT, $
+            cubic=-0.5, missing = !values.f_nan)
 
-  ;; Camera rotation stuff is easy
-  im = rot(im, -cam_rot, cubic=-0.5)
 
   ;; Slicer shape is more subtle, since some stretching can occur
   im = ssg_slicer(im, hdr, slicer=slicer, blocking=blocking, /EXTRACT)
@@ -95,6 +108,7 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
 
   !p.multi=[0,2]
   plot,spec, linestyle=solid, $
+       title=title, $
        xtitle='Pixel (dispersion direction)', $
        ytitle=string('Value (', bunit, '), average solid, median dotted'), $
        yrange=[min([spec,med_spec],/NAN), max([spec,med_spec],/NAN)], $
@@ -102,8 +116,9 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
   oplot, med_spec, linestyle=dotted
 
   plot,xdisp, linestyle=solid, $
+       title=title, $
        xtitle='Pixel (cross-dispersion direction)', $
-       ytitle='Value (DN), average solid, median dotted', $
+       ytitle=string('Value (', bunit, '), average solid, median dotted'), $
        yrange=[min([xdisp,med_xdisp],/NAN), max([xdisp,med_xdisp],/NAN)], $
        ystyle=2
               

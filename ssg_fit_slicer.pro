@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_slicer.pro,v 1.1 2002/11/20 16:20:23 jpmorgen Exp $
+; $Id: ssg_fit_slicer.pro,v 1.2 2002/12/16 13:38:53 jpmorgen Exp $
 
 ; ssg_fit_slicer.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -7,7 +7,8 @@
 ;-
 
 pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
-                    width=width, noninteractive=noninteractive, write=write
+                    width=width, noninteractive=noninteractive, write=write, $
+                    noshape=noshape
 
 ;  ON_ERROR, 2
   cd, indir
@@ -18,21 +19,6 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   silent = 1
   if keyword_set(verbose) then silent = 0
 
-  plus = 1
-  asterisk = 2
-  dot = 3
-  diamond = 4
-  triangle = 5
-  square = 6
-  psym_x = 7
-
-  solid=0
-  dotted=1
-  dashed=2
-  dash_dot=3
-  dash_3dot = 4
-  long_dash=5
-
 
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
@@ -40,7 +26,7 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   entries = dbfind(string("dir=", indir))
   dbext, entries, "fname, nday, date, m_slice, slice", files, ndays, dates, m_slicers, slicers
   nf = N_elements(files)
-  jds = ndays + julday(1,1,1990)
+  jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
@@ -55,7 +41,8 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
 
   asize = size(m_slicers)
   if asize[0] lt 2 then message, 'ERROR: improperly formatted database--make this code and ssg_db_create consistent'
-  square_test = sqrt(asize[1])
+  max_npxd = asize[1]
+  square_test = sqrt(max_npxd)
   if square_test ne fix(square_test) then message, 'ERROR: I can only deal with a square array of coefficients'
 
   npxd = 0
@@ -65,7 +52,9 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   repeat begin
      good_idx = where(finite(m_slicers[npxd,*]), count)
      npxd = npxd + 1
-  endrep until count eq 0
+  endrep until count eq 0 or npxd eq max_npxd
+  if npxd eq max_npxd then $
+    message, 'ERROR: first run ssg_get_slicer ' + indir
   npxd =  npxd - 1
   ;; Get the maximum number of dispersion direction coefficients used
   repeat begin
@@ -75,9 +64,15 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   endrep until count eq 0
   npd = npd - 1
 
+
+  if keyword_set(noshape) then begin
+     npxd = 1
+     npd = 0
+     m_slicers[*] = 0
+  endif
   if (npxd eq square_test and npd eq square_test) $
     or (npxd eq 0 and npd eq 0) then $
-    message, 'ERROR: you must first run ssg_get_slicer and let it finish fitting at least one spectrum'
+     message, 'ERROR: specify /NOSHAPE or run ssg_get_slicer and let it finish fitting at least one spectrum.'
 
   ;; Fit everything and put the answer into slicer
   for ipxd=0, npxd-1 do begin
@@ -88,7 +83,7 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
                           title=string('Slicer coefficient ', ipxd, ipd), $
                           xtitle=string('UT time (Hours) ', utdate), $
                           ytitle='Coefficient value', $
-                          xtickunits='Hours')
+                          xtickunits='Hours', noninteractive=noninteractive)
         
         slicers[index,*] = 0
         for ci=0,order do begin
@@ -145,7 +140,7 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
         endelse ;; CATCH if err
      endfor ;; all files in directory
      CATCH, /CANCEL
-  endif
+  endif ;; write
 
   ;; For convenience 
   message, /INFORMATIONAL, 'Directory is set to ' + indir

@@ -1,14 +1,15 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.3 2002/11/12 20:57:45 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.4 2002/12/16 13:43:15 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
 
 ;-
-pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
+pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigma_cut=cutval
   ON_ERROR, 2
   cd, indir
   if NOT keyword_set(outname) then outname = 'bestbias.fits'
+  if NOT keyword_set(badpix) then badpix = 5
 
   silent = 1
   if keyword_set(verbose) then silent = 0
@@ -30,9 +31,7 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
   im = ssgread(files[0], hdr)
   sxaddhist, string('(ssg_biasgen.pro) ', systime(/UTC), ' UT'), hdr
 
-  asize=size(im)
-  nx=asize[1]
-  ny=asize[2]
+  asize=size(im) & nx=asize[1] & ny=asize[2]
   av_im = fltarr(nx,ny)
   count_im = fltarr(nx,ny)
   stack_im = fltarr(nf,nx,ny)
@@ -42,7 +41,7 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
   sxaddpar, hdr, 'PARENT', files[0], ' first bias file in directory'
 
   if keyword_set(TV) then display, av_im, hdr, title = 'Single bias image'
-  if keyword_set(showhists) then window, 6, title='Bias histogram'
+  if keyword_set(showplots) then window, 6, title='Bias histogram'
 
   err=0
   for i=0,nf-1 do begin
@@ -61,9 +60,9 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
         ;; Just in case there was a light leak or something, calculate
         ;; the best bias value from the data section separately from
         ;; the overclock section.
-        data_im = ssgread(im, ihdr)
+        data_im = im
         data_med=median(data_im)
-        stdev=stddev(data_im)    ; This will be improved below
+        stdev=stddev(data_im, /NAN)    ; This will be improved below
         if (abs(data_med - med_biases[i]) gt $
             (stdev + stdev_biases[i])) then begin
            message, /CONTINUE, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(data_med) + '+/-' + string(stdev) + ' median of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' Checking average overclock value'
@@ -78,7 +77,7 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
 
         ;; Now work with the whole image
         sigma_im = (im-data_med)/stdev ; could use template_statistic but stdev already calculated here
-        mask_im = mark_bad_pix(sigma_im)
+        mask_im = mark_bad_pix(sigma_im, cutval=cutval)
         badidx = where(mask_im gt 0, count)
         if count gt 0 then mask_im[badidx] = !values.f_nan
         if keyword_set(TV) then display, im*mask_im, ihdr, /reuse
@@ -93,7 +92,7 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
         endif
 
         ;; Show histogram if user wants it
-        if keyword_set(showhists) then begin
+        if keyword_set(showplots) then begin
            hist = histogram(sigma_im, min=-10, max=10, binsize=1, $
                             reverse_indices=R, /NAN)
            nh = N_elements(hist)
@@ -131,8 +130,10 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
         ;; Average: exclude bad pixels from average calculation by
         ;; setting them to 0 before adding AND keeping track of how
         ;; many good pixels were collected at each location
-        count_im = count_im + 1
         badidx = where(finite(mask_im) eq 0, count)
+        if count gt badpix then $
+          message, 'ERROR: too many bad pixels: ' + string(count)
+        count_im = count_im + 1
         if count gt 0 then begin 
            im[badidx] = 0.
            count_im[badidx] = count_im[badidx] - 1
@@ -166,6 +167,8 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
 
   ;; Replace any remaining suspect pixels in the average image with
   ;; median values
+
+  print, median(med_im), median(av_im)
   badidx = where(abs(med_im - av_im) gt stdev, count)
   if count gt 0 then begin
      av_im[badidx] = med_im[badidx]
@@ -180,8 +183,9 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
         ytitle='fraction of image area'
   display, av_im, hdr, title = 'Best bias image'
 
-  badidx = where(finite(av_im) eq 0, count)
-  if count gt 0 then message, 'ERROR: ' + string(count) + ' bad pixels found in ' + outname
+  badidx = where(finite(av_im) eq 0, av_im_count)
+  badidx = where(finite(data_im) eq 0, data_im_count)
+  if av_im_count ne data_im_count then message, 'ERROR: ' + string(count) + ' bad pixels not present in input images were found in ' + outname
 
 
   ;; Write out the bestbias image

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_create.pro,v 1.5 2002/12/06 17:29:31 jpmorgen Exp $
+; $Id: ssg_db_create.pro,v 1.6 2002/12/16 13:41:04 jpmorgen Exp $
 
 ; ssg_db_create  Creates the SSG database structures from scratch.
 ; Hopfully this won't be used very often!  If necessary, however, this
@@ -21,11 +21,12 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 
   cd, outdir
   
-  nf=3
+  nf=4
   files=strarr(nf)
   files[0] = 'ssg_reduce'
   files[1] = 'oi_6300_fit'
-  files[2] = 'io_oi_analyze'
+  files[2] = 'oi_6300_fit_ext'
+  files[3] = 'io_oi_analyze'
   for i=0,nf-1 do begin
      tmp=findfile(string(files[i],'.dbd'), COUNT=count)
      if count gt 0 and NOT keyword_set(newdbd) then $
@@ -89,7 +90,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 ; ???=slicer shape
 ; 128=IP
 ; 64=extraction, maybe these should be negative....=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
-  printf, lun, 'proc_flag	I*2		processing progress flag, 0=nothing';, 1=
+  printf, lun, 'proc_flag	I*2		processing progress flag, 0=nothing' ;, 1=
   printf, lun, 'gain		R*4		derived gain, electrons per adu'
   printf, lun, 'rdnoise		R*4		derived read noise, electrons'
   printf, lun, 'n_ovrclk	I*2		number of overclock rows'
@@ -108,7 +109,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'sli_cent	R*4		Predicted slicer central pixel in cross-disp direction.'
   printf, lun, 'm_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
   printf, lun, 'cam_rot		R*4		Predicted camera rotation based on fit'
-  printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefsexpressing measured spectral variation of slicer shape.';  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
+  printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefsexpressing measured spectral variation of slicer shape.' ;  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
   printf, lun, 'slice(100)	R*4		Predicted slicer shape for this image'
   printf, lun, 'flat_cut	R*4		flatfield value below which all pixels are set to 0'
   printf, lun, 'cut_val		R*4		Using template image, sigma value above which pixel is assumed to be a cosmic ray hit'
@@ -242,12 +243,12 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 ;  printf, lun, 'cr_vers		sort/index'
 ;  printf, lun, 'spec_vers	sort/index'
 
-  ;; Unfortunately, one pointer cannot point to more than one
-  ;; database.  If I really need to reference back, I'll have to
-  ;; fiddle
-  printf, lun, ' '
-  printf, lun, '#pointers'
-  printf, lun, 'nday              ', files[1]
+;  ;; Unfortunately, one pointer cannot point to more than one
+;  ;; database.  If I really need to reference back, I'll have to
+;  ;; fiddle
+;  printf, lun, ' '
+;  printf, lun, '#pointers'
+;  printf, lun, 'nday              ', files[1]
 
   close, lun
   free_lun, lun
@@ -264,52 +265,28 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'nday		R*8		decimal day since 1990-Jan-01 (midpoint)'
   printf, lun, 'new_spec	I*2		Flag indicating a new spectrum has been generated since last fit'
   printf, lun, 'bad		I*2		bitmap'
+  printf, lun, 'fit_vers	B*1		fit version'
   printf, lun, 'm_dispers(10)	R*4		up to 10 polynomial coefficients describing measured dispersion relation.  Ref to  midpoint '
   printf, lun, 'dispers(10)	R*4		individually fit dispersion (starts with time varying fit to m_dispers'
-   printf, lun, 'wavelen(800)	R*4		wavelength axis (angstroms), no offset'
-   printf, lun, 'spectrum(800)	R*4		bias subtracted, flatfielded, derotated, CR rejected spectrum'
-   printf, lun, 'spec_err(800)	R*4		statistical error on spectrum'
-   printf, lun, 'cross_disp(400)	R*4		bias subtracted, flatfielded, derotated, CR rejected cross-dispersion spectrum'
-   printf, lun, 'cross_err(400)	R*4		statistical error on cross dispersion spectrum'
-   printf, lun, 'med_spec	R*4		median spectral value'
-   printf, lun, 'av_spec		R*4		average spectral value'
-   printf, lun, 'min_spec	R*4		minimum spectral value'
-   printf, lun, 'max_spec	R*4		maximum spectral value'
-   printf, lun, 'med_cross	R*4		median cross dispersion value'
-   printf, lun, 'av_cross	R*4		average cross dispersion value'
-   printf, lun, 'min_cross	R*4		minimum cross dispersion value'
-   printf, lun, 'max_cross	R*4		maximum cross dispersion value'
-   printf, lun, 'm_IP(100)	R*4		10x10 array describing instrument profile.  Like slice shape, reference is midpoint'
-   printf, lun, 'IP(100)		R*4		Predicted IP for this spectrum'
-   printf, lun, 'fit_date	C*10		database update date (yyyy-mm-dd)'
-   printf, lun, 'nfree		I*2		number of free parameters'
-   printf, lun, 'chisq		R*8             chi^2'
-   printf, lun, 'redchisq	R*8             reduced chi^2'
-   printf, lun, 'value(300)	R*8             value       '
-   printf, lun, 'fixed(300)	R*8             fixed       '
-   printf, lun, 'limited(300)	R*8             limited     '    
-   printf, lun, 'limits(300)	R*8             limits      '    
-   printf, lun, 'parname(300)	C*20		parname     '    
-   printf, lun, 'tied(300)	C*80		tied        '    
-   printf, lun, 'vfID(300)	I*2             vfID        '    
-   printf, lun, 'ssgID(300)	I*2             ssgID       '    
-   printf, lun, 'ssggroupID(300)	I*2             ssggroupID  '    
-   printf, lun, 'ssgrwl(300)	R*8             ssgrwl      '    
-   printf, lun, 'ssgowl(300)	R*8             ssgowl      '    
-   printf, lun, 'ssglink(300)	C*80		ssglink     '    
-   printf, lun, 'ssgdop(300)	I*2		ssgdop      '    
-   printf, lun, 'model_spec(800)	R*4		model spectrum'
-   printf, lun, 'mod_stat_err(800) R*4		statistical error bars on model spectrum'
-  printf, lun, 'weighting(800)	R*4		this spectrum multiplies the error bars used for the fit so points far from the line of interest are weighted less'
-  printf, lun, 'cen_weight	R*4		center pixel of weighting function, 0=not a simple V-shaped function'
-  printf, lun, 'med_weight	R*4		median of weighting function'
-  printf, lun, 'av_weight	R*4		average of weighting function'
-  printf, lun, 'min_weight	R*4		min of weighting function'
-  printf, lun, 'max_weight	R*4		max of weighting function'
-  printf, lun, 'weight_vers	B*1		weighting function version'
-  printf, lun, 'fit_vers	B*1		fit version'
-
-
+  printf, lun, 'm_IP(100)	R*4		10x10 array describing instrument profile.  Like slice shape, reference is midpoint'
+  printf, lun, 'IP(100)		R*4		Predicted IP for this spectrum'
+  printf, lun, 'fit_date	C*10		database update date (yyyy-mm-dd)'
+  printf, lun, 'nfree		I*2		number of free parameters'
+  printf, lun, 'chisq		R*8             chi^2'
+  printf, lun, 'redchisq	R*8             reduced chi^2'
+  printf, lun, 'value(200)	R*8             value       '
+  printf, lun, 'perror(200)	R*8             value error bar'
+  printf, lun, 'fixed(200)	R*8             fixed       '
+  printf, lun, 'llimited(200)	I*2             limited     '    
+  printf, lun, 'rlimited(200)	I*2             limited     '    
+  printf, lun, 'llimits(200)	R*8             limits      '    
+  printf, lun, 'rlimits(200)	R*8             limits      '    
+  printf, lun, 'vfID(200)	I*2             vfID        '    
+  printf, lun, 'ssgID(200)	I*2             ssgID       '    
+  printf, lun, 'ssggroupID(200)	I*2             ssggroupID  '    
+  printf, lun, 'ssgrwl(200)	R*8             ssgrwl      '    
+  printf, lun, 'ssgowl(200)	R*8             ssgowl      '    
+  printf, lun, 'ssgdop(200)	I*2		ssgdop      '    
   printf, lun, ' '
   printf, lun, '#formats'
   printf, lun, 'nday		F11.5		DECIMAL,DAY,>90/01/01'
@@ -329,6 +306,49 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'fit_vers	sort/index'
   printf, lun, 'nfree		sort/index'
   printf, lun, 'chisq		sort/index'
+  printf, lun, 'redchisq	sort/index'
+  printf, lun, 'fit_vers	sort/index'
+
+  ;; Unfortunately, one pointer cannot point to more than one
+  ;; database.  Furthermore, the databases have to have the same
+  ;; entries.  For the text extension if the fitting, this works
+  ;; fine.  For getting back to the reduced, I have to fiddle.
+
+  printf, lun, ' '
+  printf, lun, '#pointers'
+  printf, lun, 'nday              ', files[2]
+
+  close, lun
+  free_lun, lun
+
+  ;; FITTING extension DATABASE (mostly text but also any new features)
+  openw, lun, string(files[2], '.dbd'), /get_lun
+  printf, lun, '#title'
+  printf, lun, 'Io [OI] Spectral Fitting Database (extension)'
+  printf, lun, ' '
+  printf, lun, '#maxentries'
+  printf, lun, '6000'
+  printf, lun, ' '
+  printf, lun, '#items'
+  printf, lun, 'nday		R*8		decimal day since 1990-Jan-01 (midpoint)'
+  printf, lun, 'parname(200)	C*20		parname     '    
+  printf, lun, 'tied(200)	C*80		tied     '    
+;  printf, lun, 'weighting(800)	R*4		this spectrum multiplies the error bars used for the fit so points far from the line of interest are weighted less'
+;  printf, lun, 'cen_weight	R*4		center pixel of weighting function, 0=not a simple V-shaped function'
+;  printf, lun, 'med_weight	R*4		median of weighting function'
+;  printf, lun, 'av_weight	R*4		average of weighting function'
+;  printf, lun, 'min_weight	R*4		min of weighting function'
+;  printf, lun, 'max_weight	R*4		max of weighting function'
+;  printf, lun, 'weight_vers	B*1		weighting function version'
+
+
+  printf, lun, ' '
+  printf, lun, '#formats'
+  printf, lun, 'nday		F11.5		DECIMAL,DAY,>90/01/01'
+
+  printf, lun, ' '
+  printf, lun, '#index'
+  printf, lun, 'nday		sort/index'
   printf, lun, 'cen_weight	sort/index'
   printf, lun, 'med_weight	sort/index'
   printf, lun, 'av_weight	sort/index'
@@ -342,7 +362,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   ;; fiddle
   printf, lun, ' '
   printf, lun, '#pointers'
-  printf, lun, 'nday              ', files[0]
+  printf, lun, 'nday              ', files[1]
 
   close, lun
   free_lun, lun
@@ -351,7 +371,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   ;; This is basically Melanie's database right now.  I will probably
   ;; want to add additional columns to handle other datasets that I
   ;; will be fiddling with
-  openw, lun, string(files[2], '.dbd'), /get_lun
+  openw, lun, string(files[3], '.dbd'), /get_lun
   printf, lun, '#title'
   printf, lun, 'Io [OI] Analysis Database'
   printf, lun, ' '
@@ -512,7 +532,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'ra                sort/index'
   printf, lun, 'dec               sort/index'
   printf, lun, 'line              index'
-             
+  
   ;; Unfortunately, one pointer cannot point to more than one
   ;; database.  If I really need to reference back, I'll have to
   ;; fiddle
