@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_extract.pro,v 1.5 2003/06/11 18:05:57 jpmorgen Exp $
+; $Id: ssg_extract.pro,v 1.6 2003/06/12 14:31:42 jpmorgen Exp $
 
 ; ssg_extract extract 1D spectra from a directory full of SSG images.
 ; For removing cosmic ray hits, assumes that the cross-dispersion
@@ -347,8 +347,6 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
      dbclose
 
      ;; Now let's initialize the fitting database
-     oldpriv=!priv
-     !priv = 2
      dbopen, fdbname[0], 0
 
      ;; Trying to use fancy list-building code
@@ -424,5 +422,8 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
      ;; For convenience 
      message, /INFORMATIONAL, 'Directory is set to ' + indir
 
+     ;; Clean up after any messes I may have created in processing
+     ;; this directory (a bit of a lazy hack)
+     close, /all
 end
 
