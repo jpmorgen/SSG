@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatfield.pro,v 1.1 2002/11/12 21:26:00 jpmorgen Exp $
+; $Id: ssg_flatfield.pro,v 1.2 2002/11/21 20:04:02 jpmorgen Exp $
 
 ; ssg_flatfield Divide comp and object images by flatfield, recording
 ; flatfield name in database
@@ -96,7 +96,7 @@ pro ssg_flatfield, indir, flatname=flatname, flat_cut=flat_cut, tv=tv
 ;         endif
 
         message, /INFORMATIONAL, 'Writing ' + files[i]
-        if keyword_set(TV) then display, im, hdr, /reuse, /crx
+        if keyword_set(TV) then display, im, hdr, /reuse
         writefits, files[i], im, hdr
 
      endelse
