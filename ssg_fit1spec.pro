@@ -1,6 +1,6 @@
 ;+
 
-; $Id: ssg_fit1spec.pro,v 1.4 2002/12/09 23:03:41 jpmorgen Exp $
+; $Id: ssg_fit1spec.pro,v 1.5 2002/12/16 13:37:43 jpmorgen Exp $
 
 ; ssg_fit1spec.pro
 
@@ -47,7 +47,7 @@
 ;			3 = weak solar lines
 ;			4 = Strong atmospheric lines (or I might want
 ;			to devide these up by species)
-;			5 = weak atmospheric lines
+;			5 = atmospheric emission lines
 ;			6 = water vapor lines
 ;			7 = unknown/unspecified
 ;		     All (4) parameters of a Voigt have this set for
@@ -695,6 +695,44 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                 modpar, idx, params, parinfo
            endif ;; Change dispersion relation
 
+           ;; Change continuum polynomial order 
+           if answer eq 'O' then begin
+              for ki = 0,1000 do flush_input = get_kbrd(0)
+              repeat begin
+                 message, /CONTINUE, 'Enter new continuum polynomial order (9 recalculates continuum from spectral median [' + string(N_continuum-1) + ']'
+                 answer = get_kbrd(1)
+                 for ki = 0,1000 do flush_input = get_kbrd(0)
+              endrep until (byte(answer) ge 48 and byte(answer) le 57) $
+                or  byte(answer) eq 10
+              if byte(answer) ne 10 then N_continuum = (fix(answer)+1) mod 10
+              p = 0.d
+              cont_idx = where(parinfo.ssgID eq ssgid_cont, old_N_continuum)
+              ;; Add any param/parinfo entries
+              while old_N_continuum lt N_continuum do begin
+                 tparinfo = ssg_init_parinfo()
+                 tparinfo[0].limits = [double(p - 1.d), $
+                                       double(p + 1.d)]
+                 tparinfo[0].parname = $
+                   string(format='("Cont. Poly Coef ", i3)', old_N_continuum)
+                 tparinfo[0].vfID = vfid_cont
+                 tparinfo[0].ssgID = ssgid_cont
+                 params = [params, p]
+                 parinfo = [parinfo, tparinfo]
+                 cont_idx = where(parinfo.ssgID eq ssgid_cont, old_N_continuum)
+              endwhile
+              ;; Delete any param/parinfo entries
+              while old_N_continuum gt N_continuum do begin
+                 parinfo[cont_idx[old_N_continuum-1]].ssgID = -ssgid_cont
+                 cont_idx = where(parinfo.ssgID eq ssgid_cont, old_N_continuum)
+              endwhile
+              good_idx = where(parinfo.ssgID ne -ssgid_cont, count)
+              temp = params[good_idx] & params = temp
+              temp = parinfo[good_idx] & parinfo = temp
+
+
+              
+           endif ;; Change continuum polynomial order 
+
            ;; Remove lines
            if answer eq 'R' then begin
               message, /CONTINUE, 'Line lists (only S is case sensitive):'
@@ -1050,7 +1088,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                        tparinfo[1].limits  = [0.005d, 0.3d]
                        tparinfo[2].limited = [1,1]
                        tparinfo[2].limits  = [0.d, 0.25d]
-                       tparinfo[3].limited = [0,1]
+                       tparinfo[3].limited = [1,0]
                        tparinfo[3].limits  = [0,2.d]
                        tparinfo.ssggroupID[*] = 5
                        tparinfo[0].ssgdop = 0
@@ -1070,23 +1108,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
            endif ;; Adding lines menu of modifying parameters
 
            ;; Last thing: display parameters
-           message, 'Parameter values', /CONTINUE
-           format = '(a28, a11, a7, a9, a12, a20)'
-           print, string(format=format, "Parameter", "Value", "Fixed", "Limited", "Limits", "Tied") ;, "MPPRINT"
-           format = '("P(", i3, ") ", a22, f11.4, i4, "  [", i1, ",", i1, "]  ", ' + $
-             '" [", f9.4, ",", f9.4, "] ", a)'
-           for ip = 0, N_elements(params)-1 do begin
-              print, string(format=format, $
-                            ip, $
-                            parinfo[ip].parname	, $
-                            params [ip]     	, $
-                            parinfo[ip].fixed	, $
-                            parinfo[ip].limited[0], $
-                            parinfo[ip].limited[1], $
-                            parinfo[ip].limits [0], $
-                            parinfo[ip].limits [1], $
-                            parinfo[ip].tied)        
-           endfor ;; Displaying parameters
+           ssg_display_params, params, parinfo
            ;; Reset answer so it doesn't trigger other menus
            answer = ''
         endif ;; Modify parameters 'M'
@@ -1108,7 +1130,20 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
               params = mpfitfun('io_spec', pix_axis, spec, err_spec, $
                                 params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                                 PARINFO=parinfo, maxiter=maxiter, $
-                                BESTNORM=chisq, PERROR=perrors)
+                                BESTNORM=chisq, PERROR=perrors, STATUS=status)
+
+              ssg_display_params, params, parinfo
+              message, 'MPFITFUN returned STATUS ' + string(status), /CONTINUE
+              io_idx = where(parinfo.ssggroupID eq 1, count)
+              if count eq 0 then begin
+                 message, /continue, 'WARNING: No Io parameters'
+              endif else begin
+                 dop_idx = where(parinfo.ssgID eq ssgid_dop and $
+                                 parinfo.ssgdop eq id_Io_dop)
+                 message, 'Io ephemeris Doppler shift is ' + string(deldots[0]) + ' measured is ' + string(params[dop_idx[0]]), /CONTINUE
+              endelse
+              if status eq 5 then $
+                message, 'WARNING: STATUS 5 menas MPFITFUN failed to converge after MAXITER (' + string(maxiter) + ') iterations', /CONTINUE
            endelse
            CATCH, /CANCEL
            did_fit = 1
