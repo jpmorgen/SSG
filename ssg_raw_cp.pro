@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_raw_cp.pro,v 1.2 2002/10/28 19:57:44 jpmorgen Exp $
+; $Id: ssg_raw_cp.pro,v 1.3 2002/11/12 20:57:20 jpmorgen Exp $
 
 ; ssg_raw_cp.  Copies ssg FITS files from indir to outdir.  Only
 ; copies files that are registered as good files in the database (see
@@ -52,29 +52,28 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         message, 'skipping ' + shortfile, /CONTINUE
      endif else begin
         message,'Checking file '+ shortfile, /INFORMATIONAL
-        im=readfits(files[i], hdr, SILENT=silent) ; This will raise an error if not FITS
+        im=ssgread(files[i], hdr) ; This will raise an error if not FITS
 
-        nday = ssg_get_nday(hdr)
-        formatted_nday = string(format='(f11.5)', nday)
+        nday = ssg_get_nday(hdr, formatted=formatted_nday)
 
         entries[i] = where_nday_eq(nday, count=count, SILENT=silent)
         ;; These errors are caught by the code above and the files are skipped
         if count eq 0 then message, 'WARNING: no entry for ' + shortfile + ' nday = '+ formatted_nday + ' found in ' + dbname + '.  Did you run ssg_db_init ' + indir
         if count gt 1 then message, 'ERROR: Duplicate nday = ' + formatted_nday + ' in ' + dbname + ' database.  This should never happen'
 
+        ;; In case there is a name change or the like.
+        ssg_exceptions, im, hdr
+
+        dbext, entries[i], 'db_date, typecode', db_date, typecode
+
         sxaddhist, string('(ssg_raw_cp.pro) ', systime(/UTC), ' UT'), hdr
+        sxaddhist, string('(ssg_raw_cp.pro) Read in RAWFILE, got proper NDAY, will write SSGFILE'), hdr
         sxaddpar, hdr, 'RAWFILE', files[i], 'Full path to raw SSG file'
         sxaddpar, hdr, 'PARENT', files[i], 'Parent file'
         sxaddpar, hdr, 'SSGFILE', shortfile, 'Reduced filename'
-        dbext, entries[i], 'db_date, typecode', db_date, typecode
+
         sxaddpar, hdr, 'DB_DATE', db_date[0], 'FIRST database entry date (yyyy-mm-dd UT)'
-        sxaddpar, hdr, 'TYPECODE', uint(typecode[0]), '0=bias,1=dark,2=comp,3=flat,4=sky flat,5=object'
-
-        ;; rotate image to proper orientation
-        im = ssgread(im, hdr)
-
-        ;; In case there is a name change or the like.
-        ssg_exceptions, im, hdr
+        sxaddpar, hdr, 'TYPECODE', fix(typecode[0]), '0=bias,1=dark,2=comp,3=flat,4=sky flat,5=object'
 
         shortfile = sxpar(hdr, 'SSGFILE')
         files[i] = shortfile
@@ -97,11 +96,14 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
   CATCH, /CANCEL
   dbclose
 
+  if ngood eq 0 then message, 'ERROR: no files copied, database not updated'
   good_files = strarr(ngood)
   dbdir = strarr(ngood)
-  dbdir[*] = strarr(ngood)
+  dbdir[*] = outdir
   good_entries = intarr(ngood)
-  good_entries[*] = entries[where(entries ne -1)]
+  good_idx = where(entries ne -1)
+  good_entries[*] = entries[good_idx]
+  good_files[*] = files[good_idx]
 
   oldpriv=!priv
   !priv = 2

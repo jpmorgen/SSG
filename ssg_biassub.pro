@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biassub.pro,v 1.1 2002/10/25 21:26:13 jpmorgen Exp $
+; $Id: ssg_biassub.pro,v 1.2 2002/11/12 20:57:57 jpmorgen Exp $
 
 ; ssg_biassub Subtract the best bias image from all the (non-bias)
 ; files in the directory
@@ -8,7 +8,7 @@
 
 pro ssg_biassub, indir
 
-;  ON_ERROR, 2
+  ON_ERROR, 2
   cd, indir
 
   silent = 1
@@ -29,40 +29,47 @@ pro ssg_biassub, indir
 
   err = 0
   for i=0,nf-1 do begin
-;     CATCH, err
+     CATCH, err
      if err ne 0 then begin
         message, /NONAME, !error_state.msg, /CONTINUE
         message, 'skipping ' + files[i], /CONTINUE
      endif else begin
         im = ssgread(files[i], hdr) ; Make sure image is in proper orientation
+        biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
+        if count ne 0 then message, 'ERROR: bias frame ' + biasfile+ ' has already been subtracted'
+
         sxaddhist, string('(ssg_biassub.pro) ', systime(/UTC), ' UT'), hdr
 
-        bias=readfits(bias_fnames[i], bhdr, SILENT=silent)
-
+        ;; Read in bestbias image
+        bias=ssgread(bias_fnames[i], bhdr)
         if N_elements(bias) ne N_elements(im) then $
           message, 'ERROR: ' + bias_fnames[i] + ' and ' + files[i] + ' are not the same size'
+        
+        ;; Use the best bias's overclock region as a standard by which
+        ;; to shift all the other file
+        bestbias_ocr=ssgread(bias_fnames[i], bhdr, /BIAS)
+        ;; There had better not be any NANs in the bestbias OCR, but
+        ;; just in case....
+        av_bestbias_ocr = mean(bestbias_ocr, /NAN)
+        stdev_bestbias_ocr = stddev(bestbias_ocr, /NAN)
 
-        biassec = strtrim(sxpar(bhdr,'BIASSEC',COUNT=count))
-        if count eq 0 then message, 'ERROR: no BIASSEC keyword in FITS header'
-        toks=strsplit(biassec,'[:,]')
-        if N_elements(toks) ne 4 then message, 'ERROR: unknown BIASSEC string format'
-        coords=strsplit(biassec,'[:,]',/extract)
-        coords = coords - 1     ; Translate into IDL array reference
-
-        av_bias_ocr = total(bias[coords[0]:coords[1], coords[2]:coords[3]])/ $
-                      ((coords[1]-coords[0])*(coords[3]-coords[2]))
-        stdev_bias_ocr = stddev(im[coords[0]:coords[1], coords[2]:coords[3]],/NAN)
-
-        delta = av_biases[i] - av_bias_ocr
-        if abs(delta) gt stdev_biases[i]+stdev_bias_ocr then begin
+        delta = av_biases[i] - av_bestbias_ocr
+        ;; Only shift if we have reached some sort of threshold value
+        if abs(delta) gt stdev_biases[i]+stdev_bestbias_ocr then begin
            im = im - delta
-           sxaddhist, string('(ssg_biassub.pro) ', systime(/UTC), ' UT'), hdr
-           message, /INFORMATIONAL, 'Shifting '+ files[i] + ' by ' + string(delta) + ' DN to agree with best bias image.'
-           sxaddhist, string(format='("(ssg_biassub.pro) shifted by", f6.3, " DN")', -delta), hdr
+           message, /INFORMATIONAL, 'Shifting '+ files[i] + ' by ' + string(-delta) + ' DN to agree with ' + bias_fnames[i]
+           sxaddhist, string(format='("(ssg_biassub.pro) shifted by ", f6.2, " DN")', -delta), hdr
         endif
         im = im - bias
-        sxaddhist, "(ssg_biassub.pro) subtracted file given in BIASNAME keyword", hdr
+        sxaddhist, "(ssg_biassub.pro) subtracted file given in BIASFILE keyword", hdr
         sxaddpar, hdr, 'BIASFILE', bias_fnames[i], 'Bias frame subtracted'
+        
+        ;; GAIN should be here if ssg_db_init worked.  Should be
+        ;; modified by external procs (e.g. ssg_adj_gain) if determine
+        ;; gain should be different than NSO/KPNO supplied value
+        gain=sxpar(hdr, 'GAIN')  
+        sxaddhist, "(ssg_biassub.pro) Converted DN to electrons using GAIN keyword", hdr
+        sxaddpar, hdr, 'BUNIT', 'ELECTRONS', 'Pixel units'
 
         message, /INFORMATIONAL, 'Writing ' + files[i]
         writefits, files[i], im, hdr

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.2 2002/10/15 20:41:52 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.3 2002/11/12 20:57:07 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -20,13 +20,14 @@
 ; tree.
 
 ;-
-pro ssg_db_init, indir, APPEND=append, DELETE=delete
+pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
 
 
+  silent = 1
+  if keyword_set(verbose) then silent = 0
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
-  ;; Find all files in the directory.  Let the FITS header determine
-  ;; if it is a raw file or not.
+  ;; Find all files in the directory.
   message,'looking for FITS file in '+ indir, /CONTINUE
   files = findfile(string(indir, '/*'))
   if N_elements(files) eq 1 then begin
@@ -34,17 +35,17 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete
        message, 'No files found in '+indir 
   endif
 
+
   ;; This ends up being an excercise in text editing, so make it easy
   ;; for future changes...
   ngood = 1000
   delete_list	=	intarr(ngood)
-  nday_arr	=	fltarr(ngood)
   raw_dir	= 	strarr(ngood)
   raw_fname	= 	strarr(ngood)
   dir		= 	strarr(ngood)
   fname		= 	strarr(ngood)
   object	= 	strarr(ngood)
-  imagetyp	= 	strarr(ngood)
+  imagetype	= 	strarr(ngood)
   date		= 	strarr(ngood)
   time		= 	strarr(ngood)
   exptime	= 	fltarr(ngood)
@@ -56,161 +57,120 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete
   camtemp	=	intarr(ngood)
   dewtemp	=	intarr(ngood)
   db_date	= 	strarr(ngood)
+  nday_arr	=	fltarr(ngood)
+  typecode	=	bytarr(ngood)
+  bad		=	intarr(ngood)
   
   err=0
   ngood = 0
   ndelete = 0
+  redflag=0
   ;; Open database for inspection only.  
   dbopen, dbname, 0
   for i=0,N_elements(files)-1 do begin
+     shortfile= strmid(files[i], $
+                       strpos(files[i], '/', /REVERSE_SEARCH) + 1)
+
      CATCH, err
      if err ne 0 then begin
-        print, !error_state.name
-        message,'skipping '+ files[i]+ ' is not a recognized SSG FITS',/CONTINUE
-        CATCH, /CANCEL          ; Catching gets a little tricky
+        message, /NONAME, !error_state.msg, /CONTINUE
+        message, shortfile+ ' is not a recognized SSG FITS file',/CONTINUE
      endif else begin
-        message,'Checking '+ files[i], /CONTINUE
-        im=readfits(files[i], hdr) ; This will raise an error if not FITS
-        CATCH, /CANCEL          ; Catching gets a little tricky
-
-        ;; DATE stuff
-        ;; The database is keyed off of nday, so this is very
-        ;; important to get right.
-
-; Newer files:
-; DATE-OBS= '2002-03-17T01:42:42'  /  Y2K compliant (yyyy-mm-ddThh:mm:ss)
-; UT      = '01:42:42          '  /  universal time (start of
-; exposure)
-;
-; Older files:
-; DATE-OBS= '14/07/94          '  /  date (dd/mm/yy) of obs.
-; UT      = '06:24:16.00       '  /  universal time
-; 
-
-        rawdate_obs = strtrim(sxpar(hdr,'DATE-OBS',COUNT=count))
-        ;; Just in case HEASARC conventions of _ instead of - are
-        ;; being followed
-        if count eq 0 then begin
-           rawdate_obs = sxpar(hdr,'DATE_OBS',COUNT=count)
-           sxaddpar, hdr, 'DATE-OBS', rawdate_obs
+        message,'Checking '+ shortfile, /INFORMATIONAL
+        im=readfits(files[i], hdr, SILENT=silent) ; This will raise an error if not FITS
+        nday = sxpar(hdr, 'NDAY', count=count)
+        if count gt 0 then begin
+           message, 'WARNING: file ' + shortfile + ' has already been reduced.', /CONTINUE
+           redflag=1
         endif
 
-        raw_ut = strtrim(sxpar(hdr,'UT',COUNT=count))
-
-        datearr=strsplit(rawdate_obs,'-T:',/extract)
-        if N_elements(datearr) eq 6 then begin ; New Y2K convention
-           temp=strsplit(strtrim(rawdate_obs),'T',/extract)
-           if NOT strcmp(temp[1], raw_ut) then $
-             message, /CONTINUE, 'WARNING: DATE-OBS and UT times do not agree, using DATE-OBS version'
-           juldate, float(datearr), rawjd 
-        endif else begin        ; Old date format
-           datearr=strsplit(rawdate_obs,'/',/extract)
-           if N_elements(datearr) ne 3 then $
-             message, 'WARNING: malformed DATE-OBS or DATE_OBS keyword'
-           timearr=strsplit(raw_ut,':',/extract)
-           if N_elements(timearr) ne 3 then $
-             message, 'WARNING: malformed UT keyword'
-           temp=fltarr(6)
-           temp[0:2]=datearr[*]
-           temp[3:5]=timearr[*]
-           juldate, float(temp), rawjd
-           rawdate_obs = date_conv(rawjd, 'FITS')
-           ;; Even though this doesn't get written to disk, put into
-           ;; header for code below
-           sxaddpar, hdr, 'DATE-OBS', rawdate_obs
-        endelse
-
-        darktime = sxpar(hdr, 'DARKTIME',COUNT=count)
-        if count eq 0 then begin
-           message, /CONTINUE, 'WARNING: DARKTIME keyword not found: unlikely to be an SSG image'
-           darktime = sxpar(hdr, 'EXPTIME')
-           if count eq 0 then begin
-              message, /CONTINUE, 'WARNING: EXPTIME keyword not found: unlikely to be an SSG image.  Using begining of the exposure for nday reference'
-              darktime = 0
-           endif
-        endif
-
-        ;; DEFINITION OF NDAY.  Rawjd is derived above from UT time
-        ;; and date of _start_ of exposure.  Nday is going to be
-        ;; related to the Julian day at the _midpoint_ of the
-        ;; exposure.
-        ;;
-        ;; Julian date would be a fine reference, but they are a bit
-        ;; large at this point (start at 1/1/4713 BC), so define our
-        ;; own system, before which none of our observations were
-        ;; recorded.  Someone has beat us to this idea, by making
-        ;; reduced Julian day, which is the output of some handy
-        ;; ASTROLIB functions.  Reduced Julian days start on
-        ;; 11/16/1858 (JD=2400000), which is still a little large for
-        ;; us at this point.
-
-        ;; So, Let's define our nday=0 to be 1/1/1990 = JD 2447893
-
-        ;; Note, julian days begin at noon.  Also, IDL julday, though
-        ;; handy as a function, returns real Julian Day.  ASTROLIB's
-        ;; juldate returns reduced Julian day, which is JD-2400000, or
-        ;; Julian day starting from 
-        nday = rawjd + (darktime/2.)/3600./24. - (julday(1,1,1990)-2400000.)
-
-        ;; This is not the "real" place for adding NDAY to the FITS
-        ;; header--I am just using it to pass info to ssg_exceptions
-        sxaddpar, hdr, 'NDAY', nday, 'Decimal days of obs. midpoint since 1990-1-1T00:00:00 UT'
+        nday = ssg_get_nday(hdr, /REGENERATE)
+        formatted_nday = string(format='(f11.5)', nday)
 
         ssg_exceptions, im, hdr
-        
+
         ;; Setting the image to 0 (or some other scaler) is the flag
         ;; that file should not be added to database
-        if N_elements(im) gt 1 then begin
+        if N_elements(im) le 1 then $
+          message, 'WARNING: no image found for ' + shortfile
+        if nday le 0 then $
+          message, 'WARNING: nday = ' + formatted_nday + ' for ' + shortfile
 
-           ;; We have a genuine image to add to or reset in the
-           ;; database.  Also check for duplicates in database and in
-           ;; other files we are adding this time around.
+        ;; We have a genuine image to add to or reset in the database.
+        ;; Also check for duplicates in database and in other files we
+        ;; are adding this time around.
 
-           
-           re_init = where_nday_eq(nday, COUNT=count)
-           formatted_nday = string(format='(f11.5)', nday)
-           if count eq 1 then begin
-              message, /CONTINUE, 'WARNING: nday ' + formatted_nday + ' will be deleted from ' + dbname + ' database in preparation to adding it afresh'
-              delete_list(ndelete) = re_init
-              ndelete = ndelete + 1
-           endif 
-           if count gt 1 then $
-             message, 'ERROR: duplicate nday '+ formatted_nday + ' found in database' + dbname + ' this should never happen'
-           temp=where(nday_arr eq nday, count) 
-           if count gt 0 then $
-             message, 'ERROR: duplicate nday '+ formatted_nday + ' found in this directory.  You may have to tweak things with the ssg_exceptions.pro'
+        message, shortfile + ' seems to be worth adding to ' + dbname, /INFORMATIONAL
+        re_init = where_nday_eq(nday, COUNT=count,SILENT=silent)
+        if count eq 1 then begin
+           message, /CONTINUE, 'WARNING: entry for nday = ' + formatted_nday + ' needs to be deleted from the ' + dbname + ' database to reinitialize ' + shortfile
+           delete_list(ndelete) = re_init
+           ndelete = ndelete + 1
+        endif 
+        if count gt 1 then $
+          message, 'ERROR: duplicate nday '+ formatted_nday + ' found in database' + dbname + ' this should never happen'
+        temp=where(nday_arr eq nday, count) 
+        if count gt 0 then $
+          message, 'ERROR: duplicate nday '+ formatted_nday + ' found in this directory.  You may have to tweak things with the ssg_exceptions.pro'
 
-           get_date,today
+        get_date,today
 
-           raw_dir	(ngood)	= indir
-           raw_fname	(ngood) = files(i)
-           ;;dir	(ngood)	= 
-           ;;fname	(ngood)	= 
-           object	(ngood)	= sxpar(hdr, 'OBJECT')
-           imagetyp	(ngood)	= sxpar(hdr, 'IMAGETYP') 
-           date		(ngood)	= sxpar(hdr, 'DATE-OBS')
-           time		(ngood)	= sxpar(hdr, 'UT')
-           exptime	(ngood)	= sxpar(hdr, 'EXPTIME')
-           dark		(ngood)	= sxpar(hdr, 'DARKTIME')
-           detector	(ngood)	= sxpar(hdr, 'DETECTOR')
-           hgain	(ngood)	= sxpar(hdr, 'GAIN')
-           dwell	(ngood)	= sxpar(hdr, 'DWELL')
-           hrdnoise	(ngood)	= sxpar(hdr, 'RDNOISE')
-           camtemp	(ngood)	= sxpar(hdr, 'CAMTEMP')
-           dewtemp	(ngood)	= sxpar(hdr, 'DEWTEMP')
-           db_date	(ngood)	= today
-           nday_arr	(ngood)	= sxpar(hdr, 'NDAY')
+        raw_dir		(ngood)	= indir
+        raw_fname	(ngood) = shortfile
+        ;;dir		(ngood)	= 
+        ;;fname		(ngood)	= 
+        object		(ngood)	= strtrim(sxpar(hdr, 'OBJECT'))
+        imagetype	(ngood)	= strtrim(sxpar(hdr, 'IMAGETYP'))
+        date		(ngood)	= strtrim(sxpar(hdr, 'DATE-OBS'))
+        time		(ngood)	= strtrim(sxpar(hdr, 'UT'))
+        exptime		(ngood)	= sxpar(hdr, 'EXPTIME')
+        dark		(ngood)	= sxpar(hdr, 'DARKTIME')
+        detector	(ngood)	= strtrim(sxpar(hdr, 'DETECTOR'))
+        hgain		(ngood)	= sxpar(hdr, 'GAIN')
+        dwell		(ngood)	= sxpar(hdr, 'DWELL')
+        hrdnoise	(ngood)	= sxpar(hdr, 'RDNOISE')
+        camtemp		(ngood)	= sxpar(hdr, 'CAMTEMP')
+        dewtemp		(ngood)	= sxpar(hdr, 'DEWTEMP')
+        db_date		(ngood)	= today
+        nday_arr	(ngood)	= sxpar(hdr, 'NDAY')
+        ;; Typecode takes some guessing, particularly
+        ;; differentiating between lamp flats and sky flats.
+        ;; Assume type is unkown and see if we end up with
+        ;; something
+        typecode(ngood) = 255
+        if strcmp(imagetype(ngood), 'zero', 4, /fold_case) then $
+          typecode(ngood) = 0
+        if strcmp(imagetype(ngood), 'dark', 4, /fold_case) then $
+          typecode(ngood) = 1
+        if strcmp(imagetype(ngood), 'comp', 4, /fold_case) then $
+          typecode(ngood) = 2
+        if strcmp(imagetype(ngood), 'flat', 4, /fold_case) then begin
+           typecode(ngood) = 3
+           if (strpos(strlowcase(object(ngood)), 'sky') ne -1) then $
+             typecode(ngood) = 4
+        endif
+        if strcmp(imagetype(ngood), 'object', 6, /fold_case) then begin
+           typecode(ngood) = 5
+           if (strpos(strlowcase(object(ngood)), 'sky flat') ne -1) then $
+             typecode(ngood) = 4
+        endif
+        if typecode(ngood) eq 255 then $
+          message, 'WARNING: unknown IMAGETYP keyword ' + imagetype(ngood) + ' Please make a typecode for this', /CONTINUE
+        bad		(ngood) = sxpar(hdr, 'SSG_BAD')
+        ngood = ngood + 1
 
-           ngood = ngood + 1
-
-        endif ;; a real image
      endelse ;; CATCH if err
   endfor ;; all files in directory
-  dbclose ;; 
+  CATCH, /CANCEL
+  dbclose
 
   oldpriv=!priv
 
   ON_ERROR, 2
+
+  if redflag ne 0 and NOT keyword_set(nonraw) then begin 
+     message, 'ERROR: Reinitializing the database using reduced files can lead to unexpected results.  I recommend you always start from raw files and work foward from these.  If you know what you are doing, go ahead and specify the /NONRAW flag and I''ll look the other way this time.'
+  endif
 
   ;; DO DATABASE DELETES
   if ndelete gt 0 then begin
@@ -231,6 +191,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete
   ;; DO DATABASE APPENDS
   if ngood gt 0 then begin
      ;; See ssg_db_create to line up the columns properly
+     message, /INFORMATIONAL, 'Found ' + string(ngood) + ' files to add to database'
 
      if !priv ge 2 then begin
         message, /CONTINUE, 'WARNING, !priv set to ' + string(!priv) + ', continuing automatically with database appends'
@@ -238,13 +199,14 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete
      if keyword_set(append) then !priv = 2
      if !priv lt 2 then message, 'ERROR: appends to the database need to be made, so !priv needs to be at least 2.  Alternately (and preferred), you can specify the /APPEND option to this procedure.'
 
+     message, /INFORMATIONAL, 'Appending items to the '+ dbname + ' database'
      dbopen, dbname, 1
      dbbuild, raw_dir	[0:ngood-1], $
               raw_fname	[0:ngood-1], $
               dir	[0:ngood-1], $
               fname	[0:ngood-1], $
               object	[0:ngood-1], $
-              imagetyp	[0:ngood-1], $
+              imagetype	[0:ngood-1], $
               date	[0:ngood-1], $
               time	[0:ngood-1], $
               exptime	[0:ngood-1], $
@@ -256,7 +218,9 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete
               camtemp	[0:ngood-1], $
               dewtemp	[0:ngood-1], $
               db_date	[0:ngood-1], $
-              nday_arr	[0:ngood-1]
+              nday_arr	[0:ngood-1], $
+              typecode	[0:ngood-1], $
+              bad	[0:ngood-1]
 
      dbclose
      message, /INFORMATIONAL, 'database appended and closed'

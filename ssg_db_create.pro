@@ -1,7 +1,5 @@
 ;+
-; $Id: ssg_db_create.pro,v 1.2 2002/10/15 14:44:54 jpmorgen Exp $
-
-; Mon Sep 30 13:51:57 2002  jpmorgen
+; $Id: ssg_db_create.pro,v 1.3 2002/11/12 20:56:39 jpmorgen Exp $
 
 ; ssg_db_create  Creates the SSG database structures from scratch.
 ; Hopfully this won't be used very often!  If necessary, however, this
@@ -9,28 +7,44 @@
 ; other code adapted from this to copy existing entries into the new
 ; database 
 
+; ERASEDBD = allow rewriting of DBD.  NO CHECKING FOR VALIDITY OF
+; EXISTING DATABASE IS DONE.  So if you change the structure of the
+; database, you should specify ERASEDATA too.  On the other hand, you
+; can just do ERASEDBD to change some trivial formatting of dbprint
+
 ;-
 
-pro ssg_db_create, outdir
+pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 
+  ON_ERROR, 2
   if NOT keyword_set(outdir) then message, 'ERROR: supply directory into which database descriptors will be written'
 
-  ;; CATCH, err
-  ;; if err ne 0 then message, 'ERROR: cannot cd to ', outdir
-  ;; This CATCH didn't work properly 
   cd, outdir
   
-  message, 'Attempting to create new database descriptor (.dbd) files ', $
-           /CONTINUE
-
   nf=3
   files=strarr(nf)
   files[0] = 'ssg_reduce'
   files[1] = 'oi_6300_fit'
   files[2] = 'io_oi_analyze'
   for i=0,nf-1 do begin
-     tmp=findfile(string(files[i],'.db[dfhx]'), COUNT=count)
-     if count ne 0 then message, 'ERROR: will not overwrite '+ tmp+' descriptor file.  Move old file to a different directory, create a new directory for the new database files (and add them to the ZDBASE environment variable), or delete the existing .dbd files and use dbcreate (CAREFULLY) to create a new set of databases.'
+     tmp=findfile(string(files[i],'.dbd'), COUNT=count)
+     if count gt 0 and NOT keyword_set(newdbd) then $
+       message, 'ERROR: will not overwrite '+ tmp+' DataBase Descriptor file unless /ERASEDBD is specified.  If you are just making changes to the formats, it is OK to /ERASEDBD.  The software you are using to create the DBD file should be stored in a revision control system so that you can track changes and get back  to a version that works with a particular binary database (e.g. everything has to line up in the database).'
+     tmp=findfile(string(files[i],'.dbx'), COUNT=count)
+     if count eq 0 then newindex=1 else begin
+        if NOT keyword_set(newindex) then begin
+           newindex = 0
+           message, /CONTINUE, 'NOTE: Preserving index file ' +tmp
+        endif
+     endelse
+
+     tmp=findfile(string(files[i],'.dbf'), COUNT=count)
+     if count eq 0 then newdb=1 else begin
+        if NOT keyword_set(newdb) then begin
+           newdb = 0
+           message, /CONTINUE, 'NOTE: Preserving database file ' +tmp
+        endif
+     endelse
   endfor
 
   ;; REDUCTION DATABASE
@@ -42,14 +56,14 @@ pro ssg_db_create, outdir
   printf, lun, '6000'
   printf, lun, ' '
   printf, lun, '#items'
-  ;; NOTE.  If you change code between here and nday, you have to
-  ;; change the code in ssg_db_init.pro
+  ;; WARNING if you change any code between here and nday, make sure
+  ;; you modify ssg_db_init too.
   printf, lun, 'raw_dir		C*200		directory containing raw file'
   printf, lun, 'raw_fname	C*80		raw file name (blank for products such as median bias frames)'
   printf, lun, 'dir		C*200		directory containing reduced file'
   printf, lun, 'fname		C*80		reduced file name'
   printf, lun, 'object		C*80		object name'
-  printf, lun, 'imagetyp	C*80		image type (object, flat, bias, etc.)'
+  printf, lun, 'imagetype	C*80		image type (object, flat, bias, etc.)'
   printf, lun, 'date		C*10		yyyy-mm-dd'
   printf, lun, 'time		C*8		hh:mm:ss (start:UT)'
   printf, lun, 'exptime		R*4             exposure time (seconds)'
@@ -62,9 +76,11 @@ pro ssg_db_create, outdir
   printf, lun, 'dewtemp		I*2		dewar temperature, Celsius'
   printf, lun, 'db_date		C*10		database update date (yyyy-mm-dd UT)'
   printf, lun, 'nday		R*4		decimal day since 1990-Jan-01 (midpoint)'
-  printf, lun, 'typecode	B*1		0=bias,1=dark,2=flat,3=comp,4=sky flat,5=object'
-  printf, lun, 'bad		B*2		bitmap';32768=overclock,16384=camera rotation, 8192=flattening, 4096=cosmic ray, 2048=slicer shape, 1024=wavelen scale, 512=IP, 128=extraction, 64=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
-  printf, lun, 'proc_flag	B*2		processing flag, 0=normal';, 1=CR hit in overclock region, 2=dark subtracted'
+  printf, lun, 'typecode	B*1		0=bias,1=dark,2=comp,3=flat,4=sky flat, 5=object'
+  ;; I'd like to make these B*2, but dbext translates that into a 1
+  ;; byte variable.
+  printf, lun, 'bad		I*2		bitmap';16384=overclock,8192=camera rotation, 4096=flattening, 2048=cosmic ray, 1024=slicer shape, 512=wavelen scale, 128=IP, 64=extraction, maybe these should be negative....=solar fitting, 32=narrow atm fitting, 16=broad atm fitting, 8=airglow overlap, 4=Io [OI] velocity wrong, 2=width wrong, 1=large error bar, 0=good'
+  printf, lun, 'proc_flag	I*2		processing progress flag, 0=nothing';, 1=
   printf, lun, 'gain		R*4		derived gain, electrons per adu'
   printf, lun, 'rdnoise		R*4		derived read noise, electrons'
   printf, lun, 'n_ovrclk	I*2		number of overclock rows'
@@ -73,16 +89,17 @@ pro ssg_db_create, outdir
   printf, lun, 'pred_ovrclk(800) R*4		predicted overclock spectrum'
   printf, lun, 'med_bias	R*4		median bias value from overclock region'
   printf, lun, 'av_bias		R*4		average bias value from overclock region'
+  printf, lun, 'stdev_bias	R*4		stdev bias value from overclock region'
   printf, lun, 'pred_bias(10)	R*4		10th order polynomial describing time variation of bias x0=nday'
   printf, lun, 'pred_bias0	R*4		predicted bias at , x0=fix(nday,0)'
   printf, lun, 'bias_fname	C*80		bias image associated with this file'
   printf, lun, 'dark_fname	C*80		dark image associated with this file'
   printf, lun, 'flat_fname	C*80		flatfield image associated with this file'
   printf, lun, 'comp_fname	C*80		comp spectrum associated with this file'
-  printf, lun, 'cam_rot(10)	R*4		Camera rotation: CCW deviation of flatfield patten on CCD.  Polynomial time dependence, x0=nday'
-  printf, lun, 'cam_rot0	R*4		Predicted camera rotation at x0=fix(nday,0)'
-  printf, lun, 'slice_shape(1000) R*4		10x10x10 array of polynomial coefs'; expressing spectral and temporal variation of slicer shape.  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.  Z direction is time variation of first plane of coefs'
-  printf, lun, 'pred_slice(10) R*4		Predicted slicer shape at nday=fix(nday,0)'
+  printf, lun, 'm_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
+  printf, lun, 'cam_rot		R*4		Predicted camera rotation based on fit'
+  printf, lun, 'm_slice(100)	R*4		10x10 array of polynomial coefs'; expressing spectral variation of slicer shape.  First row is a 10th order polynomial description of a slice at the midpoint of the spectrum.  Columns are polynomials in dispersion pixel number describing the spectral change in the slicer shape.'
+  printf, lun, 'slice(100)	R*4		Predicted slicer shape for this image'
   printf, lun, 'flat_cut	R*4		flatfield value below which all pixels are set to 0'
   printf, lun, 'ncr		R*4		estimated number of cosmic ray hits inside flatcut'
   printf, lun, 'nbad		I*2		number of bad pixels (from CR and bad cols) inside flatcut'
@@ -113,11 +130,11 @@ pro ssg_db_create, outdir
   printf, lun, ' '
   printf, lun, '#formats'
   printf, lun, 'raw_dir		A80		raw,directory,name'
-  printf, lun, 'raw_fname	A80		raw,file,name'
+  printf, lun, 'raw_fname	A20		raw,file,name'
   printf, lun, 'dir		A80		reduced,directory,name'
-  printf, lun, 'fname		A80		reduced,file,name'
-  printf, lun, 'object		A80		object,name'
-  printf, lun, 'imagetyp	A80		image,type'
+  printf, lun, 'fname		A20		reduced,file,name'
+  printf, lun, 'object		A20		object,name'
+  printf, lun, 'imagetype	A10		image,type'
   printf, lun, 'date		A11		DATE,YYYY-MM-DD,'
   printf, lun, 'exp		F7.3 		EXPO,TIME,SEC'
   printf, lun, 'dark		F7.3		dark,TIME,SEC'
@@ -128,8 +145,8 @@ pro ssg_db_create, outdir
   printf, lun, 'camtemp		I4		cam,temp,C'
   printf, lun, 'dewtemp		I4		dew,temp,C'
   printf, lun, 'db_date		A11		DATABASE,UPDATE,YYYY-MM-DD'
-  printf, lun, 'nday		F10.4		DECIMAL,DAY,>90/01/01'
-  printf, lun, 'typecode	I4		0=bi,2=fl,3=cp'
+  printf, lun, 'nday		F11.5		DECIMAL,DAY,>90/01/01'
+  printf, lun, 'typecode	I4		0b1di,2c3f,4s5o'
   printf, lun, 'bad		I4		0,is,good'
   printf, lun, 'gain		F7.3		calc,gain,e_/DN'
   printf, lun, 'rdnoise		F7.3		calc,rdnoise,e_'
@@ -139,14 +156,15 @@ pro ssg_db_create, outdir
   printf, lun, 'pred_ovrclk	F7.3		predic,overclk,spec'
   printf, lun, 'med_bias	F7.3		median,ovrclk,value'
   printf, lun, 'av_bias		F7.3		averag,ovrclk,value'
+  printf, lun, 'stdev_bias	F7.3		stdev,ovrclk,value'
   printf, lun, 'pred_bias	F7.3		predic,ovrclk,value'
   printf, lun, 'pred_bias0	F7.3		predic,bval,nday.0'
   printf, lun, 'bias_fname	A80		bias,reference,file'
   printf, lun, 'dark_fname	A80		dark,reference,file'
   printf, lun, 'flat_fname	A80		flatfield,reference,file'
   printf, lun, 'comp_fname	A80		comp_lamp,reference,file'
-  printf, lun, 'cam_rot		F7.3		cam_rot,coefs,CCW'
-  printf, lun, 'cam_rot0	F7.3		cam_rot,CCW,nday.0'
+  printf, lun, 'm_cam_rot	F7.3		measred,cam_rot,clockws'
+  printf, lun, 'cam_rot		F7.3		predict,cam_rot,clockws'
   printf, lun, 'slice_shape	F7.3		slicer,shape,time'
   printf, lun, 'flat_cut	F7.3		flat,cut,'
   printf, lun, 'ncr		F7.3		est,number,CR'
@@ -244,7 +262,7 @@ pro ssg_db_create, outdir
 
   printf, lun, ' '
   printf, lun, '#formats'
-  printf, lun, 'nday		F10.4		DECIMAL,DAY,>90/01/01'
+  printf, lun, 'nday		F11.5		DECIMAL,DAY,>90/01/01'
   printf, lun, 'fit_date	A11		database update date (yyyy-mm-dd)'
   printf, lun, 'fit_num		I4		fit#,0=,only'
   printf, lun, 'nfree		I4		num,free,para'
@@ -309,7 +327,7 @@ pro ssg_db_create, outdir
   printf, lun, 'lambda            I*2          wavelength (Angstroms) (e.g.,[O I] 6300, Na D 5893)'
   printf, lun, 'irafname          C*16         name of original iraf file'
   printf, lun, 'specname          C*25         name of extracted spectrum file'
-  printf, lun, 'exp               R*2          exposure time (seconds)'
+  printf, lun, 'exptime           R*4          exposure time (seconds)'
   printf, lun, 'zd                R*4          zenith distance (midpoint:degrees)'
   printf, lun, 'am                R*4          air mass (midpoint)'
   printf, lun, 'ha                R*4          hour angle (midpoint:decimal)'
@@ -372,7 +390,7 @@ pro ssg_db_create, outdir
   printf, lun, '#formats'
   printf, lun, 'date              A11          DATE,YYYY-MM-DD,'
   printf, lun, 'time              A9           TIME,HH:MM:SS,UT'
-  printf, lun, 'nday              F10.4        DECIMAL,DAY,>90/01/01'
+  printf, lun, 'nday              F11.5        DECIMAL,DAY,>90/01/01'
   printf, lun, 'object            A13           ,OBJECT_NAME'
   printf, lun, 'obj_code          I4           OBJ,CODE'
   printf, lun, 'line              A7            ,LINE'
@@ -467,7 +485,7 @@ pro ssg_db_create, outdir
   !priv=2
   for i=0,nf-1 do begin
      message, 'Initializing '+files[i]+'  database', /CONTINUE
-     dbcreate, files[i], 1, 1
+     dbcreate, files[i], newindex, newdb
   endfor
   !priv=oldpriv
 

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_overclock.pro,v 1.2 2002/10/31 22:17:32 jpmorgen Exp $
+; $Id: ssg_get_overclock.pro,v 1.3 2002/11/12 20:57:34 jpmorgen Exp $
 
 ; ssg_get_overclock.  collects information on the CCD overclock region
 ; to put into the reduction database.
@@ -76,10 +76,10 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
 
         for di = 0,nx-1 do begin
            med_ovrclk[di,i] = median(im[di,*])
-           av_ovrclk[di,i] = total(im[di,*])/float(ny)
+           av_ovrclk[di,i] = mean(total(im[di,*]))
         endfor
         med_bias[i] = median(im)
-        av_bias[i] = total(im)/N_elements(im)
+        av_bias[i] = mean(im)
         stdev_bias[i] = stddev(im, /NAN)
         if keyword_set(showplots) then begin
            window,6
@@ -124,7 +124,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
         xtickunits='Hours', $
         yrange=[min([med_bias,av_bias], /NAN), $
                 max([med_bias, av_bias], /NAN)], $
-        xstyle=1, ystyle=1, psym=plus, $
+        xstyle=2, ystyle=2, psym=plus, $
         xtitle=string('UT time (Hours) ', utdate), $
         ytitle='Bias value (DN)'
   oplot, ndays, av_bias, psym=diamond

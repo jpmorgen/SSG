@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.2 2002/10/25 20:50:11 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.3 2002/11/12 20:57:45 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
@@ -24,7 +24,7 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
 
   files=strtrim(files)
   nf = N_elements(files)
-  night_av = total(av_biases)/nf
+  night_av = mean(av_biases)
 
   ;; Read in an image to set up the bestbias header
   im = ssgread(files[0], hdr)
@@ -52,59 +52,56 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
         message, 'skipping ' + files[i], /CONTINUE
      endif else begin
         im = ssgread(files[i], ihdr) ; Make sure image is in proper orientation
+
+        if N_elements(av_im) ne N_elements(im) then $
+          message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
+
         if keyword_set(TV) then display, im, ihdr, /reuse
-        ;; Get non-overclock region coordinates
-        trimsec = strtrim(sxpar(ihdr,'TRIMSEC',COUNT=count))
-        if count eq 0 then message, 'ERROR: no TRIMSEC keyword in FITS header'
-        toks=strsplit(trimsec,'[:,]')
-        if N_elements(toks) ne 4 then message, 'ERROR: unknown TRIMSEC string format'
-        coords=strsplit(trimsec,'[:,]',/extract)
-        coords = coords - 1     ; Translate into IDL array reference
-        
+
         ;; Just in case there was a light leak or something, calculate
-        ;; the best bias value from the trim section separately from
+        ;; the best bias value from the data section separately from
         ;; the overclock section.
-        trim_im = im[coords[0]:coords[1],coords[2]:coords[3]]
-        trim_med=median(trim_im)
-        stdev=stddev(trim_im)    ; This will be improved below
-        if (abs(trim_med - med_biases[i]) gt $
+        data_im = ssgread(im, ihdr)
+        data_med=median(data_im)
+        stdev=stddev(data_im)    ; This will be improved below
+        if (abs(data_med - med_biases[i]) gt $
             (stdev + stdev_biases[i])) then begin
-           message, /CONTINUE, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(trim_med) + '+/-' + string(stdev) + ' median of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' Checking average overclock value'
-           if (abs(trim_med - av_biases[i]) gt $
+           message, /CONTINUE, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(data_med) + '+/-' + string(stdev) + ' median of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' Checking average overclock value'
+           if (abs(data_med - av_biases[i]) gt $
                (stdev + stdev_biases[i])) then begin
               badarray[i] = badarray[i] + 16384
               ;; This message is caught by the code above, skipping
               ;; the code below.
-              message, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(trim_med) + '+/-' + string(stdev) + ' average of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' The difference is too great, so I will mark this image as bad in the database'
+              message, 'WARNING: Bias ' + files[i] + ' image area median is ' + string(data_med) + '+/-' + string(stdev) + ' average of overclock is ' + string(med_biases[i]) + '+/-' + string(stdev_biases[i]) + ' The difference is too great, so I will mark this image as bad in the database'
            endif
         endif
 
         ;; Now work with the whole image
-        sigma_im = (im-trim_med)/stdev ; could use template_statistic but stdev already calculated here
+        sigma_im = (im-data_med)/stdev ; could use template_statistic but stdev already calculated here
         mask_im = mark_bad_pix(sigma_im)
-        if keyword_set(TV) then display, im*mask_im, ihdr, /reuse
         badidx = where(mask_im gt 0, count)
         if count gt 0 then mask_im[badidx] = !values.f_nan
+        if keyword_set(TV) then display, im*mask_im, ihdr, /reuse
         mask_im = mask_im + 1   ; used multiplicatively below
 
         ;; Make sure not too much of the array is contaminated 
         if count gt 0.01*N_elements(mask_im) then begin
            badarray[i] = badarray[i] + 16384
-
            ;; This message is caught by the code above, skipping the
            ;; code below.
            message, 'WARNING: Bias ' + files[i] + ' has more than 1% bright pixels.  Marking it bad in the database'
         endif
 
-        ;; Make a histogram
-        hist = histogram(sigma_im, min=-10, max=10, binsize=1, $
-                         reverse_indices=R, /NAN)
+        ;; Show histogram if user wants it
         if keyword_set(showhists) then begin
+           hist = histogram(sigma_im, min=-10, max=10, binsize=1, $
+                            reverse_indices=R, /NAN)
            nh = N_elements(hist)
            wset, 6
            plot, indgen(nh) - nh/2,hist
         endif
 
+;; Useful code for something later on
 ;         ;; Mark bad pixels using reverse lookup of histgram.  If the
 ;         ;; bias measurements are a good Gaussian, this cuts things off
 ;         ;; at the 5-sigma point.  However, do it this way just in case
@@ -114,19 +111,22 @@ pro ssg_biasgen, indir, outname, showhists=showhists, TV=tv
 ;           if hist[hi] gt 0 and hist[hi] lt 1.5E-6*count then $
 ;           mask_im[R[R[hi] : R[hi+1]-1]] = !values.f_nan
 
+        ;; If we made it this far, the image is good except for maybe
+        ;; a few pixels.
+
         ;; Check to see if the average of the cleaned up image is off
         ;; from the nightly average by more than 1 sigma.  Set it to
         ;; the nightly average since that is what we are going to do
         ;; with the real data
+
         delta = av_biases[i] - night_av
         stdev = stddev(im*mask_im, /NAN)
         if stdev_biases[i] lt abs(delta) and stdev lt abs(delta) then begin
            im = im - delta
+           sxaddhist, string(format='("(ssg_biasgen.pro) shifted ", a, " by", f6.3, " DN")', files[i], -delta), hdr
            message, /CONTINUE, 'WARNING: bias '+ files[i] + ' is off by ' + string(delta) + ' DN from the average bias level for this night.  Adjusting...'
         endif
         
-        ;; If we made it this far, the image is good except for maybe
-        ;; a few pixels.
 
         ;; Average: exclude bad pixels from average calculation by
         ;; setting them to 0 before adding AND keeping track of how
