@@ -1,15 +1,30 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.1 2002/10/15 14:45:23 jpmorgen Exp $
-
-; Thu Oct 10 09:22:47 2002  jpmorgen
+; $Id: ssg_db_init.pro,v 1.2 2002/10/15 20:41:52 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
-; given directory.  With the /RECURSIVE option, processes all files in
-; the whole tree.
+; given directory.  The idea is to have each file entered once and
+; only once into the database.  To do this, the nday of each file is
+; calculated (nday = number of elapsed Julian days from 1/1/1990 to
+; the midpoint of the exposure) and compared to the ndays in the rest
+; of the database.  If a duplicate is found, it is assumed you are
+; refreshing that entry.  The most practical way to refresh an entry
+; is to delete it and re-append it.  But never fear, nothing will be
+; deleted unless you specify an option (/DELETE) or have !priv set to
+; 3 or more.  Similarly, nothing will be appended unless you have
+; /APPEND set or !priv set to 2 or more.  If you find this latter
+; feature a pain, change it to NOAPPEND, but keep the logic of
+; separate DELETE and APPEND functions, since this lets you delete
+; selected files from the database (see ssg_nday_delete)
+
+; TO DO: With the /RECURSIVE option, processes all files in the whole
+; tree.
 
 ;-
-pro ssg_db_init, indir
+pro ssg_db_init, indir, APPEND=append, DELETE=delete
 
+
+  dbclose ;; Just in case
+  dbname = 'ssg_reduce'
   ;; Find all files in the directory.  Let the FITS header determine
   ;; if it is a raw file or not.
   message,'looking for FITS file in '+ indir, /CONTINUE
@@ -22,6 +37,8 @@ pro ssg_db_init, indir
   ;; This ends up being an excercise in text editing, so make it easy
   ;; for future changes...
   ngood = 1000
+  delete_list	=	intarr(ngood)
+  nday_arr	=	fltarr(ngood)
   raw_dir	= 	strarr(ngood)
   raw_fname	= 	strarr(ngood)
   dir		= 	strarr(ngood)
@@ -39,18 +56,22 @@ pro ssg_db_init, indir
   camtemp	=	intarr(ngood)
   dewtemp	=	intarr(ngood)
   db_date	= 	strarr(ngood)
-  nday_arr	=	fltarr(ngood)
   
   err=0
   ngood = 0
+  ndelete = 0
+  ;; Open database for inspection only.  
+  dbopen, dbname, 0
   for i=0,N_elements(files)-1 do begin
-     ;CATCH, err
+     CATCH, err
      if err ne 0 then begin
         print, !error_state.name
         message,'skipping '+ files[i]+ ' is not a recognized SSG FITS',/CONTINUE
+        CATCH, /CANCEL          ; Catching gets a little tricky
      endif else begin
         message,'Checking '+ files[i], /CONTINUE
         im=readfits(files[i], hdr) ; This will raise an error if not FITS
+        CATCH, /CANCEL          ; Catching gets a little tricky
 
         ;; DATE stuff
         ;; The database is keyed off of nday, so this is very
@@ -137,15 +158,32 @@ pro ssg_db_init, indir
 
         ssg_exceptions, im, hdr
         
-        ;; Setting the image to 0 is the flag that file should not be
-        ;; added to database
+        ;; Setting the image to 0 (or some other scaler) is the flag
+        ;; that file should not be added to database
         if N_elements(im) gt 1 then begin
 
+           ;; We have a genuine image to add to or reset in the
+           ;; database.  Also check for duplicates in database and in
+           ;; other files we are adding this time around.
+
+           
+           re_init = where_nday_eq(nday, COUNT=count)
+           formatted_nday = string(format='(f11.5)', nday)
+           if count eq 1 then begin
+              message, /CONTINUE, 'WARNING: nday ' + formatted_nday + ' will be deleted from ' + dbname + ' database in preparation to adding it afresh'
+              delete_list(ndelete) = re_init
+              ndelete = ndelete + 1
+           endif 
+           if count gt 1 then $
+             message, 'ERROR: duplicate nday '+ formatted_nday + ' found in database' + dbname + ' this should never happen'
+           temp=where(nday_arr eq nday, count) 
+           if count gt 0 then $
+             message, 'ERROR: duplicate nday '+ formatted_nday + ' found in this directory.  You may have to tweak things with the ssg_exceptions.pro'
+
            get_date,today
-           ;; Add all files to databsse, even if nday eq 0 (can change
-           ;; this later if there are too many nday = 0 cases)
+
            raw_dir	(ngood)	= indir
-           raw_fname(ngood)= files(i)
+           raw_fname	(ngood) = files(i)
            ;;dir	(ngood)	= 
            ;;fname	(ngood)	= 
            object	(ngood)	= sxpar(hdr, 'OBJECT')
@@ -168,13 +206,39 @@ pro ssg_db_init, indir
         endif ;; a real image
      endelse ;; CATCH if err
   endfor ;; all files in directory
+  dbclose ;; 
 
+  oldpriv=!priv
+
+  ON_ERROR, 2
+
+  ;; DO DATABASE DELETES
+  if ndelete gt 0 then begin
+     if !priv ge 3 then begin
+        message, /CONTINUE, 'WARNING, !priv set to ' + string(!priv) + ', continuing automatically with database deletes'
+     endif 
+     if keyword_set(delete) then !priv = 3
+     if !priv lt 3 then message, 'ERROR: deletions from the database need to be made, so !priv needs to be at least 3.  Alternately (and preferred), you can specify the /DELETE option to this procedure.  Hint, you will probably want /APPEND too'
+     dbdelete, delete_list[0:ndelete-1], dbname
+     message, /INFORMATIONAL, 'deleted items marked'
+     dbcompress, dbname
+     message, /INFORMATIONAL, 'deleted items removed'
+     dbclose
+     message, /INFORMATIONAL, 'database closed'
+  endif
+  !priv = oldpriv
+
+  ;; DO DATABASE APPENDS
   if ngood gt 0 then begin
      ;; See ssg_db_create to line up the columns properly
-     oldpriv=!priv
-     !priv=2
 
-     dbopen, 'ssg_reduce',1
+     if !priv ge 2 then begin
+        message, /CONTINUE, 'WARNING, !priv set to ' + string(!priv) + ', continuing automatically with database appends'
+     endif 
+     if keyword_set(append) then !priv = 2
+     if !priv lt 2 then message, 'ERROR: appends to the database need to be made, so !priv needs to be at least 2.  Alternately (and preferred), you can specify the /APPEND option to this procedure.'
+
+     dbopen, dbname, 1
      dbbuild, raw_dir	[0:ngood-1], $
               raw_fname	[0:ngood-1], $
               dir	[0:ngood-1], $
@@ -195,8 +259,10 @@ pro ssg_db_init, indir
               nday_arr	[0:ngood-1]
 
      dbclose
-     !priv=oldpriv
-
+     message, /INFORMATIONAL, 'database appended and closed'
+     
   endif ;; ngood gt 0
+
+  !priv=oldpriv
 
 end
