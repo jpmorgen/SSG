@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_reduce.pro,v 1.2 2003/06/13 17:47:39 jpmorgen Exp $
+; $Id: ssg_reduce.pro,v 1.3 2003/06/13 19:00:56 jpmorgen Exp $
 
 ; Runs non-interactive SSG reduction
 
@@ -89,5 +89,10 @@ pro ssg_reduce, indir, TV=TV, SHOW=SHOW, PLOT=PLOT
      ssg_extract, reddir, SHOW=SHOW, TV=TV, /noninteractive, /write
   endelse
   CATCH, /CANCEL
+  ;; Clean up after any messes errors may have left. (actually there
+  ;; is an open file problem floating around, which ssg_extract
+  ;; probably fixes, but when running at this level, that is sometimes
+  ;; skipped due to errors (e.g. /home/jpmorgen/data/ssg/raw/1994/940724
+  close, /all
 end
 
