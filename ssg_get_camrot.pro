@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_camrot.pro,v 1.5 2003/06/11 18:16:20 jpmorgen Exp $
+; $Id: ssg_get_camrot.pro,v 1.6 2003/06/11 19:57:50 jpmorgen Exp $
 
 ; ssg_get_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -105,12 +105,9 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
            ;; comps).  ssg_lightsub works better with the rotation
            ;; taken out, which is why we don't do it for real before
            ;; now.
-           sli_bots = ceil(sli_bots)
-           sli_tops = floor(sli_tops)
-           edge_im = fltarr(nx,ny-(sli_tops[i]-sli_bots[i]))
-           edge_im[*,0:sli_bots[i]-1] = im[*,0:sli_bots[i]-1]
-           edge_im[*,sli_bots[i]:ny-(sli_tops[i]-sli_bots[i])-1] = $
-             im[*,sli_tops[i]:ny-1]
+           mask = fltarr(nx,ny)+1.
+           mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
+           edge_im = im * mask
            edge_spec = fltarr(nx)
            for ix=0,nx-1 do begin
               ;; Calculate median only, since there is certain to be
@@ -119,8 +116,11 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
               edge_spec[ix] = median(edge_im[ix,*])
            endfor
            ;;plot, edge_spec
-           template = template_create(im, edge_spec)
-           im = im - template
+           good_idx = where(finite(edge_spec) eq 1, count)
+           if count gt 0 then begin
+              template = template_create(im, edge_spec)
+              im = im - template
+           endif
 
            if keyword_set(showplots) then wset,7
            ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
