@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.3 2002/11/25 23:38:12 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.4 2002/11/29 16:48:19 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -235,7 +235,7 @@ function comp_correlate, in_disp, no_dp, spec=spec, line_list=line_list, line_st
 end
 
 
-pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=in_disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_free=width_free
+pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=in_disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines, width_free=width_free, write=write, review=review
 
 ;  ON_ERROR, 2
   cd, indir
@@ -305,201 +305,246 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
   ;; Get all the files in the directory so we can mark camrot as not
   ;; measured on the ones where we can't measure it.
   entries = dbfind("typecode=2", $
-                   dbfind("bad<1023", $ ; < is really <=
+                   dbfind("bad<2047", $ ; < is really <=
                           dbfind(string("dir=", indir))))
 
-  ;; TEMPORARY USE OF CROSS_DISP IN DATABSE
-  dbext, entries, "fname, nday, cross_disp", $
+  dbext, entries, "fname, nday, m_dispers", $
          files, ndays, disp_arrays
 
   nf = N_elements(files)
   
   files=strtrim(files)
 
-  window,6
+  if NOT keyword_set(review) then begin ; We really want to do all the fitting
 
-  ngood = 0
-  err=0
+     window,6
 
-  for i=0,nf-1 do begin
+     ngood = 0
+     err=0
 
-     message, 'Looking at ' + files[i], /CONTINUE
+     for i=0,nf-1 do begin
+
+        message, 'Looking at ' + files[i], /CONTINUE
 ;     CATCH, err
-     if err ne 0 then begin
-        message, /NONAME, !error_state.msg, /CONTINUE
-        message, 'skipping ' + files[i], /CONTINUE
-     endif else begin
-        ;; NEED TO FIX THIS UP TOO
-        temp=strsplit(files[i], '.fits', /extract)
-        files[i]=temp[0]+'.red.fits'
+        if err ne 0 then begin
+           message, /NONAME, !error_state.msg, /CONTINUE
+           message, 'skipping ' + files[i], /CONTINUE
+        endif else begin
+           im = ssgread(files[i], hdr, /DATA)
+           asize = size(im) & nx = asize(1) & ny = asize(2)
 
-        im = ssgread(files[i], hdr, /DATA)
+           ssg_spec_extract, im, hdr, spec, xdisp, /TOTAL
 
-        ssg_spec_extract, im, hdr, spec, xdisp, /TOTAL
+           npts = N_elements(spec)
+           pix_axis = indgen(npts)
 
-        ;; CAUTION, the reference for pix_axis and all the dispersion
-        ;; calculations is the center of the array, not the edge
-        npts = N_elements(spec)
-        pix_axis = indgen(npts)
+           ;; Remove NAN points, which give mpfit problems.  Make sure
+           ;; our spectral axis starts 
+           idx = 0
+           while finite(spec(idx)) eq 0 do begin
+              idx = idx+1
+           endwhile
+           spec = spec[idx:npts-1]
+           pix_axis = pix_axis[idx:npts-1]
 
-        ;; start each file afresh
-        dispers[*] = in_disp[*]
+           idx = npts-1
+           while finite(spec(idx)) eq 0 do begin
+              idx = idx-1
+           endwhile
+           spec = spec[0:idx]
+           pix_axis = pix_axis[0:idx]
 
-        ;; Now choose our likely window of lines
-        wbounds = make_disp_axis(dispers, [0, npts-1], npts/2.)
-        atlas_idx = where(line_list ge wbounds[0] and $
-                          line_list lt wbounds[1], $
-                          n_expected_lines)
-        n_expected_lines = frac_lines * n_expected_lines
+           ;; CAUTION, the reference for pix_axis and all the dispersion
+           ;; calculations is the center of the array, not the edge
 
-        if n_expected_lines lt order + 1 then $
-          message, 'ERROR: by only using ' + string(frac_lines) + '* the number of atlas lines, I cannotconstrain a ' + string(order) + ' order dispersion solution.  Consider frac_lines=1 or lowering the order'
+           ;; start each file afresh
+           dispers[*] = in_disp[*]
 
-        n_params = 0
-        model_spec=dblarr(npts)
-        old_red_chisq = 1
+           ;; Now choose our likely window of lines
+           wbounds = make_disp_axis(dispers, [0, npts-1], npts/2.)
+           atlas_idx = where(line_list ge wbounds[0] and $
+                             line_list lt wbounds[1], $
+                             n_expected_lines)
+           n_expected_lines = frac_lines * n_expected_lines
 
-        ;; Fit Voigt functions to the comp spectrum
-        !p.multi = [0,0,2]
-        repeat begin
-           residual = spec - model_spec
-           next_max = max(residual, next_maxx, /NAN)
+           if n_expected_lines lt order + 1 then $
+             message, 'ERROR: by only using ' + string(frac_lines) + '* the number of atlas lines, I cannotconstrain a ' + string(order) + ' order dispersion solution.  Consider frac_lines=1 or lowering the order'
 
-           if n_params eq 0 then begin
-              params = dblarr(N_continuum)
-              parinfo = replicate({fixed:0, $
-                                   limited:[0,0], $
-                                   limits:[0.D,0.D], $
-                                   parname:'poly continuum'}, $
-                                  N_continuum)
-           endif
-           params = [params, $
-                     next_maxx[0], $ ; center
-                     1.5, $    	; Gauss FWHM
-                     0, $    	; Lor width
-                     next_max[0]] ; Area
-           
-           ;; Put on some constraints for narrow comp lines
-           parinfo = [parinfo, $
-                      {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Center'}, $
-          {fixed:width_fixed[0], limited:[1,1], limits:[0.D,4.D], parname:'Gauss FWHM'}, $
-          {fixed:width_fixed[1], limited:[1,1], limits:[0.D,4.D], parname:'Lor Width'}, $
-                      {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Area'}]
+           n_params = 0
+           model_spec=dblarr(npts)
+           old_red_chisq = 1
 
-           to_pass = { N_continuum:N_continuum }
-           params = mpfitfun('voigt_spec', pix_axis, spec, sqrt(spec), $
-                             params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
-                             PARINFO=parinfo)
-           n_params = N_elements(params)
-           model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
-           red_chisq = total((spec[*] - model_spec[*])^2)/n_params
-           nlines = (n_params-N_continuum)/4
+           ;; Fit Voigt functions to the comp spectrum
+           !p.multi = [0,0,2]
+           repeat begin
+              residual = spec - model_spec
+              next_max = max(residual, next_maxx, /NAN)
 
-           end_of_loop = old_red_chisq ge red_chisq or $
-                         nlines eq n_expected_lines
+              if n_params eq 0 then begin
+                 params = dblarr(N_continuum)
+                 parinfo = replicate({fixed:0, $
+                                      limited:[0,0], $
+                                      limits:[0.D,0.D], $
+                                      parname:'poly continuum'}, $
+                                     N_continuum)
+              endif
+              params = [params, $
+                        next_maxx[0], $ ; center
+                        1.5, $  ; Gauss FWHM
+                        0, $    ; Lor width
+                        next_max[0]] ; Area
+              
+              ;; Put on some constraints for narrow comp lines
+              parinfo = [parinfo, $
+                         {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Center'}, $
+                         {fixed:width_fixed[0], limited:[1,1], limits:[0.D,4.D], parname:'Gauss FWHM'}, $
+                         {fixed:width_fixed[1], limited:[1,1], limits:[0.D,4.D], parname:'Lor Width'}, $
+                         {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Area'}]
 
-           if end_of_loop then begin
-              ;; Do one last fit with all parameters free
-              parinfo[*].fixed = 0
+              to_pass = { N_continuum:N_continuum }
               params = mpfitfun('voigt_spec', pix_axis, spec, sqrt(spec), $
                                 params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
-                                PARINFO=parinfo, PERROR=perror)
+                                PARINFO=parinfo)
+              n_params = N_elements(params)
               model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
-           endif
-           if end_of_loop or keyword_set(showplots) then begin
-              wset,6
-              plot, pix_axis, spec, $
-                    title=string("Spectrum of comp ", files[i]), $
-                    xtitle='Pixels', $
-                    ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
-              oplot, pix_axis, model_spec, linestyle=dotted
-              plot, pix_axis, residual, $
-                    title=string("Fit residual "), $
-                    xtitle='Pixels ref to center of image', $
-                    ytitle=string(sxpar(hdr, 'BUNIT'))
-           endif
-        endrep until end_of_loop
+              red_chisq = total((spec[*] - model_spec[*])^2)/n_params
+              nlines = (n_params-N_continuum)/4
 
-        
-        !p.multi = 0
+              end_of_loop = old_red_chisq ge red_chisq or $
+                            nlines eq n_expected_lines
 
-        if nlines ne n_expected_lines then $
-          message, 'Unsure how to proceed'
+              if end_of_loop then begin
+                 ;; Do one last fit with all parameters free
+                 parinfo[*].fixed = 0
+                 params = mpfitfun('voigt_spec', pix_axis, spec, sqrt(spec), $
+                                   params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
+                                   PARINFO=parinfo, PERROR=perror, /FASTNORM)
+                 model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
+              endif
+              if end_of_loop or keyword_set(showplots) then begin
+                 wset,6
+                 plot, pix_axis, spec, $
+                       title=string("Spectrum of comp ", files[i]), $
+                       xtitle='Pixels', $
+                       ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
+                 oplot, pix_axis, model_spec, linestyle=dotted
+                 plot, pix_axis, residual, $
+                       title=string("Fit residual "), $
+                       xtitle='Pixels ref to center of image', $
+                       ytitle=string(sxpar(hdr, 'BUNIT'))
+              endif
+           endrep until end_of_loop
+
+           
+           !p.multi = 0
+
+           if nlines ne n_expected_lines then $
+             message, 'Unsure how to proceed'
 
 
-        ;; Extract line pixel values from parameter list
-        ;; Strip off continuum
-        vps = params[N_continuum:n_params-1]
-        verrors = perror[N_continuum:n_params-1]
-        Xs = dblarr(nlines)
-        dXs = dblarr(nlines)
-        areas = fltarr(nlines)
-        for li=0, nlines-1 do begin
-           Xs[li] = vps[4*li]
-           areas[li] = vps[4*li+3]
-           dXs[li] = verrors[4*li]
-        endfor
-
-        line_sort=sort(Xs)
-
-        ;; tnmin is having a hard time finding the best fit
-        ;; spontaneously, so go through each line and see how things
-        ;; look when we line up on it.  This amounts to a preliminary
-        ;; grid search on the reference wavelength
-
-        first_pass = fltarr(nlines, n_expected_lines)
-        tdisp = dispers
-        for icomp=0,nlines-1 do begin
-           for iatlas=0,n_expected_lines-1 do begin
-              tdisp = align_disp(dispers, line_list[atlas_idx[iatlas]], $
-                                 Xs[icomp], npts/2.)
-              first_pass[icomp, iatlas] = $
-                line_correlate(tdisp, line_pix=Xs, $
-                               line_list=line_list[atlas_idx], $
-                               npts=npts)
-              print, icomp, iatlas, first_pass[icomp, iatlas]
+           ;; Extract line pixel values from parameter list
+           ;; Strip off continuum
+           vps = params[N_continuum:n_params-1]
+           verrors = perror[N_continuum:n_params-1]
+           Xs = dblarr(nlines)
+           dXs = dblarr(nlines)
+           areas = fltarr(nlines)
+           for li=0, nlines-1 do begin
+              Xs[li] = vps[4*li]
+              areas[li] = vps[4*li+3]
+              dXs[li] = verrors[4*li]
            endfor
-        endfor
-        temp = min(first_pass, min_idx, /NAN)
-        ;; Unwrap the index to get a 2D coordinate again.
-        ifit_line = min_idx[0] mod nlines
-        iline_list = fix(min_idx[0]/n_expected_lines)
 
-        ;; Initialize the dispersion on our best first guess
-        dispers = align_disp(dispers, line_list[atlas_idx[iline_list]], $
-                             Xs[ifit_line], npts/2.)
+           line_sort=sort(Xs)
 
-        ;; For display purposes (and maybe fitting later), let's see
-        ;; if we can't associate the comp lines to the atlas at this point
+           ;; tnmin is having a hard time finding the best fit
+           ;; spontaneously, so go through each line and see how things
+           ;; look when we line up on it.  This amounts to a preliminary
+           ;; grid search on the reference wavelength
 
-        close_match = make_disp_axis(dispers, Xs, npts/2.)
-        associations = list_associate(close_match, line_list)
+           first_pass = fltarr(nlines, n_expected_lines)
+           tdisp = dispers
+           for icomp=0,nlines-1 do begin
+              for iatlas=0,n_expected_lines-1 do begin
+                 tdisp = align_disp(dispers, line_list[atlas_idx[iatlas]], $
+                                    Xs[icomp], npts/2.)
+                 first_pass[icomp, iatlas] = $
+                   line_correlate(tdisp, line_pix=Xs, $
+                                  line_list=line_list[atlas_idx], $
+                                  npts=npts)
+                 print, icomp, iatlas, first_pass[icomp, iatlas]
+              endfor
+           endfor
+           temp = min(first_pass, min_idx, /NAN)
+           ;; Unwrap the index to get a 2D coordinate again.
+           ifit_line = min_idx[0] mod nlines
+           iline_list = fix(min_idx[0]/n_expected_lines)
 
-        window,3
-        coefs = jpm_polyfit(Xs[line_sort]-npts/2., $
-                            line_list[associations[line_sort]], order, $
-                            title=string("Dispersion relation for comp ", files[i]), $
-                            xtitle='Pixels ref to center of image', $
-                            ytitle='Best guess association to atlas line', $
-                            noninteractive=noninteractive)
-        print, coefs
-        disp_arrays[0:order,i] = coefs
-        ngood = ngood + 1
-     endelse ;; CATCH if err
-  endfor ;; all files in directory
-  CATCH, /CANCEL
-  dbclose
+           ;; Initialize the dispersion on our best first guess
+           dispers = align_disp(dispers, line_list[atlas_idx[iline_list]], $
+                                Xs[ifit_line], npts/2.)
 
-  if ngood eq 0 then message, 'ERROR: no properly prepared files found, database not updated'
+           ;; For display purposes (and maybe fitting later), let's see
+           ;; if we can't associate the comp lines to the atlas at this point
+
+           close_match = make_disp_axis(dispers, Xs, npts/2.)
+           associations = list_associate(close_match, line_list)
+
+           window,3
+           coefs = jpm_polyfit(Xs[line_sort]-npts/2., $
+                               line_list[associations[line_sort]], order, $
+                               title=string("Dispersion relation for comp ", files[i]), $
+                               xtitle='Pixels ref to center of image', $
+                               ytitle='Best guess association to atlas line', $
+                               noninteractive=noninteractive)
+           print, coefs
+           disp_arrays[0:order,i] = coefs
+           ngood = ngood + 1
+        endelse ;; CATCH if err
+     endfor ;; all files in directory
+     CATCH, /CANCEL
+     if ngood eq 0 then message, 'ERROR: no properly prepared files found, database not updated'
   
-  oldpriv=!priv
-  !priv = 2
-  dbopen, dbname, 1
-  dbupdate, entries, 'cross_disp', disp_arrays
-  dbclose
-  !priv=oldpriv
-  message, /INFORMATIONAL, 'Updated measured dispersion information rotation in ' + dbname
-  
+  endif ;; not reviewing
+
+  if NOT keyword_set(noninteractive) then begin
+     marked_ndays = ssg_mark_bad(ndays, disp_arrays, $
+                                 title=string('Dispersion coefs in ', indir), $
+                                 xtickunits='Hours', $
+                                 xtitle=string('UT time (Hours) ', utdate), $
+                                 ytitle='Coef value', $
+                                 window=7)
+
+     dbclose
+
+     bad_idx = where(finite(marked_ndays) eq 0, count)
+     ;; Beware the cumulative effect here
+     if count gt 0 then badarray[bad_idx] = badarray[bad_idx] + 16384
+
+     if NOT keyword_set(write) then begin
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+        repeat begin
+           message, /CONTINUE, 'Write these values to the database?([Y]/N)'
+           answer = get_kbrd(1)
+           if byte(answer) eq 10 then answer = 'Y'
+           answer = strupcase(answer)
+        endrep until answer eq 'Y' or answer eq 'N'
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+        if answer eq 'Y' then write=1
+     endif
+
+
+  if keyword_set(write) then begin
+     oldpriv=!priv
+     !priv = 2
+     dbopen, dbname, 1
+     dbupdate, entries, 'm_dispers', disp_arrays
+     dbclose
+     !priv=oldpriv
+     message, /INFORMATIONAL, 'Updated measured dispersion information rotation in ' + dbname
+  endif ;; write
+
+
   ;; For convenience 
   message, /INFORMATIONAL, 'Directory is set to ' + indir
 
