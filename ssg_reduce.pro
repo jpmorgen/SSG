@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_reduce.pro,v 1.1 2003/06/11 18:05:23 jpmorgen Exp $
+; $Id: ssg_reduce.pro,v 1.2 2003/06/13 17:47:39 jpmorgen Exp $
 
 ; Runs non-interactive SSG reduction
 
@@ -51,32 +51,43 @@ pro ssg_reduce, indir, TV=TV, SHOW=SHOW, PLOT=PLOT
   endif
 
   ;; If we made it here, we are a day dir
-  ssg_fix_head, rawdir
-  ssg_db_init, rawdir, /APPEND, /DELETE
-  ssg_raw_cp, rawdir, reddir, /OVERWRITE
+  ;; Turn on error catching so error messages show up in the log.  For
+  ;; ease of checking, have ssg_reduce only produce output when there
+  ;; is a genuine error
+  CATCH, err
+  if err ne 0 then begin
+     message, /NONAME, !error_state.msg, /CONTINUE
+     message, 'ERROR: skipping ' + indir, /CONTINUE
+  endif else begin
 
-  ssg_get_overclock, reddir, TV=TV, /write, /noninteractive
+     ssg_fix_head, rawdir
+     ssg_db_init, rawdir, /APPEND, /DELETE
+     ssg_raw_cp, rawdir, reddir, /OVERWRITE
 
-  ssg_biasgen, reddir, TV=TV, PLOT=PLOT
-  ssg_biassub, reddir
-  ssg_get_sliloc, reddir, TV=TV, SHOW=SHOW, PLOT=PLOT, /write, /noninteractive
-  ssg_fit_sliloc, reddir, /noninteractive, /write, /flat_only
+     ssg_get_overclock, reddir, TV=TV, /write, /noninteractive
 
-  ssg_get_camrot, reddir, TV=TV, SHOW=SHOW, /write, /noninteractive
-  ssg_fit_camrot, reddir, /noninteractive, /write
+     ssg_biasgen, reddir, TV=TV, PLOT=PLOT
+     ssg_biassub, reddir
+     ssg_get_sliloc, reddir, TV=TV, SHOW=SHOW, PLOT=PLOT, /write, /noninteractive
+     ssg_fit_sliloc, reddir, /noninteractive, /write, /flat_only
 
-  ssg_lightsub, reddir, TV=TV,SHOW=SHOW
-  ssg_flatgen, reddir, TV=TV,SHOW=SHOW
-  ssg_flatfield, reddir, TV=TV
+     ssg_get_camrot, reddir, TV=TV, SHOW=SHOW, /write, /noninteractive
+     ssg_fit_camrot, reddir, /noninteractive, /write
 
-  ssg_get_slicer, reddir, /noninteractive, /write, TV=TV, SHOW=SHOW
-  ssg_fit_slicer, reddir, /noninteractive, /write
+     ssg_lightsub, reddir, TV=TV,SHOW=SHOW
+     ssg_flatgen, reddir, TV=TV,SHOW=SHOW
+     ssg_flatfield, reddir, TV=TV
 
-  ssg_get_dispers, reddir, PLOT=PLOT, TV=TV, /noninteractive, /write
-  ssg_fit_dispers, reddir, /noninteractive, /write
+     ssg_get_slicer, reddir, /noninteractive, /write, TV=TV, SHOW=SHOW
+     ssg_fit_slicer, reddir, /noninteractive, /write
 
-  ssg_cr_mark, reddir, cutval=5, TV=TV
-  ssg_cr_replace, reddir, TV=TV 
-  ssg_extract, reddir, SHOW=SHOW, TV=TV, /noninteractive, /write
+     ssg_get_dispers, reddir, PLOT=PLOT, TV=TV, /noninteractive, /write
+     ssg_fit_dispers, reddir, /noninteractive, /write
+
+     ssg_cr_mark, reddir, cutval=5, TV=TV
+     ssg_cr_replace, reddir, TV=TV 
+     ssg_extract, reddir, SHOW=SHOW, TV=TV, /noninteractive, /write
+  endelse
+  CATCH, /CANCEL
 end
 
