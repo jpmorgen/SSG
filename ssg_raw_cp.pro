@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_raw_cp.pro,v 1.1 2002/10/28 17:37:28 jpmorgen Exp $
+; $Id: ssg_raw_cp.pro,v 1.2 2002/10/28 19:57:44 jpmorgen Exp $
 
 ; ssg_raw_cp.  Copies ssg FITS files from indir to outdir.  Only
 ; copies files that are registered as good files in the database (see
@@ -25,18 +25,23 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
   dbclose ;; Just in case
   ;; Find all files in the directory.  
+  dbname = 'ssg_reduce'
+  dbopen, dbname, 0
+
   files = findfile(string(indir, '/*')) ; Doesn't matter if <dir>//*
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
        message, 'No files found in '+indir 
   endif
 
-  dbname = 'ssg_reduce'
-  dbopen, dbname, 0
+  nf = N_elements(files)
+
+  entries = intarr(nf)
+  entries[*] = -1               ; Flag for bad file
+  ngood = 0
 
   err=0
-  dbdir = strarr(N_elements(files))
-  entries = intarr(N_elements(files))
+
   for i=0,N_elements(files)-1 do begin
      shortfile= strmid(files[i], $
                        strpos(files[i], '/', /REVERSE_SEARCH) + 1)
@@ -63,7 +68,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         sxaddpar, hdr, 'SSGFILE', shortfile, 'Reduced filename'
         dbext, entries[i], 'db_date, typecode', db_date, typecode
         sxaddpar, hdr, 'DB_DATE', db_date[0], 'FIRST database entry date (yyyy-mm-dd UT)'
-        sxaddpar, hdr, 'TYPECODE', uint(typecode[0]), '0=bias,1=dark,2=flat,3=sky flat, 4=comp, 5=object'
+        sxaddpar, hdr, 'TYPECODE', uint(typecode[0]), '0=bias,1=dark,2=comp,3=flat,4=sky flat,5=object'
 
         ;; rotate image to proper orientation
         im = ssgread(im, hdr)
@@ -85,20 +90,26 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         ;; (no silent keyword for writefits)
         check_fits, im, hdr, /UPDATE, /FITS, SILENT=silent
         writefits, outfile, im, hdr
+        ngood=ngood+1
 
      endelse ;; CATCH if err
   endfor ;; all files in directory
   CATCH, /CANCEL
   dbclose
 
-  dbdir[*] = outdir
+  good_files = strarr(ngood)
+  dbdir = strarr(ngood)
+  dbdir[*] = strarr(ngood)
+  good_entries = intarr(ngood)
+  good_entries[*] = entries[where(entries ne -1)]
+
   oldpriv=!priv
   !priv = 2
   dbopen, dbname, 1
-  dbupdate, entries, 'dir, fname', dbdir, files
+  dbupdate, good_entries, 'dir, fname', dbdir, good_files
   dbclose
   !priv=oldpriv
-  message, /INFORMATIONAL, 'Updated filenames in ' + dbname
+  message, /INFORMATIONAL, 'Updated' + string(ngood) + ' filenames in ' + dbname
   ;; For convenience 
   cd, outdir
   message, /INFORMATIONAL, 'Directory is set to ' + outdir
