@@ -1,6 +1,6 @@
 ;+
 
-; $Id: ssg_fit1spec.pro,v 1.5 2002/12/16 13:37:43 jpmorgen Exp $
+; $Id: ssg_fit1spec.pro,v 1.6 2004/02/09 19:27:03 jpmorgen Exp $
 
 ; ssg_fit1spec.pro
 
@@ -8,82 +8,11 @@
 ; lines that will be fit to the SSG spectrum.  At this high resolution
 ; and with boarderline signal-to-noise, it is useful to have these
 ; lines devided up into various groups, e.g. strong solar, stong
-; atmospheric, weak solar, water vapor, etc.  As time goes on, the
-; database of useful lines will grow + some weird shapes might evolve
-; which are non-voigt like (e.g. saturated lines).  I will try to
-; build in compatability for these things, but for now, let's start
-; with Voigts.
-
-; We want to build a structure that is usable direcly with mpfitfn,
-; which will be called via some intermediate functions that take care
-; of trivial calculations like Doppler shifts.  Voigtfit is one such
-; function.  On that model, I should add some fields to the parinfo
-; structure that will help out.  So far we have the mpfit* structure:
-
-;     .VALUE - the starting parameter value (I use params instead)
-;     .FIXED - a boolean value;  
-;     .LIMITED - a two-element boolean array.
-;     .LIMITS - a two-element float or double array
-;     .PARNAME - a string, giving the name of the parameter.
-;     .STEP - the step size for numerical derivatives.  0=autodetect
-;     .MPSIDE - the sidedness of the finite difference
-;     .MPMAXSTEP - the maximum change in the parameter value per iter.
-;     .TIED - e.g. : parinfo(2).tied = '2 * P(1)'.
-;     .MPPRINT - if set to 1, then the default ITERPROC will print
-
-; So let's start with Voigtfit:
-
-;	.vfID - 1=continuum parameter, 2-5 = voigt parameter
-;	.ssgID -- 0 = not an SSG parameter, 1 = dispersion coef, 2 =
-;                 doppler shift, 3 = continuum, 4 = Voigt. 
-;	.ssggroupID - which group of lines this line comes from:
-;			0 = not a line
-;			1 = Io emission lines
-;			2 = A catalogue of accurate wavelengths in the
-;	                       optical spectrum of the Sun 
-;	                      Allende Prieto C., Garcia Lopez R.J.
-;	                     <Astron. Astrophys. Suppl. Ser. 131, 431 (1998)>
-;	                     =1998A&AS..131..431A      (SIMBAD/NED BibCode)
-;			3 = weak solar lines
-;			4 = Strong atmospheric lines (or I might want
-;			to devide these up by species)
-;			5 = atmospheric emission lines
-;			6 = water vapor lines
-;			7 = unknown/unspecified
-;		     All (4) parameters of a Voigt have this set for
-;		     easy handling.
-;	.ssgrwl -- rest wavelength of the line at the source
-;                  (e.g. solar lines are relativistically shifted)
-;	.ssgowl - observed (e.g. doppler shifted) wavelength.  The
-;                 parameter actually associated with this is a
-;                 wavength (or whatever) offset.  Voigtspec takes care
-;                 of applying this offset before passing to voigfn.
-;	.ssglink -- for emulating broad lines with multiple Voigts or
-;                   for multiplets with fixed ratios.  The catalog(s)
-;                   will have these in absolute form (e.g. referenced
-;                   to the parameter number in that catalog), this is
-;                   for the actual parameter list we have constructed.
-;                   This follows the syntax of .LINK and, unlike the
-;                   .ssg* parameters above, is specific to each Voigt
-;                   parameter (e.g. you can link widths, etc.)  This
-;                   will be painful  to implement properly when lines
-;                   are removed
-;	.ssgdop -- each line is assigned to a doppler group.  Lines
-;                  without doppler shift (e.g. atm) have .ssgdop=0.
-;                  Others are assigned to numbers by the calling
-;                  program (e.g. solar = 1, Io = 2).  .ssgowl is
-;                  calculated using .ssgrwl and the doppler param
-;                  (ssgID = 2) with the corresponding ssgdop.
-;                  For easy handling, only the linecenter shift
-;                  parameter and the doppler shift parameters
-;                  themselves should have .ssgdop set.
-
-; That's about it for now.  I might want to have some other parameter
-; information, like widths and accuracies, but those go into other
-; parinfo places.  These addenda are mostly just handles
-
-;  use -1 in any of the ID fields as a flag for deletion
-
+; atmospheric, weak solar, etc.  As time goes on, the database of
+; useful lines will grow + some weird shapes might evolve which are
+; non-voigt like (e.g. saturated lines).  I will try to build in
+; compatability for these things, but for now, let's start with
+; Voigts.
 
 ;-
 
@@ -154,7 +83,13 @@ pro modpar, idx_list, params, parinfo
   for ki = 0,1000 do flush_input = get_kbrd(0)
 end
 
-pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
+pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter, quiet=quiet, $
+                  nprint=nprint
+
+  init = {ssg_sysvar}
+  init = {tok_sysvar}
+
+  if N_elements(nprint) eq 0 then nprint=10
 
   if N_elements(maxiter) eq 0 then maxiter = 50
 
@@ -170,74 +105,33 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
   rdbname = 'ssg_reduce'
   fdbname = 'oi_6300_fit'
 
-  ;; Make tokens for everything
-  vfid_cont = 1
-  vfid_center = 2
-  vfid_dop = 3
-  vfid_lor = 4
-  vfid_area = 5
-  vfid_first = vfid_center
-  vfid_last = vfid_area
-
-  ssgid_disp = 1
-  ssgid_dop = 2
-  ssgid_cont = 3
-  ssgid_voigt = 4
-
-  id_no_dop = 0
-  id_solar_dop = 1
-  id_Io_dop = 2
-  doppler_names = ['none/atm', 'Solar', 'Io']
-  dopplers = [0d, 0d, 0d]
-  group_names = ['Not a line', 'IO LINE', 'sol cat', 'sol sup', 'atm abs', 'atm emi']
-  vpnames = ['Dlambda', 'DopFWHM', 'LorFWHM', 'Area']
-
-  plus = 1
-  asterisk = 2
-  dot = 3
-  diamond = 4
-  triangle = 5
-  square = 6
-  psym_x = 7
-
-  solid=0
-  dotted=1
-  dashed=2
-  dash_dot=3
-  dash_3dot = 4
-  long_dash=5
-
-  c = 299792.458 ;; km/s
-
   message, /INFO, 'fitting spectrum nday = ' + string(nday)
 
-  solar_template= {   VERSION         :	     1.00000		, $
-                      DATASTART       :		  0 		, $
-                      DELIMITER       :	  ''	    		, $
-                      MISSINGVALUE    :		 !values.f_nan	, $
-                      COMMENTSYMBOL   :   ''			, $
-                      FIELDCOUNT      :		  7		, $
-                      FIELDTYPES      :   [5,5,5,5,7,4,4]	, $
-                      FIELDNAMES      :   ['lambdaD', 'e_lambdaD', 'lambdaF', 'e_lambdaF', 'Ion', 'EP', 'loggf'], $
-                      FIELDLOCATIONS  :   [0,10,17,27,34,38,43]	, $
-                      FIELDGROUPS     :   [0,1,2,3,4,5,6]}
-  
-  ;; Do I need to convert these to air wavelengths?  Wavelenghts are
-  ;; 0.01 A higher than the ones Melanie was using.  --> Use  Edlin's
-  ;; formula, but for now, 
-  solar_atlas=read_ascii('/home/jpmorgen/data/solar_atlas/table1.dat', $
-                         template=solar_template)
+  ;; Check on the source of these and add to it.  These come from
+  ;; Melanie.
+  weak_solar_lines = [6286.3d, $
+                      6286.64d, $
+                      6298.97d, $
+                      6301.0d, $
+                      6301.86d]
 
-  solar_atlas.lambdaD = solar_atlas.lambdaD - 0.01
-  weak_solar_lines = [6298.97d, 6299.5962d, 6301.0d, 6301.86d]
+  ;; Doing a residual analysis on 10/14/03.  Weak is no longer the
+  ;; right word for the feature to the blue of 6299.5957.  Since I am
+  ;; treating this separately, I might as well do the whole line
+  ;; complex.  Try putting a line the same distance away from the
+  ;; 6301.5115 line
+  broad_solar_lines = [6299.29d, 6299.5957d, 6301d]
+  broad_solar_line_EWs = [-5, -40, -5]
 
-  
-  ;; This is the atmospheric line list that Melanie was using.  I wish
-  ;; I could get better than this, but it is what I have for now....
-  atm_absorb = [6298.457d, 6299.228d, 6302.0001d, 6302.7642d];
+  ;; This is the atmospheric line list that Melanie was using.  
+;  atm_absorb = [6298.457d, 6299.228d, 6302.0001d, 6302.7642d];
 
 ; I am not sure where this one came from: , 6304.53d
 
+  ;; I got the weak atm absorption lines by fitting residuals.
+  ;; Sometimes these are not so weak!
+  weak_atm_lines = [6290.85d, 6292.575d, 6294.675d]
+  
   atm_emi = [6300.304d]
   io_lines = [6300.304d]     ; I want to eventually put the Na in here
 
@@ -246,92 +140,91 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
   if count eq 0 then message, $
     'ERROR: nday ' + string(nday) + ' not found in ' + rdbname
 
-  dbext, rentry, 'nday, dir, fname, object, date, bad, wavelen, spectrum, spec_err, cross_disp, cross_err', ndays, dirs, files, objects, dates, badarray, wavelengths, spectra, spec_errors, cross_disps, cross_errors
+  dbext, rentry, 'nday, dir, fname, object, date, time, bad', ndays, dirs, files, objects, dates, times, badarray
 
+  dbext, rentry, 'wavelen, spectrum, spec_err, cross_disp, cross_err, disp_pix, dispers', wavelengths, spectra, spec_errors, cross_disps, cross_errors, disp_pix, orig_dispers
+
+  dbclose
+  
   dirs = strtrim(dirs)
   files=strtrim(files)
   objects=strtrim(objects)
   shortfile= strmid(files[0], $
                     strpos(files[0], '/', /REVERSE_SEARCH) + 1)
-  dbclose
 
   dbopen,'io6300_integrated',0  
   io6300_entry = where_nday_eq(nday, $
                                COUNT=count,SILENT=silent, tolerance=0.002) 
+  eph_dops = ptr_new()
   if count eq 0 then begin
      message, /continue, 'WARNING: unable to find database entry.  Doppler shifts will start at 0.'
   endif else begin              ; found entry in Melanie's database
+     ;; --> NEW STUFF
+     ;; Here is where I need to think about how to structure what I
+     ;; hope to be getting from the ephemerides.  I think I want to
+     ;; put them in a dg_stuct and put that in !sso.dgs.  The easiest
+     ;; way to do this is to make some Doppler shift parinfo records
      dbext, io6300_entry, 'deldot, rdot', deldots, rdots
-     dopplers[id_io_dop] = double(deldots[0])
-     dopplers[id_solar_dop] = dopplers[id_io_dop] + double(rdots[0])
+     deldot_par = pfo_fcreate(!pfo.sso_funct, ptype=!sso.dop, $
+                              path=[!eph.io, !eph.earth], $
+                              value=deldots[0], $
+                              parinfo_template=!ssg.parinfo)
+     rdot_par   = pfo_fcreate(!pfo.sso_funct, ptype=!sso.dop, $
+                              path=[!eph.sun, !eph.io, !eph.earth], $
+                              value=rdots[0] + deldots[0], $
+                              parinfo_template=!ssg.parinfo)
   endelse                       ; found entry in Melanie's database
   dbclose  
 
   cd, dirs[0]
-  im=ssgread(files[0], hdr)
+  im=ssgread(files[0], hdr, /DATA)
   asize = size(im) & nx = asize(1) & ny = asize(2)
 
+  ;; --> TEMPORARY CODE.  I am going to nuke this after I switch over
+  ;; to using the dispersion in the database.
   ;; Read in dispersion coefficients so I can use that as part of the
-  ;; fit
+  ;; fit.  This code is replaced below by reading the database.
   disp_order = 0
-  dispers = sxpar(hdr, $
-                  string(format='("DISPERS", i1)', disp_order), count=count)
+  orig_dispers = sxpar(hdr, $
+                       string(format='("DISPERS", i1)', disp_order), count=count)
   while count ne 0 do begin
      disp_order = disp_order + 1
-     temp = sxpar(hdr, $
+    temp = sxpar(hdr, $
                   string(format='("DISPERS", i1)', disp_order), count=count)
-     dispers = [dispers, temp]
+     if count ne 0 then $
+       orig_dispers = [orig_dispers, temp]
   endwhile
-  if disp_order le 1 then $
+  orig_dispers = [orig_dispers, !values.d_nan]
+  disp_order = disp_order - 1
+
+  if disp_order eq 0 then $
     message, 'ERROR: not enough DISPERS keyword found in header of ' + shortfile
 
-  orig_dispers = dblarr(disp_order)
-  orig_dispers = dispers[0:disp_order-1]
-  dispers = orig_dispers
-
-  window,7
   window,6
-  title=string(objects[0], ' ', shortfile, ' ', dates[0])
+  title=string(objects[0], ' ', shortfile, ' ', nday2date(ndays[0]), ' (UT)')
   ;; This has to be in font !3 for the angstrom symbol to be found
   xtitle='Wavelength ('+string("305B)+')' ;" ;
   ytitle=string('Signal (', sxpar(hdr, 'BUNIT'), '/S)')
-
-  ;; This is the original pix_axis, on which the wavelength solution
-  ;; is built.  By using make_disp_axis, it is OK if we poke holes in
-  ;; this
-
-  orig_pix_axis = where(finite(wavelengths[*,0]) eq 1 and $
-                        finite(spectra[*,0]) eq 1 and $
-                        finite(spec_errors[*,0]) eq 1, n_pix)
+  
+  good_pix = where(finite(disp_pix[*,0]) eq 1 and $
+                   finite(wavelengths[*,0]) eq 1 and $
+                   finite(spectra[*,0]) eq 1 and $
+                   finite(spec_errors[*,0]) eq 1, n_pix)
   if n_pix eq 0 then begin
      message, /continue, 'ERROR: no good data found in ' + files[0]
      return
   endif
 
-  pix_axis = orig_pix_axis
-  orig_wavelengths = wavelengths[pix_axis]
-  orig_spec = spectra[pix_axis]
-  orig_err_spec = spec_errors[pix_axis]
-
-  model_spec = fltarr(n_pix)
-
-  left_wval = min(orig_wavelengths, a)
+  left_wval = min(wavelengths, a)
   left_idx = a[0]
-  right_wval = max(orig_wavelengths, a)
+  right_wval = max(wavelengths, a)
   right_idx = a[0]
 
-  pix_axis = orig_pix_axis
   ref_pixel = nx/2.
-
-  ;; Need some initial starting structure or else IDL complains
-  parinfo = ssg_init_parinfo(1)
-  grave_params = [0.D]
-  grave_parinfo = parinfo
 
   done = 0
   did_fit = 0
   saved = 0
-
   repeat begin
      
      ;; Extract useful things from parameter list, recording any
@@ -340,35 +233,65 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
      ;; in order for them to be reinitialized.
      
      ;; DISPERSION
-     disp_idx = where(parinfo.ssgID eq ssgid_disp, disp_order)
+     if N_elements(parinfo) eq 0 then begin
+        ;; First time through
+        disp_order = 0
+     endif else begin
+        ;; Maybe not the best way to pick dispersion out, but works
+        ;; for now
+        disp_idx = where(parinfo.pfo.inaxis eq !pfo.Xin and $
+                         parinfo.pfo.outaxis eq !pfo.Xaxis, $
+                         disp_order)
+    endelse
      ;; Check for initilization of params/parinfo
      if disp_order le 1 then begin
-        ;; We need an initization or reset.  Do it in a temporary
-        ;; structure + append or set up for the first time the real
-        ;; params/parinfo structure from that
-        disp_order = N_elements(orig_dispers)
-        tparams = orig_dispers
-        tparinfo = ssg_init_parinfo(disp_order)
-        for idsp = 0,disp_order-1 do begin
-           p = tparams[idsp] 
-           ;; Kind of bogus limits, but thes will keep the mpfit code happy
-           tparinfo[idsp].limits = [double(p - 10d), $
-                                    double(p + 10d)]
-           tparinfo[idsp].parname=string(format='("Disp Coef ", i3)', idsp)
-           tparinfo[idsp].ssgID=ssgid_disp
-        endfor
-        ;; check to see if we have any parameters
-        if N_elements(params) le 1 then begin
-           message, 'NOTE: initilizaing parameter list' ,/INFORMATIONAL
-           params = tparams
-           parinfo= tparinfo
+        ;; We need an initization or reset.  Re-read the dispersion
+        ;; fit by ssg_fit_dispers and change 1st and 2nd order coefs
+        ;; to be in ma and microA, respectively
+        disp_order = 0
+        dispers = double(orig_dispers[disp_order,0])
+        while disp_order lt N_elements(orig_dispers)-2 and $
+          finite(orig_dispers[disp_order+1,0]) eq 1 do begin
+           disp_order = disp_order + 1
+           if disp_order le N_elements(orig_dispers)-1 then begin
+              dispers = [dispers, double(orig_dispers[disp_order,0])] 
+              ;; add scaling back eventually? *10^(3.*disp_order)]
+           endif
+        endwhile
+
+        ;; With a segmented polynomial, it is a good idea
+        disp_par = pfo_fcreate(!pfo.poly, poly_order=disp_order, $
+                               poly_ref=ref_pixel, poly_value=dispers, $
+                               inaxis=!pfo.Xin, outaxis=!pfo.Xaxis, $
+                               fop=!pfo.repl, $
+                               parinfo_template=!ssg.parinfo)
+
+;        for idsp = 0,disp_order do begin
+;           p = tparams[idsp] 
+;           ;; Kind of bogus limits, but thes will keep the mpfit code happy
+;           tparinfo[idsp].limits = [double(p - 10d), $
+;                                    double(p + 10d)]
+;           tparinfo[idsp].parname=string(format='("Disp Coef ", i3)', idsp)
+;           tparinfo[idsp].ssgID=ssgid_disp
+;        endfor
+        ;; INITIALIZE PARAMETER LIST
+        if N_elements(parinfo) le 1 then begin
+           message, 'NOTE: initializing parameter list' ,/INFORMATIONAL
+           parinfo = [disp_par, deldot_par, rdot_par]
         endif ;; Initilize parameter list
         message, 'NOTE: set dispersion coefficients to those found in FITS header of ' + shortfile ,/INFORMATIONAL
      endif ;; Dispersion initialization
-     ;; Keep dispersion handy as a separate variable
-     disp_idx = where(parinfo.ssgID eq ssgid_disp, disp_order)
-     dispers = params[disp_idx]
-     disp_parinfo = parinfo[disp_idx]
+     ;; Keep dispersion handy as a separate variable.  Also the
+     ;; dispersion order, though with segmented polynomials, this is
+     ;; getting a bit obsolete 
+     disp_idx = where(parinfo.pfo.inaxis eq !pfo.Xin and $
+                      parinfo.pfo.outaxis eq !pfo.Xaxis)
+     temp = where(parinfo[disp_idx].pfo.ftype ge 1.1, disp_order)
+     disp_order = disp_order-1
+
+     ;; Calculate new wavelength scale
+     junk = pfo_funct(disp_pix, parinfo=parinfo, idx=disp_idx, $
+                      xaxis=new_wavelengths)
 
      ;; Handle the results of any wavelength window repositioning,
      ;; including recalculating the X axis for dispersion changes and
@@ -376,249 +299,241 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
      if left_idx gt right_idx then begin
         temp = left_idx & left_idx = right_idx & right_idx = temp
      endif
-     left_wval =  orig_wavelengths[left_idx]
-     right_wval = orig_wavelengths[right_idx]
-     pix_axis = orig_pix_axis[left_idx:right_idx]
-     xaxis = make_disp_axis(dispers, pix_axis, ref_pixel)
-     spec = orig_spec[pix_axis]
-     err_spec = orig_err_spec[pix_axis]
-     orig_wavelengths = make_disp_axis(dispers, orig_pix_axis, ref_pixel)
-     
-     ;; DOPPLER SHIFTS. 
-     dop_idx = where(parinfo.ssgID eq ssgid_dop, count)
-     for idop=0,count-1 do $
-       dopplers[parinfo[dop_idx[idop]].ssgdop] = $
-       params[dop_idx[idop]]
+     left_wval =  new_wavelengths[left_idx]
+     right_wval = new_wavelengths[right_idx]
+     temp = disp_pix
+     temp[0:left_idx] = !values.f_nan
+     temp[right_idx:nx-1] = !values.f_nan
+     pix_axis = where(finite(temp) eq 1 and $
+                      finite(wavelengths) eq 1 and $
+                      finite(spectra) eq 1 and $
+                      finite(spec_errors) eq 1, n_pix)
+     if n_pix eq 0 then begin
+        message, /continue, 'WARNING: no good data found in selected range'
+     endif else begin
+        ;; We have good data in our selected wavelength range
+        junk = pfo_funct(pix_axis, parinfo=parinfo, idx=disp_idx, xaxis=xaxis)
+        spec = spectra[pix_axis]
+        err_spec = spec_errors[pix_axis]
 
-     ;; If we have redshifted a line into our field, we need to
-     ;; go back out to the blue to find it in our catalogs, so
-     ;; calculate arrays of left and right wavelength limits for each
-     ;; Doppler group.
-     left_dop_wvals = left_wval  * ( 1 - dopplers / c )
-     right_dop_wvals = right_wval  * ( 1 - dopplers / c )
+        ;; CONTINUUM.  It is important to do it in this order so the
+        ;; median spectrum is taken from the stuff in the window, not the
+        ;; whole spectrum
 
-     ;; Do a preliminary run of the model so we can recalculate the
-     ;; observed wavelenghts
-     model_spec = io_spec(pix_axis, params, parinfo=parinfo, $
-                          ref_pixel=ref_pixel, spec=spec, err_spec=err_spec)
-     
-     ;; GRAVEYARD.  
+        cont_idx = where(parinfo.sso.ptype eq !sso.cont, N_continuum)
+        if N_continuum eq 0 then begin
+           message, 'NOTE: resetting continuum to median of displayed spectrum and, if N_continuum specified on the command line, zeroing higher order terms ', /INFORMATIONAL
+           m = median(spectra)
+           ;; Higher order polynomial coefs should be initialized to 0 
+           cont_par = pfo_fcreate(!pfo.sso_funct, ptype=!sso.cont, $
+                                  sso_ftype=!pfo.poly, $
+                                  poly_order=0, value=median(spectra), $
+                                  parinfo_template=!ssg.parinfo)
+           parinfo = [parinfo, cont_par]
+        endif ;; Continuum initialization
+        ;; Keep continuum handy as a separate variable
+        cont_idx = where(parinfo.sso.ptype eq !sso.cont, N_continuum)
 
-     ;; Find the line center indexes of things that should potentially
-     ;; be removed from the active line list
-     grave_lc_idx = where(parinfo.ssgID ge 4 and $
-                          parinfo.ssgowl ne 0 and $
-                          (parinfo.ssgowl lt left_wval or $
-                          right_wval lt parinfo.ssgowl), num_to_grave)
-     for il=0,num_to_grave - 1 do begin
-        ;; find all the parameters for this line
-        cidx = grave_lc_idx[il] ; center idx
-        message, 'NOTE: Looking at graveyard candidate ' + string(parinfo[cidx].parname), /CONTINUE
-        myidx = where(parinfo.ssgID eq parinfo[cidx].ssgID and $
-                      parinfo.ssggroupID eq parinfo[cidx].ssggroupID and $
-                      (parinfo.ssgrwl eq parinfo[cidx].ssgrwl or $
-                       NOT finite(parinfo[cidx].ssgowl)), count)
-        if count lt 2 then $
-          message, 'ERROR: Internal coding error not enough parameters found for this line'
-        ;; Now calculate the model spectrum with just this line in it
-        ;; and compare that to a model spectrum with the line in the
-        ;; middle of the spectrum to see if we are losing too much area
-        testpar=[dispers, params[myidx]]
-        testparinfo=[disp_parinfo, parinfo[myidx]]
+        ;; Make a continuum spectrum for subtraction in graveyard
+        ;; calculations.  Using original dispersion axis pixels so bad
+        ;; data doesn't interfere with model calculations.
+;        cont_spec = pfo_funct(disp_pix[left_idx:right_idx], parinfo=parinfo, $
+;                              idx=[disp_idx, cont_idx])
+;
+        cont_spec = pfo_funct(disp_pix[left_idx:right_idx], parinfo=parinfo, $
+                              idx=[cont_idx])
+
+        ;; DOPPLER SHIFTS
+        sso_dg_assign, parinfo
+
+; Save this code for later, if at all.
+;        ;; If we have redshifted a line into our field, we need to
+;        ;; go back out to the blue to find it in our catalogs, so
+;        ;; calculate arrays of left and right wavelength limits for each
+;        ;; Doppler group.
+;        left_dop_wvals = left_wval  * ( 1 - dopplers / c )
+;        right_dop_wvals = right_wval  * ( 1 - dopplers / c )
+
+        ;; Do a preliminary run of the model so we can recalculate the
+        ;; observed wavelenghts so the graveyard works properly
+        model_spec = pfo_funct(pix_axis, parinfo=parinfo, $
+                              idx=[disp_idx, cont_idx])
+
+
+        ;; GRAVEYARD.  
+
+        ;; Find the line center indexes of things that should potentially
+        ;; be removed from the active line list
+        grave_lc_idx = where(parinfo.sso.ttype eq !sso.center and $
+                             (parinfo.sso.owl lt left_wval or $
+                              right_wval lt parinfo.sso.owl), num_to_grave)
+        for il=0,num_to_grave - 1 do begin
+           ;; find all the parameters for this line
+           c_idx = grave_lc_idx[il] ; center idx
+           dg = parinfo[c_idx].sso.dg ; Doppler group
+           rwl = parinfo[c_idx].sso.rwl ; rest wavelength
+           message, 'NOTE: Looking at graveyard candidate ' + strjoin(sso_dg_path(dg, /name), '-') + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
+
+           myidx = where(parinfo.sso.dg eq dg and parinfo.sso.rwl eq rwl)
+
+           ;; Now calculate the model spectrum with just this line in it
+           ;; and compare that to a model spectrum with the line in the
+           ;; middle of the spectrum to see if we are losing too much area
+           model_spec = pfo_funct(disp_pix[left_idx:right_idx], $
+                                  parinfo=parinfo, $
+                                  idx=[disp_idx, cont_idx, myidx])
+           model_spec = model_spec - cont_spec
+           off_area = total(model_spec, /NAN)
+           my_lc_idx = where(parinfo[myidx].sso.ttype eq !sso.center, count)
+           ;; Treat multiple lines with the same rest wavelength as one line
+;           if count gt 1 or count eq 0 then begin
+;              message, 'ERROR: unexpected number of lines with rwl=' + string(rwl)
+;              message, 'WARNING: possible multiple entries in catalog ' + string(testparinfo[my_lc_idx[0]].ssggroupID) + ' for rest wavelength ' + string(testparinfo[my_lc_idx[0]].ssgrwl), /CONTINUE
+;              testparinfo[my_lc_idx].ssgowl = !values.f_nan          
+;           endif
+
+           ;; Unwrap indices
+           my_lc_idx = myidx[my_lc_idx]
+           ;; Since pfo_funct recalculates owl, we need to tweak rwl
+           ;; to put the line in the center of the spectrum.  For
+           ;; spectra with significant non-linear dispersion, this
+           ;; won't work, but that is not the case for ssg.
+           dw = (left_wval + right_wval)/2. - parinfo[my_lc_idx].sso.owl
+           saverwl = parinfo[my_lc_idx].sso.rwl
+           parinfo[my_lc_idx].sso.rwl = parinfo[my_lc_idx].sso.rwl - dw
+
+           model_spec = pfo_funct(disp_pix[left_idx:right_idx], $
+                                  parinfo=parinfo, $
+                                  idx=[disp_idx, cont_idx, myidx])
+           parinfo[my_lc_idx].sso.rwl = savewrl
+
+           model_spec = model_spec - cont_spec
+           on_area = total(model_spec, /NAN)
+           ;; This ratio is somewhat model and instrument profile
+           ;; dependent, but I don't want to make it a command line
+           ;; parameter just yet.  Split the difference between 0.5,
+           ;; which is the symetric line on the edge case and something
+           ;; really severe like 0.01, which would potentially be prone
+           ;; to blowing up.  Also, handle the pathological case of 0
+           ;; area 
+           if off_area - on_area eq 0 or off_area/on_area lt 0.05 then begin
+              ;; This line belongs in the graveyard.
+              message, 'NOTE: Sending ' + strjoin(sso_dg_path(dg, /name), '-') + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
+              parinfo[myidx].pfo.status = !pfo.inactive
+           endif ;; Moved a line off to the graveyard
+        endfor ;; Moving lines to the graveyard
+
+        ;; Find the line center indexes of things that should potentially
+        ;; be resurected from the graveyard
+        resur_lc_idx = where(parinfo.sso.ttype eq !sso.center and $
+                             (left_wval lt parinfo.sso.owl and $
+                              parinfo.sso.owl lt right_wval), num_resur)
+
+        for il=0,num_resur - 1 do begin
+           ;; find all the parameters for this line
+           c_idx = resur_lc_idx[il] ; center idx
+           dg = parinfo[c_idx].sso.dg ; Doppler group
+           rwl = parinfo[c_idx].sso.rwl ; rest wavelength
+
+           message, 'NOTE: Looking at resurrection candidate ' + strjoin(sso_dg_path(dg, /name), '-') + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
+
+           myidx = where(parinfo.sso.dg eq dg and parinfo.sso.rwl eq rwl)
+
+           ;; Now calculate the model spectrum with just this line in it
+           ;; and compare that to a model spectrum with the line in the
+           ;; middle of the spectrum to see if we have gained back enough
+           ;; area to add the line
+           model_spec = pfo_funct(disp_pix[left_idx:right_idx], $
+                                  parinfo=parinfo, $
+                                  idx=[disp_idx, cont_idx, myidx])
+           model_spec = model_spec - cont_spec
+           off_area = total(model_spec, /NAN)
+           my_lc_idx = where(parinfo[myidx].sso.ttype eq !sso.center, count)
+           ;; Treat multiple lines with the same rest wavelength as one line
+
+           ;; Unwrap indices
+           my_lc_idx = myidx[my_lc_idx]
+           ;; Since pfo_funct recalculates owl, we need to tweak rwl
+           ;; to put the line in the center of the spectrum.  For
+           ;; spectra with significant non-linear dispersion, this
+           ;; won't work, but that is not the case for ssg.
+           dw = (left_wval + right_wval)/2. - parinfo[my_lc_idx].sso.owl
+           saverwl = parinfo[my_lc_idx].sso.rwl
+           parinfo[my_lc_idx].sso.rwl = parinfo[my_lc_idx].sso.rwl - dw
+
+           model_spec = pfo_funct(disp_pix[left_idx:right_idx], $
+                                  parinfo=parinfo, $
+                                  idx=[disp_idx, cont_idx, myidx])
+           parinfo[my_lc_idx].sso.rwl = savewrl
+
+           model_spec = model_spec - cont_spec
+           on_area = total(model_spec, /NAN)
+
+           ;; SEE DOCUMENTATION ABOVE.  But it is a little harder to do
+           ;; on the way out, since I use the window edge as the trigger
+           if off_area - on_area ne 0 and off_area/on_area ge 0.5 then begin
+              message, 'NOTE: Resurrecting ' + strjoin(sso_dg_path(dg, /name), '-') + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
+              ;; This line should be resurrected.  
+              parinfo[myidx].pfo.status = !pfo.active
+           endif ;; Resurrected a line
+        endfor ;; resurrecting lines
+
+        ;; Now I have to decide if I am going to automatically add lines
+        ;; as they com into the window.  I vote for no, since the user
+        ;; can do that + the graveyard should be a handy resource.
         
-        model_spec = io_spec(pix_axis, testpar, parinfo=testparinfo, $
-                             ref_pixel=ref_pixel, spec=spec, err_spec=err_spec)
-        off_area = total(model_spec, /NAN)
-        my_lc_idx = where(testparinfo.ssgowl ne 0, count)
-        if count gt 1 or count eq 0 then begin
-          message, 'WARNING: possible multiple entries in catalog ' + string(testparinfo[my_lc_idx[0]].ssggroupID) + ' for rest wavelength ' + string(testparinfo[my_lc_idx[0]].ssgrwl), /CONTINUE
-          testparinfo[my_lc_idx].ssgowl = !values.f_nan          
-       endif
-        ;; There might be a better way to find the middle of the
-        ;; spectrum in a general way, but this should be sufficient
-        testparinfo[my_lc_idx[0]].ssgowl = (left_wval + right_wval)/2.
-        model_spec = io_spec(pix_axis, testpar, parinfo=testparinfo, $
-                             ref_pixel=ref_pixel, spec=spec, err_spec=err_spec)
-        on_area = total(model_spec, /NAN)
-        ;; This ratio is somewhat model and instrument profile
-        ;; dependent, but I don't want to make it a command line
-        ;; parameter just yet.  Split the difference between 0.5,
-        ;; which is the symetric line on the edge case and something
-        ;; really severe like 0.01, which would potentially be prone
-        ;; to blowing up
-        if off_area/on_area lt 0.05 then begin
-           ;; This line belongs in the graveyard.  First check to see
-           ;; if is there already
-           message, 'NOTE: Sending ' + string(parinfo[cidx].parname) + ' to the graveyard', /CONTINUE
-           my_grave_idx = $
-             where(grave_parinfo.ssgID eq parinfo[cidx].ssgID and $
-                   grave_parinfo.ssggroupID eq parinfo[cidx].ssggroupID and $
-                   grave_parinfo.ssgrwl eq parinfo[cidx].ssgrwl, count)
-           if count eq 0 then begin
-              ;; Nope, not there append this line to the graveyard
-              grave_params = [grave_params, params[myidx]]
-              grave_parinfo = [grave_parinfo, parinfo[myidx]]
-           endif else begin
-              ;; Found it.  Replace this line in the graveyard
-              grave_params[my_grave_idx] = params[myidx]
-              grave_parinfo[my_grave_idx] = parinfo[myidx]
-           endelse
-           ;; In either case, mark line for removal from active list.
-           ;; We are hoping the model has some other parameters like a
-           ;; continuum, or else this could crash
-           parinfo[myidx].ssgrwl = !values.f_NAN
-        endif ;; Moved a line off to the graveyard
-     endfor ;; Moving lines to the graveyard
-     good_idx = where(finite(parinfo.ssgrwl) eq 1, count)
-     ;; Ncomplement in where caused segmentataion fault!
-     Ncomplement = N_elements(params) - count
-     if count eq 0 then message, 'ERROR: there should always be dispersion and continuum parameters'
-     if keyword_set(Ncomplement) then message, 'NOTE: deleting ' + string(Ncomplement) + ' parameters from the active list' , /continue
-     temp = params [good_idx] & params  = temp
-     temp = parinfo[good_idx] & parinfo = temp
+        model_spec = pfo_funct(pix_axis, parinfo=parinfo)
 
-     ;; Find the line center indexes of things that should potentially
-     ;; be resurected from the graveyard
-     resur_lc_idx = where(parinfo.ssgID ge 4 and $
-                          left_wval lt grave_parinfo.ssgowl and $
-                          grave_parinfo.ssgowl lt right_wval, num_resur)
-     for il=0,num_resur - 1 do begin
-        ;; find all the parameters for this line
-        cidx = resur_lc_idx[il] ; center idx
-        message, 'NOTE: Looking at resurrection candidate ' + string(grave_parinfo[cidx].parname), /CONTINUE
-        myidx = $
-          where(grave_parinfo.ssgID eq grave_parinfo[cidx].ssgID and $
-                grave_parinfo.ssggroupID eq grave_parinfo[cidx].ssggroupID and $
-                (grave_parinfo.ssgrwl eq grave_parinfo[cidx].ssgrwl or $
-                NOT finite(grave_parinfo[cidx].ssgowl)), count)
-        if count lt 2 then $
-          message, 'ERROR: Internal coding error not enough parameters found for this line'
-        ;; Now calculate the model spectrum with just this line in it
-        ;; and compare that to a model spectrum with the line in the
-        ;; middle of the spectrum to see if we have gained back enough
-        ;; area to add the line
-        testpar=[dispers, grave_params[myidx]]
-        testparinfo=[disp_parinfo, grave_parinfo[myidx]]
-        model_spec = io_spec(pix_axis, testpar, parinfo=testparinfo, $
-                             ref_pixel=ref_pixel, spec=spec, err_spec=err_spec)
-        off_area = total(model_spec, /NAN)
-        my_lc_idx = where(testparinfo.ssgowl ne 0, count)
-        if count gt 1 or count eq 0 then begin
-           message, 'WARNING: possible multiple entries for rest wavelength ' + string(testparinfo[my_lc_idx[0]].ssgrwl), /CONTINUE
-           testparinfo[my_lc_idx].ssgowl = !values.f_nan          
-        endif
-        ;; There might be a better way to find the middle of the
-        ;; spectrum in a general way, but this should be sufficient
-        testparinfo[my_lc_idx[0]].ssgowl = (left_wval + right_wval)/2.
-        model_spec = io_spec(pix_axis, testpar, parinfo=testparinfo, $
-                             ref_pixel=ref_pixel, spec=spec, err_spec=err_spec)
-        on_area = total(model_spec, /NAN)
-        ;; SEE DOCUMENTATION ABOVE.  But it is a little harder to do
-        ;; on the way out, since I use the window edge as the trigger
-        if off_area/on_area ge 0.5 then begin
-           message, 'NOTE: Resurrecting ' + string(grave_parinfo[cidx].parname), /CONTINUE
-           ;; This line should be resurrected.  First check to see if is
-           ;; there already
-           idx = where(parinfo.ssgID eq grave_parinfo[cidx].ssgID and $
-                       parinfo.ssggroupID eq $
-                       grave_parinfo[cidx].ssggroupID and $
-                       parinfo.ssgrwl eq grave_parinfo[cidx].ssgrwl, $
-                       count)
-           if count eq 0 then begin
-              ;; Append this line to the regular parameter list
-              params =  [params,  grave_params[myidx]]
-              parinfo = [parinfo, grave_parinfo[myidx]]
-           endif
-           ;; Remove line from graveyard
-           grave_parinfo[myidx].ssgrwl = !values.f_NAN
-        endif ;; Resurrected a line
-     endfor ;; resurrecting lines
-     good_idx = where(finite(grave_parinfo.ssgrwl) eq 1, count)
-     ;; Ncomplement in where caused segmentataion fault!
-     Ncomplement = N_elements(grave_params) - count
-
-     if count eq 0 then message, 'ERROR: there should always be an initial 0 graveyard entry'
-     if keyword_set(Ncomplement) then message, 'NOTE: deleting ' + string(Ncomplement) + ' parameters from graveyard' , /continue
-     temp = grave_params [good_idx] & grave_params  = temp
-     temp = grave_parinfo[good_idx] & grave_parinfo = temp
-
-     ;; Now I have to decide if I am going to automatically add lines
-     ;; as they com into the window.  I vote for no, since the user
-     ;; can do that + the graveyard should be a handy resource.
-     
-
-     ;; CONTINUUM.  It is important to do it in this order so the
-     ;; median spectrum is taken from the stuff in the window, not the
-     ;; whole spectrum
-     cont_idx = where(parinfo.ssgID eq ssgid_cont, N_continuum)
-     if N_continuum eq 0 then begin
-        message, 'NOTE: resetting continuum to median of displayed spectrum and, if N_continuum specified on the command line, zeroing higher order terms ', /INFORMATIONAL
-        m = median(orig_spec)
-        tparams = dblarr(N_continuum_orig)
-        tparams[0] = m
-        tparinfo = ssg_init_parinfo(N_continuum_orig)
-        for ic = 0,N_continuum_orig-1 do begin
-           p = tparams[ic] 
-           ;; --> I have no idea if these are reasonable absolute boundardies
-           tparinfo[ic].limits = [double(p - 1.d), $
-                                  double(p + 1.d)]
-           tparinfo[ic].parname = string(format='("Cont. Poly Coef ", i3)', ic)
-           tparinfo[ic].vfID = vfid_cont
-           tparinfo[ic].ssgID = ssgid_cont
-        endfor
-        ;; Limits on 0th order should be broad they can be constrained
-        ;; by the used later.  --> NOTE: this assumes a positive
-        ;; continuum + could be improved if necessary, but I don't
-        ;; want to use min/max(spec) unless I multiply it by something
-        ;; or add the median, since the true continuum might be really
-        ;; high or low....
-        tparinfo[0].limits = [-m, 2.D*m]
-        params = [params, tparams]
-        parinfo = [parinfo, tparinfo]
-     endif ;; Continuum initialization
-     ;; Keep continuum handy as a separate variable
-     cont_idx = where(parinfo.ssgID eq ssgid_cont, N_continuum)
-     continuum = params[cont_idx]
+        residual = spec - model_spec
+        chisq = total(residual^2, /NAN)
+        free_idx = where(parinfo.fixed ne 1 and $
+                         parinfo.pfo.status eq !pfo.active, nfree)
+        redchisq = chisq/(nfree - 1)
+;        ;; Make sure we have some sort of error list
+;        if N_elements(perrors) ne N_elements(params) then $
+;          perrors = dblarr(N_elements(params))
+;        
+     endelse ;; no good data found in selected wavelength range
 
      ;; --> I should do a limit check here just to keep mpfit happy
+     
+     ;; Recalculate model spec for plotting to include regions where
+     ;; spectrum is NAN
+     model_spec = pfo_funct(pix_axis, parinfo=parinfo)
 
-     model_spec = io_spec(pix_axis, params, parinfo=parinfo, $
-                          ref_pixel=ref_pixel, spec=spec, err_spec=err_spec)
-     
-     residual = spec - model_spec
-     chisq = total(residual^2, /NAN)
-     free_idx = where(parinfo.fixed ne 1, nfree)
-     redchisq = chisq/(nfree - 1)
-     ;; Make sure we have some sort of error list
-     if N_elements(perrors) ne N_elements(params) then $
-       perrors = dblarr(N_elements(params))
-     
      wset,6
+           
+     ;; --> I will want to redo this
+;     ssg_plot_fit, pix_axis, params, parinfo, ref_pixel, spec, err_spec, $
+;                     title=title, xtitle=xtitle, ytitle=ytitle
+
      !p.multi = [0,0,2]
 
-     plot, xaxis, spec, psym=dot, title=title, xtitle=xtitle, ytitle=ytitle, $
-       xrange=[min(xaxis), max(xaxis)], yrange=[min(spec), max(spec)], $
-       xstyle=1, ystyle=2
-     oploterr, xaxis, spec, err_spec, dot
+     plot, xaxis, spec, title=title, xtitle=xtitle, ytitle=ytitle, $
+           xrange=[left_wval, right_wval], yrange=[min(spec), max(spec)], $
+           xstyle=1, ystyle=2, psym=!tok.dot
+     oploterr, xaxis, spec, err_spec, !tok.dot
      oplot, xaxis, model_spec, linestyle=dotted
 
      plot, xaxis, residual, $
-       title='Fit residual', xtitle=xtitle, ytitle=ytitle, $
-       xstyle=1, ystyle=2, psym=10
+           title='Fit residual', xtitle=xtitle, ytitle=ytitle, $
+           xrange=[left_wval, right_wval], $
+           xstyle=1, ystyle=2, psym=!tok.dot
+     oploterr, xaxis, residual, err_spec, !tok.dot
      !p.multi = 0
      message, /CONTINUE, 'Use left and right buttons select bracket a region of interest.  Middle button brings up menu.'
 
      cursor, x1, y1, /DOWN, /DATA
      ;; Left mouse
      if !MOUSE.button eq 1 then begin
-        dxs = abs(orig_wavelengths - x1)
+        dxs = abs(new_wavelengths - x1)
         junk = min(dxs, a)
         left_idx = a[0]
      endif ;; leftmost mouse button
 
      ;; Right mouse
      if !MOUSE.button eq 4 then begin
-        dxs = abs(orig_wavelengths - x1)
+        dxs = abs(new_wavelengths - x1)
         junk = min(dxs, a)
         right_idx = a[0]
      endif ;; rightmost mouse button
@@ -627,6 +542,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
      if !MOUSE.button eq 2 then begin
         message, /CONTINUE, 'Menu:'
         print, 'Fit '
+        print, 'Print plot '
         print, 'reNormalize lines one by one '
         print, 'Modify parameters'
         print, 'unZoom'
@@ -636,13 +552,14 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
         answer = ''
         for ki = 0,1000 do flush_input = get_kbrd(0)
         repeat begin
-           message, /CONTINUE, '[F], N, M, R, Z, S, Q?'
+           message, /CONTINUE, '[F], P, N, M, R, Z, S, Q?'
            answer = get_kbrd(1)
            if byte(answer) eq 10 then answer = 'F'
            for ki = 0,1000 do flush_input = get_kbrd(0)
            answer = strupcase(answer)
         endrep until $
           answer eq 'F' or $
+          answer eq 'P' or $
           answer eq 'N' or $
           answer eq 'M' or $
           answer eq 'R' or $
@@ -650,19 +567,31 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
           answer eq 'S' or $
           answer eq 'Q'
 
+        if answer eq 'P' then begin
+           pfile=strmid(shortfile, 0, strpos(shortfile, '.fits')) + '.ps'
+           message, /CONTINUE, 'Writing postscript file ' + pfile
+           set_plot,'ps'
+           landscape=1
+           device, filename=pfile, landscape=landscape
+           ssg_plot_fit, pix_axis, params, parinfo, ref_pixel, spec, err_spec, $
+                         title=title, xtitle=xtitle, ytitle=ytitle
+           device, /close
+           set_plot, 'x'
+        endif ;; Print
         if answer eq 'M' then begin
            message, /CONTINUE, 'Modify parameters menu:'
            print, 'Add lines '
            print, 'Remove lines'
            print, 'modify 1 Line'
            print, 'modify Doppler shifts'
+           print, 'change dispersion Order'
            print, 'change disperSion relation'
-           print, 'change continuum Order'
+           print, 'change Continuum order'
            print, 'Quit this menu'
            answer = ''
            for ki = 0,1000 do flush_input = get_kbrd(0)
            repeat begin
-              message, /CONTINUE, 'A, R, L, D, S, O, [Q]'
+              message, /CONTINUE, 'A, R, L, D, O, S, C, [Q]'
               answer = get_kbrd(1)
               if byte(answer) eq 10 then answer = 'Q'
               answer = strupcase(answer)
@@ -672,13 +601,14 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
              answer eq 'R' or $
              answer eq 'L' or $
              answer eq 'D' or $
-             answer eq 'S' or $
              answer eq 'O' or $
+             answer eq 'S' or $
+             answer eq 'C' or $
              answer eq 'Q'
 
            ;; Save off exising parameter stuff so we can recover values
-           old_params = params
-           old_parinfo = parinfo
+;           old_params = params
+;           old_parinfo = parinfo
 
            ;; Change Doppler shifts
            if answer eq 'D' then begin
@@ -695,8 +625,43 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                 modpar, idx, params, parinfo
            endif ;; Change dispersion relation
 
-           ;; Change continuum polynomial order 
+           ;; Change dispersion polynomial order 
            if answer eq 'O' then begin
+              for ki = 0,1000 do flush_input = get_kbrd(0)
+              repeat begin
+                 message, /CONTINUE, 'Enter new dispersion polynomial order (9 recalculates dispersion from comp lamp value [' + string(disp_order-1) + ']'
+                 answer = get_kbrd(1)
+                 for ki = 0,1000 do flush_input = get_kbrd(0)
+              endrep until (byte(answer) ge 48 and byte(answer) le 57) $
+                or  byte(answer) eq 10
+              if byte(answer) ne 10 then disp_order = (fix(answer)+1) mod 10
+              p = 0.d
+              disp_idx = where(parinfo.ssgID eq ssgid_disp, old_disp_order)
+              ;; Add any param/parinfo entries
+              while old_disp_order lt disp_order do begin
+                 tparinfo = ssg_init_parinfo()
+                 tparinfo[0].limits = [double(p - 10.d), $
+                                       double(p + 10.d)]
+                 tparinfo[0].parname = $
+                                      string(format='("Disp. Coef ", i3)', old_disp_order)
+                 tparinfo[0].ssgID = ssgid_disp
+                 params = [params, p]
+                 parinfo = [parinfo, tparinfo]
+                 disp_idx = where(parinfo.ssgID eq ssgid_disp, old_disp_order)
+              endwhile
+              ;; Delete any param/parinfo entries
+              while old_disp_order gt disp_order do begin
+                 parinfo[disp_idx[old_disp_order-1]].ssgID = -ssgid_disp
+                 disp_idx = where(parinfo.ssgID eq ssgid_disp, old_disp_order)
+              endwhile
+              good_idx = where(parinfo.ssgID ne -ssgid_disp, count)
+              temp = params[good_idx] & params = temp
+              temp = parinfo[good_idx] & parinfo = temp
+
+           endif ;; Change dispersion polynomial order 
+
+           ;; Change continuum polynomial order 
+           if answer eq 'C' then begin
               for ki = 0,1000 do flush_input = get_kbrd(0)
               repeat begin
                  message, /CONTINUE, 'Enter new continuum polynomial order (9 recalculates continuum from spectral median [' + string(N_continuum-1) + ']'
@@ -713,7 +678,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                  tparinfo[0].limits = [double(p - 1.d), $
                                        double(p + 1.d)]
                  tparinfo[0].parname = $
-                   string(format='("Cont. Poly Coef ", i3)', old_N_continuum)
+                                      string(format='("Cont. Poly Coef ", i3)', old_N_continuum)
                  tparinfo[0].vfID = vfid_cont
                  tparinfo[0].ssgID = ssgid_cont
                  params = [params, p]
@@ -729,30 +694,33 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
               temp = params[good_idx] & params = temp
               temp = parinfo[good_idx] & parinfo = temp
 
-
-              
            endif ;; Change continuum polynomial order 
 
            ;; Remove lines
            if answer eq 'R' then begin
-              message, /CONTINUE, 'Line lists (only S is case sensitive):'
+              message, /CONTINUE, 'Line lists:'
               print, 'Strong solar lines (S) '
-              print, 'Weak solar lines (s)'
-              print, 'Atmospheric Absoption lines (A)'
+              print, 'Broad solar lines (B) '
+              print, 'Weak solar lines (W)'
+              print, 'O2 atmospheric absoption lines (O)'
+              print, 'other Atmospheric absoption lines (A)'
               print, 'atmospheric Emission lines (E)'
-              print, 'Io line'
-              print, 'Random line by hand'
-              print, 'Quit this menu (Q or q)'
+              print, 'Io line (I)'
+              print, 'Random line by hand (R)'
+              print, 'Quit this menu (Q)'
               answer = ''
               for ki = 0,1000 do flush_input = get_kbrd(0)
               repeat begin
-                 message, /CONTINUE, 'S, s, A, E, I, R, [Q]'
+                 message, /CONTINUE, 'S, B, W, O, A, E, I, R, [Q]'
                  answer = get_kbrd(1)
                  if byte(answer) eq 10 then answer = 'Q'
                  uanswer = strupcase(answer)
                  for ki = 0,1000 do flush_input = get_kbrd(0)
               endrep until $
                 uanswer eq 'S' or $
+                uanswer eq 'B' or $
+                uanswer eq 'W' or $
+                uanswer eq 'O' or $
                 uanswer eq 'A' or $
                 uanswer eq 'E' or $
                 uanswer eq 'I' or $
@@ -760,32 +728,48 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                 uanswer eq 'Q'
               
               ;; Strong solar lines
-              if answer eq 'S' then begin
+              if uanswer eq 'S' then begin
                  good_idx = where(parinfo.ssggroupID ne 2, count)
                  if count gt 0 then begin
                     temp = params[good_idx] & params = temp
                     temp = parinfo[good_idx] & parinfo = temp
                  endif
               endif
-              ;; Weak solar lines
-              if answer eq 's' then begin
+              ;; Broad solar lines
+              if uanswer eq 'B' then begin
                  good_idx = where(parinfo.ssggroupID ne 3, count)
                  if count gt 0 then begin
                     temp = params[good_idx] & params = temp
                     temp = parinfo[good_idx] & parinfo = temp
                  endif
               endif
-              ;; Strong atmospheric lines
-              if uanswer eq 'A' then begin
+              ;; Weak solar lines
+              if uanswer eq 'W' then begin
                  good_idx = where(parinfo.ssggroupID ne 4, count)
                  if count gt 0 then begin
                     temp = params[good_idx] & params = temp
                     temp = parinfo[good_idx] & parinfo = temp
                  endif
               endif
-              ;; Weak atmospheric lines
-              if uanswer eq 'E' then begin
+              ;; atmospheric O2 absorption lines
+              if uanswer eq 'O' then begin
                  good_idx = where(parinfo.ssggroupID ne 5, count)
+                 if count gt 0 then begin
+                    temp = params[good_idx] & params = temp
+                    temp = parinfo[good_idx] & parinfo = temp
+                 endif
+              endif
+              ;; weak atmospheric absorption lines
+              if uanswer eq 'A' then begin
+                 good_idx = where(parinfo.ssggroupID ne 6, count)
+                 if count gt 0 then begin
+                    temp = params[good_idx] & params = temp
+                    temp = parinfo[good_idx] & parinfo = temp
+                 endif
+              endif
+              ;; atmospheric emission lines
+              if uanswer eq 'E' then begin
+                 good_idx = where(parinfo.ssggroupID ne 7, count)
                  if count gt 0 then begin
                     temp = params[good_idx] & params = temp
                     temp = parinfo[good_idx] & parinfo = temp
@@ -825,31 +809,36 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
 
            ;; Add lines
            if answer eq 'A' then begin
-              message, /CONTINUE, 'Line lists (only S is case sensitive):'
+              message, /CONTINUE, 'Line lists:'
               print, 'Strong solar lines (S) '
-              print, 'Weak solar lines (s)'
-              print, 'Atmospheric Absorption lines (A)'
+              print, 'Broad solar lines (B) '
+              print, 'Weak solar lines (W)'
+              print, 'O2 atmospheric absorption lines (O)'
+              print, 'weak Atmospheric absorption lines (A)'
               print, 'atmospheric Emission lines (E)'
-              print, 'Io line'
-              print, 'Random line by hand'
+              print, 'Io line (I)'
+              print, 'Random line by hand (R)'
               print, 'Quit this menu (Q or q)'
               answer = ''
               for ki = 0,1000 do flush_input = get_kbrd(0)
               repeat begin
-                 message, /CONTINUE, 'S, s, A, E, I, R, [Q]'
+                 message, /CONTINUE, 'S, B, W, O, A, E, I, R, [Q]'
                  answer = get_kbrd(1)
                  if byte(answer) eq 10 then answer = 'Q'
                  uanswer = strupcase(answer)
                  for ki = 0,1000 do flush_input = get_kbrd(0)
               endrep until $
                 uanswer eq 'S' or $
+                uanswer eq 'B' or $
+                uanswer eq 'W' or $
+                uanswer eq 'O' or $
                 uanswer eq 'A' or $
                 uanswer eq 'E' or $
                 uanswer eq 'I' or $
                 uanswer eq 'R' or $
                 uanswer eq 'Q'
               
-              if uanswer eq 'S' then begin
+              if uanswer eq 'S' or uanswer eq 'B' or uanswer eq 'W' then begin
                  ;; Check to see if we need to add a solar doppler
                  ;; shift parameter
                  sd_idx = where(parinfo.ssgID eq ssgid_dop $
@@ -859,7 +848,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     tparinfo = ssg_init_parinfo(1)
                     ;; --> Again, a wild guess, assuming we are in
                     ;; km/s, etc.
-                    tparinfo.limits = [tparam-100,tparam+100]
+                    tparinfo.limits = [tparam-2,tparam+2]
                     tparinfo.parname = 'Solar Doppler Shift'
                     tparinfo.ssgID = ssgid_dop
                     tparinfo.ssgdop = id_solar_dop
@@ -874,7 +863,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
               endif ;; adding some solar lines, strong or weak
 
               if uanswer eq 'I' then begin
-                 ;; Check to see if we need to add a solar doppler
+                 ;; Check to see if we need to add an Io doppler
                  ;; shift parameter
                  iod_idx = where(parinfo.ssgID eq ssgid_dop $
                                  and parinfo.ssgdop eq id_Io_dop, count)
@@ -883,7 +872,7 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     tparinfo = ssg_init_parinfo(1)
                     ;; --> Again, a wild guess, assuming we are in
                     ;; km/s, etc.
-                    tparinfo.limits = [tparam-100,tparam+100]
+                    tparinfo.limits = [tparam-2,tparam+2]
                     tparinfo.parname = 'Io Doppler Shift'
                     tparinfo.ssgID = ssgid_dop
                     tparinfo.ssgdop = id_Io_dop
@@ -908,24 +897,27 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     if count eq 0 then begin
                        ;; We need to add a new line --> worry about
                        ;; deleting lines or fixing their parameters later
-                       ew = 0.005d ; Might want to change this
+                       wave_err = 5.d ; I end up not using this at the
+                                ; moment since I want all uncertainty
+                                ; reflected in the Doppler shift (see .fixed)
                        ;; Take a wild guess at the initial parameters
-                       tparams = [wl, 0.08, 0., 1.]
+                       tparams = [wl, 2., 80.]
                        tparinfo = ssg_init_parinfo(voigt=tparams)
+                       tparinfo[0].fixed = 1
                        tparinfo[0].limited = [1,1]
-                       tparinfo[0].limits  = [-ew, ew]
-                       tparinfo[1].limited = [1,1]
-                       tparinfo[1].limits  = [0.01d, 0.15d]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
+                       tparinfo[1].limited = [1,0]
+                       tparinfo[1].limits  = [0.d, 100]
                        tparinfo[2].limited = [1,1]
-                       tparinfo[2].limits  = [0.d, 0.01d]
-                       tparinfo[3].limited = [1,0]
-                       tparinfo[3].limits  = [0.d, 100]
+                       tparinfo[2].limits  = [10.d, 300.d]
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 10.d]
                        tparinfo[*].ssggroupID = 1
                        tparinfo[0].ssgdop = id_Io_dop
                        for ipn=0,3 do begin
                           tparinfo[ipn].parname = $
                             string(group_names[tparinfo[ipn].ssggroupID], $
-                                               ' ', tparinfo[ipn].parname)
+                                   ' ', tparinfo[ipn].parname)
                        endfor
                        tparams[0] = 0.D
                        params = [params, tparams]
@@ -935,41 +927,55 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
               endif ;; adding Io line
 
               ;; Strong solar lines
-              if answer eq 'S' then begin
+              if uanswer eq 'S' then begin
                  solar_idx = $
-                   where(left_dop_wvals[id_solar_dop] le solar_atlas.lambdaD[*] and $
-                         solar_atlas.lambdaD[*] le right_dop_wvals[id_solar_dop], $
-                         n_solar)
+                            where(left_dop_wvals[id_solar_dop] le $
+                                  solar_atlas_air_waves[*] and $
+                                  solar_atlas_air_waves[*] le $
+                                  right_dop_wvals[id_solar_dop], $
+                                  n_solar)
                  ;; For each strong solar line
                  for isl = 0, n_solar-1 do begin
                     ;; Get its wavelength and check to see if it is
                     ;; already in our paramter list
-                    wl = solar_atlas.lambdaD[solar_idx[isl]]
+                    wl = solar_atlas_air_waves[solar_idx[isl]]
                     old_idx = where(old_parinfo.ssggroupID eq 2 and $
                                     old_parinfo.ssgrwl eq wl, count)
                     if count eq 0 then begin
-                       ;; We need to add a new line --> worry about
-                       ;; deleting lines or fixing their parameters later
-                       ew = solar_atlas.e_lambdaD[solar_idx[isl]]
-                       ;; Take a wild guess at the initial parameters
-                       area = -exp(solar_atlas.loggf[solar_idx[isl]]) * continuum[0]/3.
-                       tparams = [wl, 0.2, 0., area]
+                       ;; We need to add a new line
+                       wave_err = solar_atlas.e_lambdaF[solar_idx[isl]]*1000d
+                       dop_width = 200
+                       ew = -continuum/8
+                       ;; Use Meylan's fits to improve equivalent width
+                       match_idx = where(weak_matched_waves eq wl, count)
+                       if count gt 0 then ew = -meylan_weak.ew[match_idx[0]]
+                       match_idx = where(strong_matched_waves eq wl, count)
+                       if count gt 0 then ew = -meylan_strong.ew[match_idx[0]]
+;                       ;; Take a wild guess at the initial parameters
+;                       area = -continuum[0]*dop_width /8
+;                       area = -exp(solar_atlas.loggf[solar_idx[isl]] - 12) $
+;                              * continuum[0] * 30
+;                       area = -exp(solar_atlas.loggf[solar_idx[isl]]) $
+;                              * continuum[0] /5.
+;                       area = -solar_atlas.I[solar_idx[isl]] * $
+;                              continuum[0]/1000.
+                       tparams = [wl, ew, dop_width]
                        
                        tparinfo = ssg_init_parinfo(voigt=tparams)
                        tparinfo[0].limited = [1,1]
-                       tparinfo[0].limits  = [-ew, ew]
-                       tparinfo[1].limited = [1,1]
-                       tparinfo[1].limits  = [0.02d, 0.3d]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
+                       tparinfo[1].limited = [0,1]
+                       tparinfo[1].limits  = [2.d*ew, 0.d]
                        tparinfo[2].limited = [1,1]
-                       tparinfo[2].limits  = [0.d, 0.25d]
-                       tparinfo[3].limited = [0,1]
-                       tparinfo[3].limits  = [-10.d*area, 0.d]
+                       tparinfo[2].limits  = [20.d, 300.d]
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 250.d]
                        tparinfo[*].ssggroupID = 2
                        tparinfo[0].ssgdop = id_solar_dop
                        for ipn=0,3 do begin
                           tparinfo[ipn].parname = $
                             string(group_names[tparinfo[ipn].ssggroupID], $
-                                               ' ', tparinfo[ipn].parname)
+                                   ' ', tparinfo[ipn].parname)
                        endfor
                        tparams[0] = 0.D
                        params = [params, tparams]
@@ -978,8 +984,54 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                  endfor ;; Strong solar line loop
               endif ;; adding strong solar line
 
+              ;; Broad solar lines
+              if uanswer eq 'B' then begin
+                 solar_idx = where(left_dop_wvals[id_solar_dop] le $
+                                   broad_solar_lines and $
+                                   broad_solar_lines le $
+                                   right_dop_wvals[id_solar_dop], $
+                                   n_solar)
+                 ;; For each broad solar line
+                 for isl = 0, n_solar-1 do begin
+                    ;; Get its wavelength and check to see if it is
+                    ;; already in our paramter list
+                    wl = broad_solar_lines[solar_idx[isl]]
+                    ew = broad_solar_line_EWs[solar_idx[isl]]
+                    old_idx = where(old_parinfo.ssggroupID eq 3 and $
+                                    old_parinfo.ssgrwl eq wl, count)
+                    if count eq 0 then begin
+                       ;; We need to add a new line --> worry about
+                       ;; deleting lines or fixing their parameters later
+                       wave_err = 50.d
+                       ;; Take a wild guess at the initial parameters
+                       tparams = [wl, ew, 200.]
+                       tparinfo = ssg_init_parinfo(voigt=tparams)
+                       tparinfo[0].limited = [1,1]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
+                       tparinfo[1].limited = [1,1]
+                       tparinfo[1].limits  = [-100d, 0.d]
+                       tparinfo[2].limited = [1,1]
+                       tparinfo[2].limits  = [20.d, 1000.d]
+                       tparinfo[3].fixed   = 0
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 1000.d]
+                       tparinfo[*].ssggroupID = 3
+                       tparinfo[0].ssgdop = id_solar_dop
+                       for ipn=0,3 do begin
+                          tparinfo[ipn].parname = $
+                            string(group_names[tparinfo[ipn].ssggroupID], $
+                                   ' ', tparinfo[ipn].parname)
+                       endfor
+
+                       tparams[0] = 0.D
+                       params = [params, tparams]
+                       parinfo = [parinfo, tparinfo]
+                    endif ;; Initialize a solar line
+                 endfor ;; Broad solar line loop
+              endif ;; adding broad solar line
+
               ;; Weak solar lines
-              if answer eq 's' then begin
+              if uanswer eq 'W' then begin
                  solar_idx = where(left_dop_wvals[id_solar_dop] le $
                                    weak_solar_lines and $
                                    weak_solar_lines le $
@@ -990,29 +1042,30 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     ;; Get its wavelength and check to see if it is
                     ;; already in our paramter list
                     wl = weak_solar_lines[solar_idx[isl]]
-                    old_idx = where(old_parinfo.ssggroupID eq 3 and $
+                    old_idx = where(old_parinfo.ssggroupID eq 4 and $
                                     old_parinfo.ssgrwl eq wl, count)
                     if count eq 0 then begin
                        ;; We need to add a new line --> worry about
                        ;; deleting lines or fixing their parameters later
-                       ew = 0.005d ; Might want to change this
+                       wave_err = 5.d ; Might want to change this
                        ;; Take a wild guess at the initial parameters
-                       tparams = [wl, 0.2, 0., -1.]
+                       tparams = [wl, -2., 100.]
                        tparinfo = ssg_init_parinfo(voigt=tparams)
                        tparinfo[0].limited = [1,1]
-                       tparinfo[0].limits  = [-ew, ew]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
                        tparinfo[1].limited = [1,1]
-                       tparinfo[1].limits  = [0.02d, 0.3d]
+                       tparinfo[1].limits  = [-3d, 0.d]
                        tparinfo[2].limited = [1,1]
-                       tparinfo[2].limits  = [0.d, 0.25d]
-                       tparinfo[3].limited = [0,1]
-                       tparinfo[3].limits  = [-3, 0.d]
-                       tparinfo[*].ssggroupID = 3
+                       tparinfo[2].limits  = [20.d, 200.d]
+                       tparinfo[3].fixed   = 1
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 250.d]
+                       tparinfo[*].ssggroupID = 4
                        tparinfo[0].ssgdop = id_solar_dop
                        for ipn=0,3 do begin
                           tparinfo[ipn].parname = $
                             string(group_names[tparinfo[ipn].ssggroupID], $
-                                               ' ', tparinfo[ipn].parname)
+                                   ' ', tparinfo[ipn].parname)
                        endfor
 
                        tparams[0] = 0.D
@@ -1022,39 +1075,39 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                  endfor ;; Weak solar line loop
               endif ;; adding weak solar line
 
-              ;; Atmospheric absorption lines
-              if uanswer eq 'A' then begin
-                 atm_idx = where(left_wval le atm_absorb and $
-                                 atm_absorb le right_wval, $
-                                 n_atm)
+              ;; O2 atmospheric absorption lines
+              if uanswer eq 'O' then begin
+                 o2_idx = where(left_wval le o2_air_waves and $
+                                o2_air_waves le right_wval, $
+                                n_o2)
                  ;; For absoprtion feature
-                 for ial = 0, n_atm-1 do begin
+                 for ial = 0, n_o2-1 do begin
                     ;; Get its wavelength and check to see if it is
                     ;; already in our paramter list
-                    wl = atm_absorb[atm_idx[ial]]
-                    old_idx = where(old_parinfo.ssggroupID eq 4 and $
+                    wl = o2_air_waves[o2_idx[ial]]
+                    old_idx = where(old_parinfo.ssggroupID eq 5 and $
                                     old_parinfo.ssgrwl eq wl, count)
                     if count eq 0 then begin
                        ;; We need to add a new line --> worry about
                        ;; deleting lines or fixing their parameters later
-                       ew = 0.005d ; Might want to change this
+                       wave_err = 5.d ; Might want to change this
                        ;; Take a wild guess at the initial parameters
-                       tparams = [wl, 0.1, 0., -2]
+                       tparams = [wl, -20, 100.]
                        tparinfo = ssg_init_parinfo(voigt=tparams)
                        tparinfo[0].limited = [1,1]
-                       tparinfo[0].limits  = [-ew, ew]
-                       tparinfo[1].limited = [1,1]
-                       tparinfo[1].limits  = [0.005d, 0.3d]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
+                       tparinfo[1].limited = [0,1]
+                       tparinfo[1].limits  = [-200.D, 0]
                        tparinfo[2].limited = [1,1]
-                       tparinfo[2].limits  = [0.d, 0.25d]
-                       tparinfo[3].limited = [0,1]
-                       tparinfo[3].limits  = [-10.D, 0]
-                       tparinfo.ssggroupID[*] = 4
+                       tparinfo[2].limits  = [5.d, 300.d]
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 250.d]
+                       tparinfo.ssggroupID[*] = 5
                        tparinfo[0].ssgdop = 0
                        for ipn=0,3 do begin
                           tparinfo[ipn].parname = $
                             string(group_names[tparinfo[ipn].ssggroupID], $
-                                               ' ', tparinfo[ipn].parname)
+                                   ' ', tparinfo[ipn].parname)
                        endfor
                        tparams[0] = 0.D
                        params = [params, tparams]
@@ -1062,6 +1115,47 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     endif ;; Initialize a strong atmospheric line
                  endfor ;; Strong atmospheric
               endif ;; adding strong atmospheric line
+
+              ;; weak atmospheric absorption lines
+              if uanswer eq 'A' then begin
+                 atm_idx = where(left_wval le weak_atm_lines and $
+                                weak_atm_lines le right_wval, $
+                                n_atm)
+                 ;; For absoprtion feature
+                 for ial = 0, n_atm-1 do begin
+                    ;; Get its wavelength and check to see if it is
+                    ;; already in our paramter list
+                    wl = weak_atm_lines[atm_idx[ial]]
+                    old_idx = where(old_parinfo.ssggroupID eq 6 and $
+                                    old_parinfo.ssgrwl eq wl, count)
+                    if count eq 0 then begin
+                       ;; We need to add a new line --> worry about
+                       ;; deleting lines or fixing their parameters later
+                       wave_err = 50.d ; Might want to change this
+                       ;; Take a wild guess at the initial parameters
+                       tparams = [wl, -2, 100]
+                       tparinfo = ssg_init_parinfo(voigt=tparams)
+                       tparinfo[0].limited = [1,1]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
+                       tparinfo[1].limited = [0,1]
+                       tparinfo[1].limits  = [-10.D, 0]
+                       tparinfo[2].limited = [1,1]
+                       tparinfo[2].limits  = [5.d, 300.d]
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 250.d]
+                       tparinfo.ssggroupID[*] = 6
+                       tparinfo[0].ssgdop = 0
+                       for ipn=0,3 do begin
+                          tparinfo[ipn].parname = $
+                            string(group_names[tparinfo[ipn].ssggroupID], $
+                                   ' ', tparinfo[ipn].parname)
+                       endfor
+                       tparams[0] = 0.D
+                       params = [params, tparams]
+                       parinfo = [parinfo, tparinfo]
+                    endif ;; Initialize a weak atmospheric line
+                 endfor ;; weak atmospheric
+              endif ;; adding a weak atm atmospheric line
 
               ;; Atmospheric emission lines
               if uanswer eq 'E' then begin
@@ -1073,29 +1167,29 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     ;; Get its wavelength and check to see if it is
                     ;; already in our paramter list
                     wl = atm_emi[atm_idx[ial]]
-                    old_idx = where(old_parinfo.ssggroupID eq 5 and $
+                    old_idx = where(old_parinfo.ssggroupID eq 7 and $
                                     old_parinfo.ssgrwl eq wl, count)
                     if count eq 0 then begin
                        ;; We need to add a new line --> worry about
                        ;; deleting lines or fixing their parameters later
-                       ew = 0.005d ; Might want to change this
+                       wave_err = 5.d ; Might want to change this
                        ;; Take a wild guess at the initial parameters
-                       tparams = [wl, 0.05, 0., 0.05]
+                       tparams = [wl, 2, 50]
                        tparinfo = ssg_init_parinfo(voigt=tparams)
                        tparinfo[0].limited = [1,1]
-                       tparinfo[0].limits  = [-ew, ew]
-                       tparinfo[1].limited = [1,1]
-                       tparinfo[1].limits  = [0.005d, 0.3d]
+                       tparinfo[0].limits  = [-wave_err, wave_err]
+                       tparinfo[1].limited = [1,0]
+                       tparinfo[1].limits  = [0,2.d]
                        tparinfo[2].limited = [1,1]
-                       tparinfo[2].limits  = [0.d, 0.25d]
-                       tparinfo[3].limited = [1,0]
-                       tparinfo[3].limits  = [0,2.d]
-                       tparinfo.ssggroupID[*] = 5
+                       tparinfo[2].limits  = [5.d, 300.d]
+                       tparinfo[3].limited = [1,1]
+                       tparinfo[3].limits  = [0.d, 250.d]
+                       tparinfo.ssggroupID[*] = 7
                        tparinfo[0].ssgdop = 0
                        for ipn=0,3 do begin
                           tparinfo[ipn].parname = $
                             string(group_names[tparinfo[ipn].ssggroupID], $
-                                               ' ', tparinfo[ipn].parname)
+                                   ' ', tparinfo[ipn].parname)
                        endfor
 
                        tparams[0] = 0.D
@@ -1108,31 +1202,39 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
            endif ;; Adding lines menu of modifying parameters
 
            ;; Last thing: display parameters
-           ssg_display_params, params, parinfo
+           ssg_display_params, params, parinfo, perrors
            ;; Reset answer so it doesn't trigger other menus
            answer = ''
         endif ;; Modify parameters 'M'
 
         if answer eq 'F' then begin
-           old_params = params
-           old_parinfo = parinfo
+           params = parinfo.value
            err=0
            CATCH, err
            if err ne 0 then begin
               message, /NONAME, !error_state.msg, /CONTINUE
               message, 'WARNING: error detected, reseting parameters to previous values', /CONTINUE
-              params =  old_params
-              parinfo = old_parinfo
+              params =  parinfo.value
            endif else begin
 
-              to_pass = {parinfo:parinfo, ref_pixel:ref_pixel, spec:spec, $
-                         err_spec:err_spec}
-              params = mpfitfun('io_spec', pix_axis, spec, err_spec, $
-                                params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
-                                PARINFO=parinfo, maxiter=maxiter, $
-                                BESTNORM=chisq, PERROR=perrors, STATUS=status)
+              to_pass = {parinfo:parinfo}
+              params = mpfitfun('pfo_funct', pix_axis, spec, err_spec, $
+                                parinfo=parinfo, $
+                                functargs=to_pass, autoderivative=1, $
+                                iterproc='pfo_iterproc', perror=perror, $
+                                status=status)
 
-              ssg_display_params, params, parinfo
+
+
+;              to_pass = {parinfo:parinfo, ref_pixel:ref_pixel, spec:spec, $
+;                         err_spec:err_spec}
+;              params = mpfitfun('io_spec', pix_axis, spec, err_spec, $
+;                                params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
+;                                PARINFO=parinfo, maxiter=maxiter, $
+;                                BESTNORM=chisq, PERROR=perrors, STATUS=status, $
+;                                QUIET=quiet, NPRINT=nprint)
+;
+;              ssg_display_params, params, parinfo, perrors
               message, 'MPFITFUN returned STATUS ' + string(status), /CONTINUE
               io_idx = where(parinfo.ssggroupID eq 1, count)
               if count eq 0 then begin
@@ -1140,10 +1242,31 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
               endif else begin
                  dop_idx = where(parinfo.ssgID eq ssgid_dop and $
                                  parinfo.ssgdop eq id_Io_dop)
-                 message, 'Io ephemeris Doppler shift is ' + string(deldots[0]) + ' measured is ' + string(params[dop_idx[0]]), /CONTINUE
+                 message, 'Io Doppler shift delta is ' + string(deldots[0]-params[dop_idx[0]]) + '+/-' + string(perrors[dop_idx[0]]), /CONTINUE
+                 if abs(params[dop_idx[0]]) lt 5 then begin
+                    message, /continue, 'WARNING: Io is close to the airglow'
+                    air_idx = where(parinfo.ssggroupID eq 7, count)
+                    if count eq 0 then begin
+                       message, /CONTINUE, 'WARNING: No airglow line defined'
+                    endif else begin
+                       ssg_display_params, params[air_idx], parinfo[air_idx], $
+                                           perrors[air_idx]
+                    endelse
+                 endif
               endelse
+              dop_idx = where(parinfo.ssgID eq ssgid_dop and $
+                              parinfo.ssgdop eq id_solar_dop, count)
+              if count gt 0 then begin
+                 message, 'Solar Doppler delta is ' + string(deldots[0]+rdots[0]-params[dop_idx[0]]) + '+/-' + string(perrors[dop_idx[0]]), /CONTINUE
+              endif
+              weak_idx = where(parinfo.ssggroupID eq 4, count)
+              if count gt 0 then begin
+                 message, /CONTINUE, 'NOTE: keep an eye on these Weak solar lines'
+                 ssg_display_params, params[weak_idx], parinfo[weak_idx], $
+                                     perrors[weak_idx]
+              endif
               if status eq 5 then $
-                message, 'WARNING: STATUS 5 menas MPFITFUN failed to converge after MAXITER (' + string(maxiter) + ') iterations', /CONTINUE
+                message, 'WARNING: STATUS 5 means MPFITFUN failed to converge after MAXITER (' + string(maxiter) + ') iterations', /CONTINUE
            endelse
            CATCH, /CANCEL
            did_fit = 1
@@ -1164,18 +1287,18 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
            endif
            ;; Fix everything but the line strengths
            old_fixed = parinfo.fixed
-           all_but_areas = where(parinfo.vfID ne 5, complement=area_idx)
-           parinfo[all_but_areas].fixed = 1
+           all_but_ews = where(parinfo.vfID ne 5, complement=ew_idx)
+           parinfo[all_but_ews].fixed = 1
 
            ;; Now for each line do an mpfitfun
-           for il=0, n_elements(area_idx)-1 do begin
-              parinfo[area_idx].fixed = 1
-              parinfo[area_idx[il]].fixed = 0
+           for il=0, n_elements(ew_idx)-1 do begin
+              parinfo[ew_idx].fixed = 1
+              parinfo[ew_idx[il]].fixed = 0
               to_pass = {parinfo:parinfo, ref_pixel:ref_pixel, spec:spec, $
                          err_spec:err_spec}
               params = mpfitfun('io_spec', pix_axis, spec, err_spec, $
                                 params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
-                                PARINFO=parinfo, maxiter=10)
+                                PARINFO=parinfo, maxiter=10, QUIET=quiet, NPRINT=nprint)
            endfor
            parinfo.fixed = old_fixed
            CATCH, /CANCEL
@@ -1184,8 +1307,8 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
         endif ;; Renormalize
 
         if answer eq 'Z' then begin
-           left_idx = min(orig_pix_axis)
-           right_idx = max(orig_pix_axis)
+           left_idx = 0
+           right_idx = nx-1
         endif
         if answer eq 'Q' then begin
            if did_fit and NOT saved then begin
@@ -1215,20 +1338,20 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                                  tolerance=0.002) ; in case we were called by hand
 
            dbext, entry, 'value, perror, llimited, rlimited, llimits, rlimits, vfID, ssgID, ssggroupID, ssgrwl, ssgowl, ssgdop', $
-             values	, $
-             dbperrors	, $ 
-             llimited   , $  
-             rlimited   , $  
-             llimits    , $
-             rlimits    , $
-             vfID       , $
-             ssgID      , $
-             ssggroupID , $
-             ssgrwl     , $
-             ssgowl     , $
-             ssgdop
+                  values	, $
+                  dbperrors	, $ 
+                  llimited   , $  
+                  rlimited   , $  
+                  llimits    , $
+                  rlimits    , $
+                  vfID       , $
+                  ssgID      , $
+                  ssggroupID , $
+                  ssgrwl     , $
+                  ssgowl     , $
+                  ssgdop
            dbext, entry, 'fit_vers, fit_date, new_spec', $
-             fit_vers, fit_date, new_spec
+                  fit_vers, fit_date, new_spec
            dbclose
 
            new_spec = 0
@@ -1267,18 +1390,18 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
            ;; Must do updates one file at a time
            dbopen, fdbname, 1
            dbupdate, entry, 'value, perror, llimited, rlimited, llimits, rlimits, vfID, ssgID, ssggroupID, ssgrwl, ssgowl, ssgdop', $
-             values		, $
-             dbperrors		, $
-             llimited		, $  
-             rlimited		, $
-             llimits		, $  
-             rlimits		, $
-             to_save.vfID       , $
-             to_save.ssgID      , $
-             to_save.ssggroupID , $
-             to_save.ssgrwl     , $
-             to_save.ssgowl     , $
-             to_save.ssgdop
+                     values		, $
+                     dbperrors		, $
+                     llimited		, $  
+                     rlimited		, $
+                     llimits		, $  
+                     rlimits		, $
+                     to_save.vfID       , $
+                     to_save.ssgID      , $
+                     to_save.ssggroupID , $
+                     to_save.ssgrwl     , $
+                     to_save.ssgowl     , $
+                     to_save.ssgdop
            dbupdate, entry, 'fit_vers, fit_date, new_spec, nfree, chisq, redchisq', fit_vers, fit_date, new_spec, fix(nfree), chisq, redchisq
            dbclose
 ;            dbopen, fdbname[1], 1
@@ -1308,17 +1431,17 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
               if count ne 1 then $
                 message, 'ERROR: database not consistant, or something'
               dbext, entry, 'value, llimited, rlimited, llimits, rlimits, vfID, ssgID, ssggroupID, ssgrwl, ssgowl, ssgdop', $
-                values, $
-                llimited, $
-                rlimited, $
-                llimits, $
-                rlimits, $
-                vfID, $
-                ssgID, $
-                ssggroupID, $
-                ssgrwl, $
-                ssgowl, $
-                ssgdop
+                     values, $
+                     llimited, $
+                     rlimited, $
+                     llimits, $
+                     rlimits, $
+                     vfID, $
+                     ssgID, $
+                     ssggroupID, $
+                     ssgrwl, $
+                     ssgowl, $
+                     ssgdop
               dbclose
 ;              dbopen, fdbname[1], 0
 ;              dbext, entry, 'parname, tied', parname, tied
@@ -1358,27 +1481,27 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
                     case parinfo[ip].ssgID of
                        ssgid_disp : begin
                           parinfo[ip].parname = $
-                            string(format='("Disp Coef ", i3)', disp_order)
+                                               string(format='("Disp Coef ", i3)', disp_order)
                           disp_order = disp_order + 1
                        end
                        ssgid_cont : begin
                           parinfo[ip].parname = $
-                            string(format='("Cont. Poly Coef ", i3)', $
-                                   N_continuum)
+                                               string(format='("Cont. Poly Coef ", i3)', $
+                                                      N_continuum)
                           N_continuum = N_continuum + 1                        
                        end
                        ssgid_dop : begin
                           parinfo[ip].parname = $
-                            string(doppler_names[parinfo[ip].ssgdop], $
-                                   ' doppler shift') 
+                                               string(doppler_names[parinfo[ip].ssgdop], $
+                                                      ' doppler shift') 
                        end
                        ssgid_voigt : begin
                           parinfo[ip].parname = $
-                            string(format='(a, (f10.4), " ", a)', $
-                                   group_names[parinfo[ip].ssggroupID], $
-                                   parinfo[ip].ssgrwl, $
-                                   vpnames[parinfo[ip].vfID-2])
-                                               
+                                               string(format='(a, (f10.4), " ", a)', $
+                                                      group_names[parinfo[ip].ssggroupID], $
+                                                      parinfo[ip].ssgrwl, $
+                                                      vpnames[parinfo[ip].vfID-2])
+                          
                        end
                        else : parinfo[ip].parname = 'Unknown'
                     endcase
