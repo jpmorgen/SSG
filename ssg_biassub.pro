@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biassub.pro,v 1.5 2003/03/10 18:27:15 jpmorgen Exp $
+; $Id: ssg_biassub.pro,v 1.6 2003/06/11 18:08:44 jpmorgen Exp $
 
 ; ssg_biassub Subtract the best bias image from all the (non-bias)
 ; files in the directory
@@ -69,7 +69,17 @@ pro ssg_biassub, indir
         ;; modified by external procs (e.g. ssg_exceptions) if
         ;; determined gain should be different than NSO/KPNO supplied
         ;; value
-        gain=sxpar(hdr, 'GAIN')  
+        gain=sxpar(hdr, 'GAIN', count=count)
+        if count eq 0 then begin
+           message, /CONTINUE, 'WARNING: GAIN keyword missing'
+           detector=sxpar(hdr, 'DETECTOR', count=count)
+           if count eq 0 then message, 'ERROR: no DETECTOR keyword, cannot guess GAIN'
+           gain = 4.1
+           message, /CONTINUE, 'WARNING: Guessing GAIN = ' + string(gain)
+           sxaddhist, "(ssg_biassub.pro) estimating GAIN from 1993 TI4 value", hdr
+           sxaddpar, hdr, 'GAIN', gain, 'electrons per ADU, ESTIMATE'
+
+        endif
         im = im * gain
         eim = eim * gain
         ;; The statistical error on each data image pixel is the

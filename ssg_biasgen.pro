@@ -1,15 +1,16 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.5 2003/03/10 18:27:02 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.6 2003/06/11 18:07:33 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
 
 ;-
-pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigma_cut=cutval
+pro ssg_biasgen, indir, outname, plot=plot, TV=tv, minstack=minstack, sigma_cut=cutval, badcols=badcols, badrows=badrows
 ;  ON_ERROR, 2
   cd, indir
   if NOT keyword_set(outname) then outname = 'bestbias.fits'
-  if NOT keyword_set(badpix) then badpix = 5
+  ;; Be a little restrictive, since pixels can be replaced from the stack
+  if NOT keyword_set(cutval) then cutval = 4
 
   silent = 1
   if keyword_set(verbose) then silent = 0
@@ -27,14 +28,30 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   nf = N_elements(files)
   night_av = mean(av_biases)
 
+  ;; Try a restrictive cut to spot bad columns--no help
+  if NOT keyword_set(minstack) then minstack = nf - 1
+
   ;; Read in an image to set up the bestbias header
   im = ssgread(files[0], hdr, eim, ehdr)
   sxaddhist, string('(ssg_biasgen.pro) ', systime(/UTC), ' UT'), hdr
 
   asize=size(im) & nx=asize[1] & ny=asize[2]
+
+  if keyword_set(badcols) then begin
+     bad_idx=where(badcols ge nx, count)
+     if count gt 0 then $
+       message, 'ERROR: column out of range'
+  endif
+  if keyword_set(badrows) then begin
+     bad_idx=where(badrows ge ny, count)
+     if count gt 0 then $
+       message, 'ERROR: column out of range'
+  endif
+
   av_im = fltarr(nx,ny)
   count_im = fltarr(nx,ny)
   stack_im = fltarr(nf,nx,ny)
+  stack_im[*] = !values.f_nan
   cd,current=cwd
   sxaddpar, hdr, 'PARENTH', getenv("HOST"), ' hostname'
   sxaddpar, hdr, 'PARENTD', cwd, ' current working directory'
@@ -43,7 +60,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   sxaddpar, hdr, 'SSGFILE', outname, ' Name of this file'
 
   if keyword_set(TV) then display, av_im, hdr, title = 'Single bias image'
-  if keyword_set(showplots) then window, 6, title='Bias histogram'
+  if keyword_set(plot) then window, 6, title='Bias histogram'
 
   err=0
   for i=0,nf-1 do begin
@@ -54,10 +71,21 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
      endif else begin
         im = ssgread(files[i], ihdr, eim, ehdr)
 
+        ;; Nuke pre-defined bad columns and rows
+        for ic=0,N_elements(badcols)-1 do begin
+           im[badcols[ic],*] = !values.f_nan
+        endfor
+        for ir=0,N_elements(badrows)-1 do begin
+           im[*,badrows[ir]] = !values.f_nan
+        endfor
+
         if N_elements(av_im) ne N_elements(im) then $
           message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
 
-        if keyword_set(TV) then display, im, ihdr, /reuse
+        if keyword_set(TV) then begin
+           display, im, ihdr, /reuse
+           wait, 0.25
+        endif
 
         ;; Just in case there was a light leak or something, calculate
         ;; the best bias value from the data section separately from
@@ -78,23 +106,38 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
         endif
 
         ;; Now work with the whole image
-        sigma_im = (im-data_med)/stdev ; could use template_statistic but stdev already calculated here
-        mask_im = mark_bad_pix(sigma_im, cutval=cutval)
-        badidx = where(mask_im gt 0, count)
-        if count gt 0 then mask_im[badidx] = !values.f_nan
-        if keyword_set(TV) then display, im*mask_im, ihdr, /reuse
-        mask_im = mask_im + 1   ; used multiplicatively below
 
-        ;; Make sure not too much of the array is contaminated 
-        if count gt 0.01*N_elements(mask_im) then begin
-           badarray[i] = badarray[i] OR 16384
-           ;; This message is caught by the code above, skipping the
-           ;; code below.
-           message, 'WARNING: Bias ' + files[i] + ' has more than 1% bright pixels.  Marking it bad in the database'
+        ;; Try doing this iteratively so bad columns are caught
+        nbad = nx*ny
+        tmp_im = im
+        repeat begin
+           last_nbad = nbad
+           sigma_im = (im-data_med)/stdev 
+           mask_im = mark_bad_pix(sigma_im, cutval=cutval)
+           badidx = where(mask_im gt 0, nbad)
+           if nbad gt 0 then mask_im[badidx] = !values.f_nan
+           tmp_im = im+mask_im
+           stdev = stddev(tmp_im, /NAN)
+           data_med = median(tmp_im)
+        endrep until nbad ge last_nbad
+
+        if keyword_set(TV) then begin
+           display, im+mask_im, ihdr, /reuse
+           wait, 0.25
         endif
 
+        mask_im = mask_im + 1   ; used multiplicatively below
+
+;        ;; Make sure not too much of the array is contaminated 
+;        if nbad gt 0.01*N_elements(mask_im) then begin
+;           badarray[i] = badarray[i] OR 16384
+;           ;; This message is caught by the code above, skipping the
+;           ;; code below.
+;           message, 'WARNING: Bias ' + files[i] + ' has more than 1% bright pixels.  Marking it bad in the database'
+;        endif
+
         ;; Show histogram if user wants it
-        if keyword_set(showplots) then begin
+        if keyword_set(plot) then begin
            hist = histogram(sigma_im, min=-10, max=10, binsize=1, $
                             reverse_indices=R, /NAN)
            nh = N_elements(hist)
@@ -107,7 +150,7 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
 ;         ;; bias measurements are a good Gaussian, this cuts things off
 ;         ;; at the 5-sigma point.  However, do it this way just in case
 ;         ;; there is a non-Gaussian distribution
-;         good_idx = where(finite(sigma_im), count)
+;         good_idx = where(finite(sigma_im) eq 0, count)
 ;         for hi = 0, N_elements(hist)-1 do $
 ;           if hist[hi] gt 0 and hist[hi] lt 1.5E-6*count then $
 ;           mask_im[R[R[hi] : R[hi+1]-1]] = !values.f_nan
@@ -133,8 +176,8 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
         ;; setting them to 0 before adding AND keeping track of how
         ;; many good pixels were collected at each location
         badidx = where(finite(mask_im) eq 0, count)
-        if count gt badpix then $
-          message, 'ERROR: too many bad pixels: ' + string(count)
+;        if count gt badpix then $
+;          message, 'ERROR: too many bad pixels: ' + string(count)
         count_im = count_im + 1
         if count gt 0 then begin 
            im[badidx] = 0.
@@ -157,12 +200,13 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   av_im = av_im / count_im
   sxaddhist, string('(ssg_biasgen.pro) divided by good pixel counting image'), hdr
 
-  ;; Create median bias image and error array.  Mark missing pixels
-  ;; with NAN so median and stddev ignore them.  The error here is
-  ;; actually a subtle point.  I think the stddev taken in this way
-  ;; is a measure of the uncertainty on a single bias frame.  Since
-  ;; each image has a single measurement of the bias in it, this is
-  ;; the appropriate error for its subtraction.  The flatfield, on the
+  message, /INFORMATIONAL, 'Combining images...expect delay'
+
+  ;; Create median bias image and error array.  The error here is
+  ;; actually a subtle point.  I think the stddev taken in this way is
+  ;; a measure of the uncertainty on a single bias frame.  Since each
+  ;; image has a single measurement of the bias in it, this is the
+  ;; appropriate error for its subtraction.  The flatfield, on the
   ;; other hand is measuring total electrons collected in a stack of
   ;; images, so we want Poisson statistics there.  Also, the bias
   ;; value is in DN, with some other statistical determination
@@ -170,14 +214,18 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   ;; In the absense of a good independent measure like Poisson
   ;; statistics with a known parent population, the stddev is a
   ;; reasonable approximation
-  bad_idx = where(stack_im eq 0, count)
-  if count gt 0 then $
-    stack_im[bad_idx] = !values.f_nan
   med_im=fltarr(nx,ny)
+  med_im[*] = !values.f_nan
+  eim[*] = !values.f_nan
   for i=0,nx-1 do begin
      for j=0,ny-1 do begin
-        med_im[i,j] = median(stack_im[*,i,j])
-        eim[i,j] = stddev(stack_im[*,i,j], /NAN)
+        good_idx = where(finite(stack_im[*,i,j]) eq 1, count)
+        ;; Demand that we have at least a few pixels to work with.
+        ;; This is how we spot bad columns
+        if count ge minstack then begin
+           med_im[i,j] = median(stack_im[*,i,j])
+           eim[i,j] = stddev(stack_im[*,i,j], /NAN)
+        endif
      endfor
   endfor
 
@@ -186,13 +234,40 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
   ;; Replace any remaining suspect pixels in the average image with
   ;; median values
 
-  print, median(med_im), median(av_im)
   badidx = where(abs(med_im - av_im) gt stdev, count)
   if count gt 0 then begin
      av_im[badidx] = med_im[badidx]
      message, /INFORMATIONAL, 'cleaned up ' + string(count) + ' pixels using median of all bias images'
      sxaddhist, string('(ssg_biasgen.pro) cleaned up ', count, ' pixels'), hdr
   endif
+
+  ;; For 1996-7 spectra, make a dispersion spectrum to improve
+  ;; statistics on finding marginal columns.
+  ssg_spec_extract, av_im, hdr, spec, xdisp, /total
+
+  bad_idx = where(abs((spec-median(spec))/stddev(spec, /NAN)) gt cutval, count)
+  if count gt 0 then begin
+     message, /CONTINUE, 'WARNING: ' + string(count) + ' additional bad columns found.  Setting them to NAN'
+     av_im[bad_idx,*] = !values.f_nan
+  endif
+
+  ;; For the heck of it, do rows too.
+  ssg_spec_extract, av_im, hdr, spec, xdisp, /total
+  bad_idx = where(abs((xdisp-median(xdisp))/stddev(xdisp, /NAN)) gt cutval, count)
+  if count gt 0 then begin
+     message, /CONTINUE, 'WARNING: ' + string(count) + ' additional bad rows found.  Setting them to NAN'
+     av_im[*,bad_idx] = !values.f_nan
+  endif
+
+  ;; And iterate
+  ssg_spec_extract, av_im, hdr, spec, xdisp, /total
+
+  bad_idx = where(abs((spec-median(spec))/stddev(spec, /NAN)) gt cutval, count)
+  if count gt 0 then begin
+     message, /CONTINUE, 'WARNING: ' + string(count) + ' additional bad columns found.  Setting them to NAN'
+     av_im[bad_idx,*] = !values.f_nan
+  endif
+
 
   hist = histogram(av_im, binsize=1, /NAN)
   window, 6, title='Best bias histogram'
@@ -201,9 +276,9 @@ pro ssg_biasgen, indir, outname, showplots=showplots, TV=tv, badpix=badpix, sigm
         ytitle='fraction of image area'
   display, av_im, hdr, title = 'Best bias image'
 
-  badidx = where(finite(av_im) eq 0, av_im_count)
-  badidx = where(finite(data_im) eq 0, data_im_count)
-  if av_im_count ne data_im_count then message, 'ERROR: ' + string(count) + ' bad pixels not present in input images were found in ' + outname
+;  badidx = where(finite(av_im) eq 0, av_im_count)
+;  badidx = where(finite(data_im) eq 0, data_im_count)
+;  if av_im_count ne data_im_count then message, 'ERROR: ' + string(count) + ' bad pixels not present in input images were found in ' + outname
 
 
   ;; Write out the bestbias image

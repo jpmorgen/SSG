@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_sliloc.pro,v 1.4 2003/06/11 18:11:18 jpmorgen Exp $
+; $Id: ssg_fit_sliloc.pro,v 1.3 2003/06/11 18:09:17 jpmorgen Exp $
 
 ; ssg_fit_sliloc.  Fit the slicer location parameters to find good centers
 
@@ -67,7 +67,7 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, flat_only=flat_only, order=order, $
   if keyword_set(flat_only) then begin
      non_flat_idx = where(typecodes lt 3 or typecodes gt 4, count)
      if count eq 0 then begin
-        message, 'WARNING: nothing but flats in ' + string(indir), /continue
+        message, 'WARNING: nothing but flats in ' + string(indir)
      endif else begin
         e_sli_bots[non_flat_idx] = -abs(e_sli_bots[non_flat_idx])
         e_sli_tops[non_flat_idx] = -abs(e_sli_tops[non_flat_idx])
