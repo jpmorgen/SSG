@@ -1,112 +1,149 @@
+;+
+
 ; $Id:
 
 ; ssg_fit1spec.pro
 
-function io_spec, pix_X, params, dparams, parinfo=parinfo, $
-                  ref_pixel=ref_pixel, spec=spec
+; We want to build a database of atmospheric, solar, and Io emission
+; lines that will be fit to the SSG spectrum.  At this high resolution
+; and with boarderline signal-to-noise, it is useful to have these
+; lines devided up into various groups, e.g. strong solar, stong
+; atmospheric, weak solar, water vapor, etc.  As time goes on, the
+; database of useful lines will grow + some weird shapes might evolve
+; which are non-voigt like (e.g. saturated lines).  I will try to
+; build in compatability for these things, but for now, let's start
+; with Voigts.
 
-  n_params = N_elements(params)
-  npts = N_elements(pix_X)
-  Y = dblarr(npts)
+; We want to build a structure that is usable direcly with mpfitfn,
+; which will be called via some intermediate functions that take care
+; of trivial calculations like Doppler shifts.  Voigtfit is one such
+; function.  On that model, I should add some fields to the parinfo
+; structure that will help out.  So far we have the mpfit* structure:
 
-  nppv = 4 ;; numer of parameters per voigt
+;     .VALUE - the starting parameter value (I use params instead)
+;     .FIXED - a boolean value;  
+;     .LIMITED - a two-element boolean array.
+;     .LIMITS - a two-element float or double array
+;     .PARNAME - a string, giving the name of the parameter.
+;     .STEP - the step size for numerical derivatives.  0=autodetect
+;     .MPSIDE - the sidedness of the finite difference
+;     .MPMAXSTEP - the maximum change in the parameter value per iter.
+;     .TIED - e.g. : parinfo(2).tied = '2 * P(1)'.
+;     .MPPRINT - if set to 1, then the default ITERPROC will print
+
+; So let's start with Voigtfit:
+
+;	.vfID - 1=continuum parameter, 2-5 = voigt parameter
+;	.ssgID -- 0 = not an SSG parameter, 1 = dispersion coef, 2 =
+;                 doppler shift, 3 = continuum, 4 = Voigt
+;	.ssggroupID - which group of lines this line comes from:
+;			0 = not a line
+;			1 = Io emission lines
+;			2 = A catalogue of accurate wavelengths in the
+;	                       optical spectrum of the Sun 
+;	                      Allende Prieto C., Garcia Lopez R.J.
+;	                     <Astron. Astrophys. Suppl. Ser. 131, 431 (1998)>
+;	                     =1998A&AS..131..431A      (SIMBAD/NED BibCode)
+;			3 = weak solar lines
+;			4 = Strong atmospheric lines (or I might want
+;			to devide these up by species)
+;			5 = weak atmospheric lines
+;			6 = water vapor lines
+;			7 = unknown/unspecified
+;		     All (4) parameters of a Voigt have this set for
+;		     easy handling.
+;	.ssgrwl -- rest wavelength of the line at the source
+;                  (e.g. solar lines are relativistically shifted)
+;	.ssgowl - observed (e.g. doppler shifted) wavelength.  The
+;                 parameter actually associated with this is a
+;                 wavength (or whatever) offset.  Voigtspec takes care
+;                 of applying this offset before passing to voigfn.
+;	.ssglink -- for emulating broad lines with multiple Voigts or
+;                   for multiplets with fixed ratios.  The catalog(s)
+;                   will have these in absolute form (e.g. referenced
+;                   to the parameter number in that catalog), this is
+;                   for the actual parameter list we have constructed.
+;                   This follows the syntax of .LINK and, unlike the
+;                   .ssg* parameters above, is specific to each Voigt
+;                   parameter (e.g. you can link widths, etc.)  This
+;                   will be painful  to implement properly when lines
+;                   are removed
+;	.ssgdop -- each line is assigned to a doppler group.  Lines
+;                  without doppler shift (e.g. atm) have .ssgdop=0.
+;                  Others are assigned to numbers by the calling
+;                  program (e.g. solar = 1, Io = 2).  .ssgowl is
+;                  calculated using .ssgrwl and the doppler param
+;                  (ssgID = 2) with the corresponding ssgdop.
+;                  For easy handling, only the linecenter shift
+;                  parameter and the doppler shift parameters
+;                  themselves should have .ssgdop set.
+
+; That's about it for now.  I might want to have some other parameter
+; information, like widths and accuracies, but those go into other
+; parinfo places.  These addenda are mostly just handles
+
+
+;-
+
+;; AUTODERIVATIVE must be set to 1 since I don't calculate analytic
+;; derivatives (a 3rd parameter)
+function io_spec, pix_X, params, parinfo=parinfo, $
+                  ref_pixel=ref_pixel, spec=spec, err_axis=err_axis
+
+  ;; Make tokens for everything
+  vfid_cont = 1
+  vfid_center = 2
+  vfid_dop = 3
+  vfid_lor = 4
+  vfid_area = 5
+  vfid_first = vfid_center
+  vfid_last = vfid_area
+
+  ssgid_disp = 1
+  ssgid_dop = 2
+  ssgid_cont = 3
+  ssgid_voigt = 4
+
+  id_solar_dop = 1
+  id_Io_dop = 1
+
+
   c = 299792.458 ;; km/s
+  
+  ;; Since pix_X might have holes in it, this calculates an
+  ;; anatomically correct wavelength at each point, no matter how much
+  ;; space there is relative to its neighbors
+  disp_idx = where(parinfo.ssgID eq ssgid_disp, count)
+  if count gt 0 then $
+    X = make_disp_axis(params[disp_idx], pix_X, ref_pixel)
+  else $
+    X = pix_X
 
-  disp_idx = where(parinfo.ssg_id eq 0, order)
-  cont_idx = where(parinfo.ssg_id eq 1, N_continuum)
-  solar_dop_idx = where(parinfo.ssg_id eq 2)
-  io_dop_idx = where(parinfo.ssg_id eq 3)
-  solar_line_idx = where(parinfo.ssg_id eq 4, n_solar)
-  atm_line_idx = where(parinfo.ssg_id eq 5, n_atm)
-  io_line_idx = where(parinfo.ssg_id eq 6, n_io)
-
-  if n_params lt order+N_continuum+n_solar+n_atm+n_io then begin
-     message, 'WARNING: parameters supplied do not match parinfo list',/CONTINUE
-     return, Y
-  endif
-
-  n_solar = n_solar/nppv
-  n_atm = n_atm/nppv
-  n_io = n_io/nppv
-
-  ;; Start with the X axis.  Since pix_X might have holes in it, this
-  ;; calculates an anatomically correct wavelength at each point, no
-  ;; matter how much space there is relative to its neighbors
-  X = make_disp_axis(params[disp_idx], pix_X, ref_pixel)
-
-  ;; Now put the Y axis together.  Since we are using X as the
-  ;; reference now, we don't care about missing pixels
-  if N_continuum gt 0 then begin
-     for n=0,N_continuum-1 do begin
-        Y = Y + params[cont_idx[n]]*X^n
+  ;; Doppler shifts
+  dopp_idx = where(parinfo.ssgID eq ssgid_dop, n_dop)
+  ;; For each doppler group find the line center parameters in that group
+  for id=1,n_dop-1 do begin
+     dv = params[dopp_idx[id]]
+     dop_group = parinfo.ssgdop[dopp_idx[id]]
+     lc_idx = where(parinfo.ssgdop eq dop_group and $
+                    parinfo.ssgID ne ssgid_dop, n_lines)
+     ;; For each line in that group
+     for il = 0,n_lines-1 do begin
+        parinfo.ssgowl[lc_idx[il]] = $
+          parinfo.ssgrwl[lc_idx[il]] * ( 1. + dv / c )
      endfor
-  endif
+     ;; I am not going to tweak lc (line center) parameters since they
+     ;; are one of the things that is being fit
+  endfor
+  
 
-  ;; Now construct a parameter list for voigtfn.pro.  Start big + trim
-  ;; it later.
-  vps = dblarr(n_params)
-  nvps = 0
+  ;; voigspec is not as delicate when it comes to its parameter list
+  ;; as Voigfn, so I can just pass all the parameters right on through
 
-  ;; Solar lines
-  if n_solar gt 0 then begin
-     ;; Get solar doppler shift
-     dvs = 0
-     if solar_dop_idx ne -1 then $
-       dvs = params[solar_dop_idx]
-     ;; For each line
-     for isl = 0, n_solar-1 do begin
-        ;; For each parameter of that line
-        for ivp = 0,nppv-1 do begin
-           if ivp eq 0 then begin
-              ;; Adjust wavelength
-              rwl = params[solar_line_idx[isl*nppv+ivp]]
-              vps[nvps] = rwl * ( 1 + dvs / c )
-           endif else $
-             vps[nvps] = params[solar_line_idx[isl*nppv+ivp]]
-           nvps = nvps + 1
-        endfor
-     endfor
-  endif ;; Solar lines 
+  Y = voigtspec(X, params, parinfo=parinfo, Y=Y)
 
-  ;; Atmospheric lines
-  if n_atm gt 0 then begin
-     ;; For each line
-     for ial = 0, n_atm-1 do begin
-        ;; For each parameter of that line (no doppler shift)
-        for ivp = 0,nppv-1 do begin
-           vps[nvps] = params[atm_line_idx[ial*nppv+ivp]]
-           nvps = nvps + 1
-        endfor
-     endfor
-  endif ;; Atmospheric lines 
-
-  ;; Io line(s)
-  if n_Io gt 0 then begin
-     ;; Get Io doppler shift
-     dvi = 0
-     if Io_dop_idx ne -1 then $
-       dvi = params[Io_dop_idx[0]]
-     ;; For each line
-     for iil = 0, n_Io-1 do begin
-        ;; For each parameter of that line
-        for ivp = 0,nppv-1 do begin
-           if ivp eq 0 then begin
-              ;; Adjust wavelength
-              rwl = params[io_line_idx[iil*nppv+ivp]]
-              vps[nvps] = rwl * ( 1 + dvi / c )
-           endif else $
-             vps[nvps] = params[io_line_idx[iil*nppv+ivp]]
-           nvps = nvps + 1
-        endfor
-     endfor
-  endif ;; Io lines 
-
-  ;; Check to see if we picked up any lines
-  if nvps eq 0 then return, Y
-
-  Y = voigtfn(vps[0:nvps-1], X, Y)
-
-  ;; Give user a chance to see plots and abort fit
+  ;; Give user a chance to see plots and abort fit.  Craig might have
+  ;; a better way of doing this, but this is what I have for now.
   answer = strupcase(get_kbrd(0))
   if answer eq 'D' then begin
      plus = 1
@@ -130,7 +167,7 @@ function io_spec, pix_X, params, dparams, parinfo=parinfo, $
            xrange=[min(X), max(X)], yrange=[min(spec), max(spec)], $
            xstyle=1, ystyle=2
      oplot, X, Y, linestyle=dotted
-
+     oploterr, xaxis, spec, err_axis, dot
      residual = spec - Y
      plot, X, residual, $
            title='Fit residual', xtitle=xtitle, ytitle=ytitle, $
@@ -142,19 +179,33 @@ function io_spec, pix_X, params, dparams, parinfo=parinfo, $
 
 end
 
-pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
+
+
+pro ssg_fit1spec, nday, N_continuum=N_continuum_orig, maxiter=maxiter
 
   if N_elements(maxiter) eq 0 then maxiter = 50
 
   if N_elements(nday) ne 1 then $
     message, 'ERROR: supply one and only nday at a time'
 
-  if N_elements(N_continuum) eq 0 then N_continuum = 1
+  if N_elements(N_continuum_orig) eq 0 then N_continuum_orig = 1
 
   rdbname = 'ssg_reduce'
   fdbname = 'oi_6300_fit'
 
-  c = 299792.458 ;; km/s
+  ;; Make tokens for everything
+  vfid_cont = 1
+  vfid_center = 2
+  vfid_dop = 3
+  vfid_lor = 4
+  vfid_area = 5
+  vfid_first = vfid_center
+  vfid_last = vfid_area
+
+  ssgid_disp = 1
+  ssgid_dop = 2
+  ssgid_cont = 3
+  ssgid_voigt = 4
 
   plus = 1
   asterisk = 2
@@ -170,6 +221,8 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
   dash_dot=3
   dash_3dot = 4
   long_dash=5
+
+  c = 299792.458 ;; km/s
 
   message, /INFO, 'fitting spectrum nday = ' + string(nday)
 
@@ -187,12 +240,14 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
   solar_atlas=read_ascii('/home/jpmorgen/data/solar_atlas/table1.dat', $
                          template=solar_template)
 
+  weak_solar_lines = [6298.9700d, 6299.5962d, 6299.5962d, 6301.0d, 6301.86d]
+
   
   ;; This is the atmospheric line list that Melanie was using.  I wish
   ;; I could get better than this, but it is what I have for now....
   atm_lines = [6298.457d, 6299.228d, 6300.304d, 6302.000d, 6302.7642d]
 
-  atm_lines = [atm_lines, 6299.5d, 6295.9D]
+  weak_atm_lines = [6299.5d, 6295.9D]
 
   io_lines = [6300.304d]        ; I want to eventually put the Na in here
 
@@ -231,21 +286,20 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
 
   ;; Read in dispersion coefficients so I can use that as part of the
   ;; fit
-  order = 0
+  disp_order = 0
   dispers = sxpar(hdr, $
-                  string(format='("DISPERS", i1)', order), count=count)
+                  string(format='("DISPERS", i1)', disp_order), count=count)
   while count ne 0 do begin
-     order = order + 1
+     disp_order = disp_order + 1
      temp = sxpar(hdr, $
-                  string(format='("DISPERS", i1)', order), count=count)
+                  string(format='("DISPERS", i1)', disp_order), count=count)
      dispers = [dispers, temp]
   endwhile
-  if order eq 0 then $
-    message, 'ERROR: no DISPERS keyword found in header of ' + fname
+  if disp_order le 1 then $
+    message, 'ERROR: not enough DISPERS keyword found in header of ' + fname
 
-  order = order - 1
-  orig_dispers = dblarr(order+1)
-  orig_dispers = dispers[0:order]
+  orig_dispers = dblarr(disp_order)
+  orig_dispers = dispers[0:disp_order-1]
   dispers = orig_dispers
 
   window,6
@@ -282,96 +336,99 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
   pix_axis = orig_pix_axis
   ref_pixel = nx/2.
 
-  ;; Set up the parameters that will remain with us through the whole
-  ;; fitting process.  The limits section of parinfo is a bit picky,
-  ;; even if you have it turned off, so lets try for realistic limits
-  ;; in all cases
-
-  ;; Dispersion.  The basis for the model
-  params = dispers[0]
-  limits = dispers[0] + dispers[0]*[-0.0001, 0.0001]
-  parinfo = {fixed:0, $
-             limited:[0,0], $
-             limits:limits, $
-             parname:'Wavelength reference', $
-             ssg_id:0, $
-             v_id:0}
-  for id = 1, order do begin
-     d = dispers[id]
-     params = [params, d]
-     limits = [d-1., d+1.]
-     parinfo = [parinfo, $
-                {fixed:0, $
-                 limited:[0,0], $
-                 limits:limits, $
-                 parname:'Dispersion order ' + string(id), $
-                 ssg_id:0, $
-                 v_id:0}]
-
-  endfor
-
-  ;; Solar continuum level
-  m = median(orig_spec)
-  continuum = [m]
-  params = [params, m]
-  limits = [-1.D*m, 2.D*m]
-  parinfo = [parinfo, $
-             {fixed:0, $
-              limited:[0,0], $
-              limits:limits, $
-              parname:'Continuum', $
-              ssg_id:1, $
-              v_id:0}]
-  
-  ;; Hopefully we won't need much variation on these.  This
-  ;; just makes sure mpfitfn doesn't complain when it first initializes
-  for ic = 1,N_continuum-1 do begin
-     continuum = [continuum, 0.D]
-     params = [params, 0.D]
-     parinfo = [parinfo, $
-                {fixed:0, $
-                 limited:[0,0], $
-                 limits:[-1.D,1.D], $
-                 parname:'Continuum', $
-                 ssg_id:1, $
-                 v_id:0}]
-  endfor
-  old_params = params
-  old_parinfo = parinfo
-
+  ;; Need some initial starting structure or else IDL complains
+  parinfo = ssg_init_parinfo(1)
 
   done = 0
   !p.multi = [0,0,2]
 
   repeat begin
+     
+     ;; Extract useful things from parameter list, recording any
+     ;; changes since the last iteration.  Also check to see if this
+     ;; is the fuirst time around or if we have deleted parameters in
+     ;; order for them to be reinitialized.
+     
+     ;; DISPERSION
+     disp_idx = where(parinfo.ssg_id eq ssgid_disp, disp_order)
+     ;; Check for initilization of params/parinfo
+     if disp_order le 1 then begin
+        ;; We need an initization or reset.  Do it in a temporary
+        ;; structure + append or set up for the first time the real
+        ;; params/parinfo structure from that
+        disp_order = N_elements(orig_dispers)
+        tparams = orig_dispers
+        tparinfo = ssg_init_parinfo(disp_order)
+        for idsp = 0,disp_order-1 do begin
+           p = tparams[idsp] 
+           ;; Kind of bogus limits, but thes will keep the mpfit code happy
+           tparinfo.limits[idsp] = [p - 0.01, p + 0.01]
+           tparinfo.parname[idsp]=string(format='("Disp Coef ", i3)', idsp)
+           tparinfo.ssgID[idsp]=ssgid_disp
+        endfor
+        ;; check to see if we have any parameters
+        if N_elements(params) le 1 then begin
+           message, 'NOTE: initilizaing parameter list' ,/INFORMATIONAL
+           params = tparams
+           parinfo= tparinfo
+        endif ;; Initilize parameter list
+        message, 'NOTE: set dispersion coefficients to those found in FITS header of ' + fname ,/INFORMATIONAL
+     endif ;; Dispersion initialization
+     ;; Keep dispersion handy as a separate variable
+     disp_idx = where(parinfo.ssg_id eq ssgid_disp, disp_order)
+     dispers = params[disp_idx]
 
+     ;; Handle the results of any wavelength window repositioning,
+     ;; including recalculating the X axis for dispersion changes
      if left_idx gt right_idx then begin
         temp = left_idx & left_idx = right_idx & right_idx = temp
      endif
-
      left_wval =  orig_wavelengths[left_idx]
      right_wval = orig_wavelengths[right_idx]
-
      pix_axis = orig_pix_axis[left_idx:right_idx]
-     npix = N_elements(pix_axis)
      xaxis = make_disp_axis(dispers, pix_axis, ref_pixel)
      spec = orig_spec[pix_axis]
      err_axis = orig_err_axis[pix_axis]
-
      orig_wavelengths = make_disp_axis(dispers, orig_pix_axis, ref_pixel)
-     model_spec = io_spec(pix_axis, params, $
-                          parinfo=parinfo, ref_pixel=ref_pixel, spec=spec)
-
-     ;; Extract useful things from parameter list
-     cont_idx = where(parinfo.ssg_id eq 1, N_continuum)
+     
+     ;; CONTINUUM.  It is important to do it in this order so the
+     ;; median spectrum is taken from the stuff in the window, not the
+     ;; whole spectrum
+     cont_idx = where(parinfo.ssg_id eq ssgid_cont, N_continuum)
+     if N_continuum eq 0 then begin
+        message, 'NOTE: resetting continuum to median of displayed spectrum and, if N_continuum specified on the command line, zeroing higher order terms ', /INFORMATIONAL
+        m = median(orig_spec)
+        tparams = dblarr(N_continuum_orig)
+        tparams[0] = m
+        tparinfo = ssg_init_parinfo(N_continuum_orig)
+        for ic = 0,N_continuum-1 do begin
+           p = tparams[idx] 
+           ;; --> I have no idea if these are reasonable absolute boundardies
+           tparinfo.limits[ic] = [p - 1., p + 1.]
+           tparinfo.parname[ic]=string(format='("Cont. Poly Coef ", i3)', ic)
+           tparinfo.ssgID[ic]=ssgid_cont
+        endfor
+        ;; Limits on 0th order should be broad they can be constrained
+        ;; by the used later.  --> NOTE: this assumes a positive
+        ;; continuum + could be improved if necessary, but I don't
+        ;; want to use min/max(spec) unless I multiply it by something
+        ;; or add the median, since the true continuum might be really
+        ;; high or low....
+        tparinfo.limits[0] = [-m, 2.D*m]
+        params = [params, tparams]
+        parinfo = [parinfo, tparinfo]
+     endif ;; Continuum initialization
+     ;; Keep continuum handy as a separate variable
+     cont_idx = where(parinfo.ssg_id eq ssgid_disp, N_continuum)
      continuum = params[cont_idx]
-     disp_idx = where(parinfo.ssg_id eq 0, count)
-     if count gt 0 then dispers = params[disp_idx]
-     solar_dop_idx = where(parinfo.ssg_id eq 2, count)
-     if count gt 0 then dvs = params[solar_dop_idx[0]]
-     io_dop_idx = where(parinfo.ssg_id eq 3, count)
-     if count gt 0 then dvi = params[io_dop_idx[0]]
 
+     ;; DOPPLER SHIFTS.  None are necessary since atmospheric lines
+     ;; have ssgdop = 0.
+     dopp_idx = where(parinfo.ssg_id eq ssgid_dop, N_dopp)
+
+     model_spec = io_spec(pix_axis, params, parinfo=parinfo, $
+                          ref_pixel=ref_pixel, spec=spec, err_axis=err_axis)
+     
      residual = spec - model_spec
      
      wset,6
@@ -385,7 +442,6 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
            title='Fit residual', xtitle=xtitle, ytitle=ytitle, $
            xstyle=1, ystyle=2
 
-
      message, /CONTINUE, 'Use left and right buttons select bracket a region of interest.  Middle button brings up menu.'
 
      cursor, x1, y1, /DOWN, /DATA
@@ -398,41 +454,220 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
      if !MOUSE.button eq 2 then begin
         message, /CONTINUE, 'Menu:'
         print, 'Fit '
-        print, 'Initialize lines in spectral range'
+        print, 'Modify parameters'
         print, 'Renormalize lines'
-        print, 'change Doppler shifts'
         print, 'unZoom'
         print, 'Save in database'        
         print, 'Quit'
         for ki = 0,1000 do flush_input = get_kbrd(0)
         repeat begin
-           message, /CONTINUE, '[F], I, R, D, Z, Q, S?'
+           message, /CONTINUE, '[F], M, R, Z, S, Q?'
            answer = get_kbrd(1)
            if byte(answer) eq 10 then answer = 'F'
            answer = strupcase(answer)
         endrep until $
           answer eq 'F' or $
-          answer eq 'I' or $
+          answer eq 'M' or $
           answer eq 'R' or $
-          answer eq 'D' or $
           answer eq 'Z' or $
-          answer eq 'Q' or $
-          answer eq 'S'
+          answer eq 'S' or $
+          answer eq 'Q'
         for ki = 0,1000 do flush_input = get_kbrd(0)
 
-        if answer eq 'I' then begin
+        if answer eq 'M' then begin
+           message, /CONTINUE, 'Menu:'
+           print, 'Add lines '
+           print, 'Remove lines'
+           print, 'Modify 1 line'
+           print, 'modify Doppler shifts'
+           print, 'Change dispersion relation'
+           print, 'Quit this menu'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+           repeat begin
+              message, /CONTINUE, 'A, R, M, D, C, [Q]'
+              answer = get_kbrd(1)
+              if byte(answer) eq 10 then answer = 'Q'
+              answer = strupcase(answer)
+           endrep until $
+             answer eq 'A' or $
+             answer eq 'R' or $
+             answer eq 'M' or $
+             answer eq 'D' or $
+             answer eq 'C' or $
+             answer eq 'Q'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
 
            ;; Save off exising parameter stuff so we can recover values
            old_params = params
            old_parinfo = parinfo
 
-           ;; If we have redshifted a line into our field, we need to
-           ;; go back out to the blue to find it in our catalog
-           left_solar_w = left_wval  * ( 1 - dvs / c )
-           right_solar_w = right_wval  * ( 1 - dvs / c )
-           solar_idx = where(left_solar_w le solar_atlas.lambdaD[*] and $
-                             solar_atlas.lambdaD[*] le right_solar_w, $
-                             n_solar)
+           if answer eq 'A' then begin
+              message, /CONTINUE, 'Line lists (only S and A are case sensitive):'
+              print, 'Strong solar lines (S) '
+              print, 'Weak solar lines (s)'
+              print, 'strong atmospheric lines (A)'
+              print, 'weak atmospheric lines (a)'
+              print, 'Io line'
+              print, 'Random line by hand'
+              print, 'Quit this menu (Q or q)'
+              for ki = 0,1000 do flush_input = get_kbrd(0)
+              repeat begin
+                 message, /CONTINUE, 'S, s, A, a, I, R, [Q]'
+                 answer = get_kbrd(1)
+                 if byte(answer) eq 10 then answer = 'Q'
+                 uanswer = strupcase(answer)
+              endrep until $
+                uanswer eq 'S' or $
+                uanswer eq 'A' or $
+                uanswer eq 'I' or $
+                uanswer eq 'R' or $
+                uanswer eq 'Q'
+              for ki = 0,1000 do flush_input = get_kbrd(0)
+              
+              if uanswer eq 'S' then begin
+                 temp = string(dvs)
+                 read, 'Solar doppler shift [' + temp + '] ', temp
+                 if strlen(temp) gt 0 then dvs = double(temp)
+                 ;; Check for initialization
+                 sd_idx = where(parinfo.ssgID eq ssgid_dop $
+                                and parinfo.ssgdop eq id_solar_dop, count)
+                 if count eq 0 then begin
+                    tparinfo = ssg_init_parinfo(1)
+                    ;; --> Again, a wild guess, assuming we are in
+                    ;; km/s, etc.
+                    tparinfo.limits = [dvs-100,dvs+100]
+                    tparinfo.parname = 'Solar Doppler Shift'
+                    tparinfo.ssgID = ssgid_dop
+                    tparinfo.ssgdop = id_solar_dop
+                    params = [params, dvs]
+                    parinfo = [parinfo, tparinfo]
+                 endif
+                 ;; Get more specific with limits, etc., using
+                 ;; parameter modification 
+                 sd_idx = where(parinfo.ssgID eq ssgid_dop $
+                                and parinfo.ssgdop eq id_solar_dop)
+                 params[sd_idx] = dvs
+
+                 ;; If we have redshifted a line into our field, we need to
+                 ;; go back out to the blue to find it in our catalog
+                 left_solar_w = left_wval  * ( 1 - dvs / c )
+                 right_solar_w = right_wval  * ( 1 - dvs / c )
+
+              endif ;; adding some solar lines, strong or weak
+
+              if uanswer eq 'I' then begin
+                 temp = string(dvi)
+                 read, 'Io doppler shift [' + temp + '] ', temp
+                 if strlen(temp) gt 0 then dvi = double(temp)
+                 ;; Check for initialization
+                 iod_idx = where(parinfo.ssgID eq ssgid_dop $
+                                 and parinfo.ssgdop eq id_Io_dop, count)
+                 if count eq 0 then begin
+                    tparinfo = ssg_init_parinfo(1)
+                    ;; --> Again, a wild guess, assuming we are in
+                    ;; km/s, etc.
+                    tparinfo.limits = [dvi-100,dvi+100]
+                    tparinfo.parname = 'Io Doppler Shift'
+                    tparinfo.ssgID = ssgid_dop
+                    tparinfo.ssgdop = id_Io_dop
+                    params = [params, dvi]
+                    parinfo = [parinfo, tparinfo]
+                 endif
+                 ;; Get more specific with limits, etc., using
+                 ;; parameter modification 
+                 iod_idx = where(parinfo.ssgID eq ssgid_dop $
+                                 and parinfo.ssgdop eq id_solar_dop)
+                 params[iod_idx] = dvi
+
+                 ;; If we have redshifted a line into our field, we need to
+                 ;; go back out to the blue to find it in our catalog
+                 left_Io_w = left_wval  * ( 1 - dvi / c )
+                 right_Io_w = right_wval  * ( 1 - dvi / c )
+
+              endif ;; adding Io line
+
+              ;; Strong solar lines
+              if answer eq 'S' then begin
+                 solar_idx = where(left_solar_w le solar_atlas.lambdaD[*] and $
+                                   solar_atlas.lambdaD[*] le right_solar_w, $
+                                   n_solar)
+                 ;; For each line
+                 for isl = 0, n_solar-1 do begin
+                    ;; Get its wavelength and check to see if it is
+                    ;; already in our paramter list
+                    wl = solar_atlas.lambdaD[solar_idx[isl]]
+                    old_idx = where(old_parinfo.ssggroupID eq 2 and $
+                                    old_parinfo.ssgrwl eq wl, count)
+                    if count eq 0 then begin
+                       ;; We need to add a new line --> worry about
+                       ;; deleting lines or fixing their parameters later
+                       ew = solar_atlas.e_lambdaD[solar_idx[isl]]
+                       ;; Take a wild guess at the initial parameters
+                       tparinfo = ssg_init_parinfo(voigt=[wl, 0.5, 0., -exp(solar_atlas.loggf[solar_idx[isl]]) * continuum[0]/3.]
+                       tparinfo.limited[0] = [1,1]
+                       tparinfo.limits[0] = [-ew, ew]
+
+
+                    ;; We allow these to jitter a little, so check for
+                    ;; something that won't change.
+                 if count eq 0 then begin
+                    ;; First initialization.  Widths are in Angstroms
+                    wl = wl & dw = 0.5 & dl = 0.1
+                    ;; A wild guess
+                    area = 
+                 endif else begin
+                    ;; Transfer over the old parameters
+                    id = old_idx[0]
+                    wl = old_params[id]
+                    dw = old_params[id+1]
+                    dl = old_params[id+2]
+                    area = old_params[id+3]
+                 endelse
+                 ;; Now dump these into the params and parinfo structure
+                 params = [params, wl]
+                 parinfo = [parinfo, $
+                            {fixed:0, $
+                             limited:[1,1], $
+                             limits:wlimits, $
+                             parname:'Solar line ' + string(isl) + ' wavelength', $
+                             ssg_id:4, $
+                             v_id:1}]
+
+                 ;; Doppler Width.  
+                 params = [params, dw] 
+                 parinfo = [parinfo, $
+                            {fixed:0, $
+                             limited:[1,1], $
+                             limits:[0.2d,0.75d], $
+                             parname:'Solar line ' + string(isl) + ' Doppler width', $
+                             ssg_id:4, $
+                             v_id:2}]
+
+                 ;; Lorenzian Width.
+                 params = [params, dl]
+                 parinfo = [parinfo, $
+                            {fixed:0, $
+                             limited:[1,1], $
+                             limits:[0d,1d], $
+                             parname:'Solar line ' + string(isl) + ' Lorenzian width', $
+                             ssg_id:4, $
+                             v_id:3}]
+
+                 ;; Area.  Constrain to be negative.
+                 params = [params, area]
+                 parinfo = [parinfo, $
+                            {fixed:0, $
+                             limited:[0,1], $
+                             limits:[-10.d*area,0d], $
+                             parname:'Solar line ' + string(isl) + ' Area', $
+                             ssg_id:4, $
+                             v_id:4}]
+
+              endfor ;; Solar line loop
+
+
+           endif ;; Adding lines
+
 
            ;; These of course don't shift
            atm_idx = where(left_wval le atm_lines and $
@@ -744,7 +979,8 @@ pro ssg_fit1spec, nday, N_continuum=N_continuum, maxiter=maxiter
         if answer eq 'F' then begin
            old_params = params
            old_parinfo = parinfo
-           to_pass = {parinfo:parinfo, ref_pixel:ref_pixel, spec:spec}
+           to_pass = {parinfo:parinfo, ref_pixel:ref_pixel, spec:spec, $
+                      err_spec=err_spec}
            params = mpfitfun('io_spec', pix_axis, spec, err_axis, $
                              params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
                              PARINFO=parinfo, maxiter=maxiter)
