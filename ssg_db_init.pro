@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.6 2003/06/11 18:16:05 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.7 2003/06/11 21:50:21 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -82,6 +82,10 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
      endif else begin
         message,'Checking '+ shortfile, /INFORMATIONAL
         im=ssgread(files[i], hdr) ; This will raise an error if not FITS
+        test = sxpar(hdr, 'BIASSEC', count=count)
+        if count eq 0 then $
+          message, 'ERROR: BIASSEC keyword is missing.  This file needs hand attention.'
+
         nday = sxpar(hdr, 'NDAY', count=count)
         if count gt 0 then begin
            message, 'WARNING: file ' + shortfile + ' has already been reduced.', /CONTINUE
