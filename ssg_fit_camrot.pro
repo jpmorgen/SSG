@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_camrot.pro,v 1.1 2002/11/12 21:02:48 jpmorgen Exp $
+; $Id: ssg_fit_camrot.pro,v 1.2 2002/11/14 19:17:27 jpmorgen Exp $
 
 ; ssg_fit_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -7,7 +7,7 @@
 ;-
 
 pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
-                    width=width, write=write
+                    width=width, noninteractive=noninteractive, write=write
 
 ;  ON_ERROR, 2
   cd, indir
@@ -59,26 +59,63 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   badidx = where(abs(sigmas) gt sigma_cut, count)
   if count gt 0 then angles[badidx] = !values.f_nan
 
-  good_idx = where(finite(angles), count)
-  if count eq 0 then message, 'ERROR: no good camera rotation measurements found'
-  coefs = poly_fit(ndays-this_nday[good_idx], angles[good_idx], order)
-
-  cam_rot = fltarr(nf)
-  for ci=0,order do begin
-     cam_rot = cam_rot + coefs[ci]*(ndays-this_nday)^ci
-  endfor
-  
+  refit=1
+  if keyword_set(noninteractive) then refit = 0
   window,7
-  plot, ndays, angles, $
-        title=string('Camera rotation angles in ', indir), $
-        xtickunits='Hours', $
-        yrange=[min([angles,angles], /NAN), $
-                max([angles, angles], /NAN)], $
-        xstyle=2, ystyle=2, psym=plus, $
-        xtitle=string('UT time (Hours) ', utdate), $
-        ytitle='Angle (degrees)'
-  oplot, ndays, cam_rot
-  ;oploterr, ndays, angles, sigmas
+  repeat begin
+     good_idx = where(finite(angles), count)
+     if count eq 0 then message, 'ERROR: no good camera rotation measurements found'
+     coefs = poly_fit(ndays-this_nday[good_idx], angles[good_idx], order)
+     
+     cam_rot = fltarr(nf)
+     for ci=0,order do begin
+        cam_rot = cam_rot + coefs[ci]*(ndays-this_nday)^ci
+     endfor
+
+     plot, ndays, angles, $
+           title=string('Camera rotation angles in ', indir), $
+           xtickunits='Hours', $
+           yrange=[min([angles,angles], /NAN), $
+                   max([angles, angles], /NAN)], $
+           xstyle=2, ystyle=2, psym=plus, $
+           xtitle=string('UT time (Hours) ', utdate), $
+           ytitle='Angle (degrees)'
+     oplot, ndays, cam_rot
+     ;;oploterr, ndays, angles, sigmas
+
+     if NOT keyword_set(noninteractive) then begin
+        ;; User selects a bad point
+        message, /CONTINUE, 'Select bad points with leftmost mouse button, rightmost button exits'
+        cursor, badnday, badval, /DOWN, /DATA
+        if !MOUSE.button eq 1 then begin
+           dxs = ndays[good_idx] - badnday
+           dys = angles[good_idx] - badval
+           dists = dxs*dxs + dys*dys
+           junk = min(dists, bad_idx, /NAN)
+           angles[good_idx[bad_idx]] = !values.f_nan
+        endif ;; leftmost mouse button
+        if !MOUSE.button eq 2 then begin
+           message, /CONTINUE, 'HEY, I said left or right buttons, not middle!'
+        endif
+        if !MOUSE.button eq 4 then begin
+           message, /CONTINUE, 'DONE'
+           refit = 0
+        endif
+     endif
+     
+  endrep until refit eq  0
+
+
+  if NOT keyword_set(noninteractive) then begin
+     if NOT keyword_set(write) then $
+       repeat begin
+        message, /CONTINUE, 'Write this fit to the database and FITS headers?([Y]/N)'
+        answer = get_kbrd(1)
+        if byte(answer) eq 10 then answer = 'Y'
+        answer = strupcase(answer)
+     endrep until answer eq 'Y' or answer eq 'N'
+     if answer eq 'Y' then write=1
+  endif
 
   ;; Now write the information to the FITS headers
   if keyword_set(write) then begin
