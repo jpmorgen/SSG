@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fix_head.pro,v 1.3 2003/06/11 18:16:41 jpmorgen Exp $
+; $Id: ssg_fix_head.pro,v 1.4 2003/06/12 15:07:17 jpmorgen Exp $
 
 ; ssg_fix_head.  Fix up Y2K problems with the FITS headers ON THE RAW
 ; FILES.  Saves a copy of all the files in the directory just in case
@@ -232,7 +232,11 @@ pro ssg_fix_head, indir, outdir
         constructed_date_obs = year + '-' + month + '-' + day + 'T' + ut
         constructed_date_obs = strtrim(constructed_date_obs,2)
 
-        if constructed_date_obs ne date_obs then begin
+        ;; Don't fix data that were taken in the previous UT day (UT
+        ;; time > 18 or so), since that corresponds to mid-afternoon
+        ;; biases, which were occationally taken
+        if constructed_date_obs ne date_obs and fix(day)-fix(day_fits) ne 1 $
+          and fix(timearr[0]) lt 18 then begin
            message, /CONTINUE, 'Construction of DATE-OBS keyword from directory and filename information yielded ' + string(constructed_date_obs) + ' which is different from FITS header value of ' + string(date_obs)
            message, /CONTINUE, 'Saving file ' + string(shortinfile) + ' in tar file ' + string(outname)
            spawn, 'tar rvf ' + outname + ' ' + shortinfile
