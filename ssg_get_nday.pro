@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_nday.pro,v 1.2 2002/11/12 21:32:43 jpmorgen Exp $
+; $Id: ssg_get_nday.pro,v 1.3 2002/12/16 13:40:43 jpmorgen Exp $
 
 ; ssg_get_nday 
 ;
@@ -22,7 +22,7 @@
 ; 11/16/1858 (JD=2400000), which is still a little large for us at
 ; this point.
 
-; So, Let's define our nday=0 to be 1/1/1990 = JD 2447893
+; So, Let's define our nday=0 to be 1/1/1990 00:00UT = JD 2447892.5
 
 ; Note, julian days begin at noon.  Also, IDL julday, though handy as
 ; a function, returns real Julian Day.  ASTROLIB's juldate returns
@@ -38,7 +38,7 @@
 ; UT      = '06:24:16.00       '  /  universal time
 
 ;-
-function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted_nday
+function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
 
   nday = 0.
   if NOT keyword_set(regenerate) then begin
@@ -87,7 +87,7 @@ function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted_nday
      endif
   endif
 
-  nday = rawjd + (darktime/2.)/3600./24. - (julday(1,1,1990)-2400000.)
+  nday = rawjd + (darktime/2.)/3600./24. - (julday(1,1,1990,0)-2400000.)
   sxaddpar, hdr, 'NDAY', nday, 'Decimal days of obs. midpoint since 1990-1-1T12:00:00 UT'
 
   ;; ssg_exceptions may modify nday
