@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.1 2002/11/25 19:02:52 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.2 2002/11/25 22:20:41 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -48,14 +48,14 @@ function voigt_spec, X, params, dparams, N_continuum=N_continuum, Vaxis=Vaxis
      vps = params[N_continuum:n_params-1]
   endif
 
-  ;; Collect parameters into form that deltafn can use
-  if N_elements(vps) mod 4 ne 0 then message, 'ERROR: wrong number of parameters.  Must have N_continuum continum parameters (polynomial assumed) and four parameters per Voigt profile'
-
   return, voigtfn(vps, X, Yaxis)
 end
 
 ;; Make a potentially sparse axis using a vector dispersion
 ;; descirption [ref wavelength, higher order dispersion terms]
+;; in_axis is assumed to be an array of ordinal pixel number (but can
+;; be sparse).  Ref_pixel is the pixel number (if in_axis were
+;; complete) of the 0 point in the polynomial calculations
 function make_disp_axis, disp, in_axis, ref_pixel
   axis = in_axis
   axis = axis * 0.
@@ -235,18 +235,21 @@ function comp_correlate, in_disp, no_dp, spec=spec, line_list=line_list, line_st
 end
 
 
-pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=in_disp, order=order, N_continuum=N_continuum
+pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=atlas, dispers=in_disp, order=order, N_continuum=N_continuum, noninteractive=noninteractive, frac_lines=frac_lines
 
 ;  ON_ERROR, 2
   cd, indir
 
   if NOT keyword_set(atlas) then atlas='/home/jpmorgen/data/ssg/reduced/thar_list'
+  if NOT keyword_set(frac_lines) then frac_lines = 0.5
 
   ;; Be careful with type conversion so everything ends up double
   if NOT keyword_set(in_disp) then in_disp=[6300, 0.055,0]
   order = N_elements(in_disp) - 1
   if order lt 0 then order=0
   dispers = dblarr(order+1)
+  ;; FOr some of the code to work conveniently, there has to be at
+  ;; least a constant continuum
   if NOT keyword_set(N_continuum) then N_continuum = 1
 
   silent = 1
@@ -329,73 +332,87 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
 
         ssg_spec_extract, im, hdr, spec, xdisp, /TOTAL
 
+        ;; CAUTION, the reference for pix_axis and all the dispersion
+        ;; calculations is the center of the array, not the edge
         npts = N_elements(spec)
-        pix_axis = indgen(npts) - npts/2
-        model_spec=dblarr(npts)
-        temp_axis = model_spec
-        old_red_chisq = 1
+        pix_axis = indgen(npts)
 
         ;; start each file afresh
         dispers[*] = in_disp[*]
 
         ;; Now choose our likely window of lines
-        wspan = dispers[1] * npts
-        wmin = dispers[0] - wspan/2.
-        wmax = wmin + wspan
-        atlas_idx = where(line_list ge wmin and line_list lt wmax, $
+        wbounds = make_disp_axis(dispers, [0, npts-1], npts/2.)
+        atlas_idx = where(line_list ge wbounds[0] and $
+                          line_list lt wbounds[1], $
                           n_expected_lines)
-        ;; Let's cut down on the number of expected lines so we only
-        ;; stick to the brightest
-        n_expected_lines = n_expected_lines
+        n_expected_lines = frac_lines * n_expected_lines
+
         if n_expected_lines lt order + 1 then $
-          message, 'ERROR: cannot find enough lines in the atlas to constrain a ' + string(order) + ' order dispersion solotion'
-        
-
-
-;         for di = 0,order do begin
-;            temp_axis = temp_axis + in_disp[di]*pix_axis^di
-;         endfor
-; 
-;         temp=deltafn(line_list, line_strengths, model_spec, Xaxis=temp_axis)
-;         temp = where(temp gt 0, count)
-;         n_expected_lines = count;/2.
-
+          message, 'ERROR: by only using ' + string(frac_lines) + '* the number of atlas lines, I cannotconstrain a ' + string(order) + ' order dispersion solution.  Consider frac_lines=1 or lowering the order'
 
         n_params = 0
+        model_spec=dblarr(npts)
+        old_red_chisq = 1
 
-        ;; Fit delta functions to the comp spectrum
+        ;; Fit Voigt functions to the comp spectrum
+        !p.multi = [0,0,2]
         repeat begin
            residual = spec - model_spec
            next_max = max(residual, next_maxx, /NAN)
-           if n_params eq 0 then begin
-              params = dblarr(N_continuum + 2)
-              params[N_continuum] = next_maxx[0]
-              params[N_continuum+1] = next_max[0]
-           endif else begin
-              params = [params, next_maxx[0], next_max[0]]
-           endelse
-           to_pass = { N_continuum:N_continuum }
-           params = mpfitfun('delta_spec', pix_axis, spec, sqrt(spec), $
-                             params, FUNCTARGS=to_pass)
-           n_params = N_elements(params)
-           model_spec = delta_spec(pix_axis, params, N_continuum=N_continuum)
-           red_chisq = total((spec[*] - model_spec[*])^2)/n_params
-           nlines = (n_params-N_continuum)/2
-        endrep until old_red_chisq ge red_chisq or $
-           nlines eq n_expected_lines
 
-        
-        window,2
-        !p.multi = [0,0,2]
-        plot, pix_axis, spec, $
-              title=string("Spectrum of comp ", files[i]), $
-              xtitle='Pixels ref to center of image', $
-              ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
-        oplot, pix_axis, model_spec, linestyle=dotted
-        plot, pix_axis, residual, $
-              title=string("Fit residual "), $
-              xtitle='Pixels ref to center of image', $
-              ytitle=string(sxpar(hdr, 'BUNIT'))
+           if n_params eq 0 then begin
+              params = dblarr(N_continuum)
+              parinfo = replicate({fixed:0, $
+                                   limited:[0,0], $
+                                   limits:[0.D,0.D], $
+                                   parname:'poly continuum'}, $
+                                  N_continuum)
+           endif
+           params = [params, $
+                     next_maxx[0], $ ; center
+                     1.5, $    	; Gauss FWHM
+                     0, $    	; Lor width
+                     next_max[0]] ; Area
+           
+           ;; Put on some constraints for narrow comp lines
+           parinfo = [parinfo, $
+                      {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Center'}, $
+                      {fixed:1, limited:[1,1], limits:[0.D,4.D], parname:'Gauss FWHM'}, $
+                      {fixed:1, limited:[1,1], limits:[0.D,4.D], parname:'Lor Width'}, $
+                      {fixed:0, limited:[0,0], limits:[0.D,0.D], parname:'Area'}]
+
+           to_pass = { N_continuum:N_continuum }
+           params = mpfitfun('voigt_spec', pix_axis, spec, sqrt(spec), $
+                             params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
+                             PARINFO=parinfo)
+           n_params = N_elements(params)
+           model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
+           red_chisq = total((spec[*] - model_spec[*])^2)/n_params
+           nlines = (n_params-N_continuum)/4
+
+           end_of_loop = old_red_chisq ge red_chisq or $
+                         nlines eq n_expected_lines
+
+           if end_of_loop then begin
+              parinfo[*].fixed = 0
+              params = mpfitfun('voigt_spec', pix_axis, spec, sqrt(spec), $
+                                params, FUNCTARGS=to_pass, AUTODERIVATIVE=1, $
+                                PARINFO=parinfo, PERROR=perror)
+
+              if keyword_set(showplots) then begin
+                 plot, pix_axis, spec, $
+                       title=string("Spectrum of comp ", files[i]), $
+                       xtitle='Pixels', $
+                       ytitle=string(sxpar(hdr, 'BUNIT'), 'Solid=data, dotted=model')
+                 oplot, pix_axis, model_spec, linestyle=dotted
+                 plot, pix_axis, residual, $
+                       title=string("Fit residual "), $
+                       xtitle='Pixels ref to center of image', $
+                       ytitle=string(sxpar(hdr, 'BUNIT'))
+              endif
+           endif ; last super fit
+        endrep until end_of_loop
+
         
         !p.multi = 0
 
@@ -403,14 +420,17 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
           message, 'Unsure how to proceed'
 
 
-        ;; Extract line pixel values 
-        dps = params[N_continuum:n_params-1]
-        Xs = fltarr(nlines)
-        Yvals = Xs
-        Yaxis = dblarr(npts)
+        ;; Extract line pixel values from parameter list
+        ;; Strip off continuum
+        vps = params[N_continuum:n_params-1]
+        verrors = perror[N_continuum:n_params-1]
+        Xs = dblarr(nlines)
+        dXs = dblarr(nlines)
+        areas = fltarr(nlines)
         for li=0, nlines-1 do begin
-           Xs[li] = dps[2*li]
-           Yvals[li] = dps[2*li+1]
+           Xs[li] = vps[4*li]
+           areas[li] = vps[4*li+3]
+           dXs[li] = verrors[4*li]
         endfor
 
         line_sort=sort(Xs)
@@ -450,10 +470,11 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, showplots=showplots, TV=tv, atlas=a
 
         window,3
         coefs = jpm_polyfit(Xs[line_sort]-npts/2., $
-                 line_list[associations[line_sort]], order, $
-                 title=string("Dispersion relation for comp ", files[i]), $
-                 xtitle='Pixels ref to center of image', $
-                 ytitle='Best guess association to atlas line')
+                            line_list[associations[line_sort]], order, $
+                            title=string("Dispersion relation for comp ", files[i]), $
+                            xtitle='Pixels', $
+                            ytitle='Best guess association to atlas line', $
+                            noninteractive=noninteractive)
         print, coefs
         stop
 
