@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fix_head.pro,v 1.4 2003/06/12 15:07:17 jpmorgen Exp $
+; $Id: ssg_fix_head.pro,v 1.5 2003/06/13 03:51:46 jpmorgen Exp $
 
 ; ssg_fix_head.  Fix up Y2K problems with the FITS headers ON THE RAW
 ; FILES.  Saves a copy of all the files in the directory just in case
@@ -194,6 +194,7 @@ pro ssg_fix_head, indir, outdir
         endif
 
         datearr=strsplit(date_obs,'-T:',/extract)
+        timearr=strsplit(ut,':',/extract)
         if N_elements(datearr) eq 6 then begin ; New Y2K convention
            year_fits = fix(datearr[0])
            month_fits = months[fix(datearr[1])-1]
@@ -204,7 +205,6 @@ pro ssg_fix_head, indir, outdir
               message, /CONTINUE, 'WARNING: malformed DATE-OBS keyword'
               datearr = [0,0,0]
            endif
-           timearr=strsplit(ut,':',/extract)
 
            year_fits = fix(datearr[2])
            ;; The study started in 1990

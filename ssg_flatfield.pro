@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatfield.pro,v 1.5 2003/06/11 18:07:50 jpmorgen Exp $
+; $Id: ssg_flatfield.pro,v 1.6 2003/06/13 03:51:53 jpmorgen Exp $
 
 ; ssg_flatfield Divide comp and object images by flatfield, recording
 ; flatfield name in database.  If specified, also divide by the sky
@@ -144,6 +144,16 @@ pro ssg_flatfield, indir, lampflat_dir=lampflat_dir, skyflat_dir=skyflat_dir, fl
                  eim[good_idx] = im[good_idx] * $
                                  sqrt( (eim[good_idx] / oim[good_idx])^2 + $
                                        (feim[good_idx] / flat[good_idx])^2 )
+
+                 ;; Inf is a possible answer, which is x/0 and
+                 ;; distinct from NAN.  So replace Inf with NAN
+                 bad_idx = where(finite(im) eq 0, count)
+                 if count gt 0 then $
+                   im[bad_idx] = !values.f_nan
+                 bad_idx = where(finite(eim) eq 0, count)
+                 if count gt 0 then $
+                   eim[bad_idx] = !values.f_nan
+
 
                  keyword = strmid(strupcase(type+subtype), 0,8)
                  sxaddhist, '(ssg_flatfield.pro) divided by ' + keyword, hdr

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatgen.pro,v 1.8 2003/06/11 18:06:55 jpmorgen Exp $
+; $Id: ssg_flatgen.pro,v 1.9 2003/06/13 03:51:40 jpmorgen Exp $
 
 ; ssg_flatgen Generate a bestflat frame from all the flat images in a
 ; given directory.  Final image is the total number of electrons
@@ -155,7 +155,7 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               im = ssgread(files[i], ihdr, eim, iehdr)
               if N_elements(total_im) ne N_elements(im) then $
                 message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
-              cam_rot = sxpar(ihdr, 'MEDBACK', count=count)
+              temp = sxpar(ihdr, 'MEDBACK', count=count)
               if count eq 0 then $
                 message, 'ERROR: run ssg_lightsub first'
 
@@ -163,10 +163,12 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               ;; Do a prelimiary cut to find the edges and bad
               ;; columns.  Keep track of these in a separate array,
               ;; edge_mask.  This gets refined as we start adding in
-              ;; other flatfield components
+              ;; other flatfield components.  Oops, if there is one
+              ;; hot pixel, that can mess up normalize, so for this
+              ;; pass, do a median filter
               cut = flat_cut
               if num_skyflats gt 0 then cut = sky_cut
-              edge_idx = where(normalize(im, cut) lt cut or $
+              edge_idx = where(normalize(median(im,4), cut) lt cut or $
                                finite(im) eq 0, $
                                edge_count, complement=middle_idx)
 
@@ -187,6 +189,7 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
                                   finite(im) eq 0 or $
                                   im le max(ssgread(im, ihdr, /bias), /NAN), $
                                   edge_count, complement=middle_idx)
+
                  fim[middle_idx] = im[middle_idx] / saim[middle_idx]
               endif
               if subtype eq 'source' then begin
@@ -465,9 +468,13 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               num_skyflats = -1
            endif
 
-           window,6, title=string('TOTAL spectra of ', write_name)
-           ssg_spec_extract, total_im, hdr, /showplots, /TOTAL
-           display, total_im, hdr, title = write_name
+           if keyword_set(showplots) then begin
+              window,6, title=string('TOTAL spectra of ', write_name)
+              ssg_spec_extract, total_im, hdr, /showplots, /TOTAL
+           endif
+           if keyword_set(tv) then begin
+              display, total_im, hdr, title = write_name
+           endif
 
            ;; Write file
            ssgwrite, write_name, total_im, hdr, sqrt(total_im), ehdr

@@ -1,11 +1,11 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.6 2003/06/11 18:07:33 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.7 2003/06/13 03:51:32 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
 
 ;-
-pro ssg_biasgen, indir, outname, plot=plot, TV=tv, minstack=minstack, sigma_cut=cutval, badcols=badcols, badrows=badrows
+pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=badcols, badrows=badrows
 ;  ON_ERROR, 2
   cd, indir
   if NOT keyword_set(outname) then outname = 'bestbias.fits'
@@ -27,9 +27,6 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, minstack=minstack, sigma_cut=
   files=strtrim(files)
   nf = N_elements(files)
   night_av = mean(av_biases)
-
-  ;; Try a restrictive cut to spot bad columns--no help
-  if NOT keyword_set(minstack) then minstack = nf - 1
 
   ;; Read in an image to set up the bestbias header
   im = ssgread(files[0], hdr, eim, ehdr)
@@ -216,13 +213,11 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, minstack=minstack, sigma_cut=
   ;; reasonable approximation
   med_im=fltarr(nx,ny)
   med_im[*] = !values.f_nan
-  eim[*] = !values.f_nan
+  eim = med_im
   for i=0,nx-1 do begin
      for j=0,ny-1 do begin
         good_idx = where(finite(stack_im[*,i,j]) eq 1, count)
-        ;; Demand that we have at least a few pixels to work with.
-        ;; This is how we spot bad columns
-        if count ge minstack then begin
+        if count gt 1 then begin
            med_im[i,j] = median(stack_im[*,i,j])
            eim[i,j] = stddev(stack_im[*,i,j], /NAN)
         endif
@@ -270,11 +265,16 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, minstack=minstack, sigma_cut=
 
 
   hist = histogram(av_im, binsize=1, /NAN)
-  window, 6, title='Best bias histogram'
-  plot, indgen(N_elements(hist)) + min(av_im, /NAN), hist/float(N_elements(av_im)), $
-        title='Best bias histgram', xtitle='bin (DN)', $
-        ytitle='fraction of image area'
-  display, av_im, hdr, title = 'Best bias image'
+  if keyword_set(plot) then begin
+     window, 6, title='Best bias histogram'
+     plot, indgen(N_elements(hist)) + min(av_im, /NAN), $
+           hist/float(N_elements(av_im)), $
+           title='Best bias histgram', xtitle='bin (DN)', $
+           ytitle='fraction of image area'
+  endif
+  if keyword_set(tv) then begin
+     display, av_im, hdr, title = 'Best bias image'
+  endif
 
 ;  badidx = where(finite(av_im) eq 0, av_im_count)
 ;  badidx = where(finite(data_im) eq 0, data_im_count)

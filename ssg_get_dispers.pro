@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.8 2003/06/11 18:07:16 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.9 2003/06/13 03:52:08 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -307,7 +307,8 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
 
   if NOT keyword_set(review) then begin ; We really want to do all the fitting
 
-     window,6
+     if keyword_set(plot) then $
+       window,6
 
      ngood = 0
      err=0
@@ -337,7 +338,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
                             finite(spec_err2) eq 1 and $
                             spec ne 0, good_count)
            if good_count eq 0 then $
-             message, 'ERROR: no good points in spectrum of ', files[i]
+             message, 'ERROR: no good points in spectrum of ' + files[i]
 
            temp = pix_axis[good_idx] & pix_axis = temp
            temp = spec[good_idx] & spec = temp
@@ -463,7 +464,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
                                          PERROR=perror, MAXITER=maxiter)
                  model_spec = voigt_spec(pix_axis, params, N_continuum=N_continuum)
               endif
-              if end_of_loop or keyword_set(plot) then begin
+              if keyword_set(plot) then begin
                  wset,6
                  ;; Try to line up this plot with jpm_polyfit
                  plot, pix_axis, spec, $
@@ -544,18 +545,20 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
                 ;;                  ref_pixel=ref_pixel)
                                                     
            endfor
-           ;; At some point I could make this more interactive
-           window, 8 
-           plot, pix_axis, first_pass[*,0], $
-             title='Center wavelength finding guide', $
-             xtitle=string(format='("Assumed pixel position of ", f9.4)', $
-                           dispers[0]), $
-             ytitle='Cumulative line position different^2'
+           if keyword_set(plot) then begin
+              ;; At some point I could make this more interactive
+              window, 8 
+              plot, pix_axis, first_pass[*,0], $
+                    title='Center wavelength finding guide', $
+                    xtitle=string(format='("Assumed pixel position of ", f9.4)', $
+                                  dispers[0]), $
+                    ytitle='Cumulative line position different^2'
+           endif
 ;           top = max(first_pass[*,0]*10)
 ;           plots, [l_limit+left_idx, l_limit+left_idx], [0,top]
 ;           plots, [r_limit+left_idx, r_limit+left_idx], [0,top]
-
-           message, /CONTINUE, 'Select most likely looking minimum for line search start'
+              
+;           message, /CONTINUE, 'Select most likely looking minimum for line search start'
            
 ;           cursor, x1, y1, /DOWN, /DATA
 ;           ;; Left mouse

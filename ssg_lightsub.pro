@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_lightsub.pro,v 1.3 2003/06/11 18:07:41 jpmorgen Exp $
+; $Id: ssg_lightsub.pro,v 1.4 2003/06/13 03:51:57 jpmorgen Exp $
 ;-
 
 ;; ssg_lightsub Calculates the background spectrum from room lights or
@@ -91,6 +91,9 @@ pro ssg_lightsub, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom,
 
         edge_im = im * mask
         edge_eim = eim * mask
+        med_back[i] 	= median(edge_im)
+        av_back[i] 	= mean(edge_im, /NAN)
+        stdev_back[i] 	= stddev(edge_im, /NAN)
 
         if keyword_set(TV) then $
           display, edge_im, /reuse
@@ -148,6 +151,17 @@ pro ssg_lightsub, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom,
            m_err2 = m_err2 + (edge_coef_errs[ic+2,i]*xaxis^ic)^2
         endfor
 
+        good_idx = where(finite(edge_fit[*,0]) eq 1 $
+                         and finite(edge_fit[*,0]) eq 1, count)
+        if count eq 0 then begin
+           sxaddhist, string('(ssg_lightsub.pro) ', systime(/UTC), ' UT '), hdr
+           sxaddpar, hdr, 'MEDBACK', med_back[i], 'Median value of measured background light (BUNIT)'
+           sxaddpar, hdr, 'AVBACK', av_back[i], 'Average value of measured background light (BUNIT)'
+           sxaddpar, hdr, 'STDBACK', stdev_back[i], 'Stdev value of measured background light (BUNIT)'
+           ssgwrite, files[i], bim-med_back[i], hdr, $
+                     sqrt(beim^2+stdev_back[i]^2), ehdr
+           message, 'WARNING: ' + files[i] + ' Background light is not well behaved, subtracting median value'
+        endif
         if keyword_set(showplots) then begin
            wset, 6
            !p.multi=[0,0,2]
@@ -177,10 +191,6 @@ pro ssg_lightsub, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom,
 
         bim[0:nx-1,0:ny-1] = im[*,*]
         beim[0:nx-1,0:ny-1] = eim[*,*]
-
-        med_back[i] 	= median(edge_im)
-        av_back[i] 	= mean(edge_im, /NAN)
-        stdev_back[i] 	= stddev(edge_im, /NAN)
 
         sxaddpar, hdr, 'MEDBACK', med_back[i], 'Median value of measured background light (BUNIT)'
         sxaddpar, hdr, 'AVBACK', av_back[i], 'Average value of measured background light (BUNIT)'

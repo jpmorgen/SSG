@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_slicer.pro,v 1.4 2003/06/11 18:09:08 jpmorgen Exp $
+; $Id: ssg_fit_slicer.pro,v 1.5 2003/06/13 03:52:26 jpmorgen Exp $
 
 ; ssg_fit_slicer.  Fit J-shaped or tilted slices
 
@@ -33,8 +33,10 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
   files=strtrim(files)
 
   refit=1
-  if keyword_set(noninteractive) then refit = 0
-  window,7
+  if keyword_set(noninteractive) then $
+    refit = 0 $
+  else $
+    window,7
 
   asize = size(m_slicers)
   if asize[0] lt 2 then message, 'ERROR: improperly formatted database--make this code and ssg_db_create consistent'

@@ -1,4 +1,4 @@
-; $Id: ssgread.pro,v 1.5 2003/06/11 18:08:33 jpmorgen Exp $
+; $Id: ssgread.pro,v 1.6 2003/06/13 03:52:03 jpmorgen Exp $
 
 ; sshread uses ccdread to get an Stellar SpectroGraph image and
 ; rotates it to the correct orientation for easy spectral extraction
@@ -8,7 +8,7 @@
 
 function ssgread, fname_or_im, hdr, eim, ehdr, TV=tv, REUSE=reuse, zoom=zoom, VERBOSE=verbose, data=data, bias=bias, trim=trim
 
-;  ON_ERROR, 2
+  ON_ERROR, 2
   silent = 1
   if keyword_set(verbose) then silent = 0
   if N_elements(fname_or_im) eq 0 then message, 'ERROR: no filename or image supplied'

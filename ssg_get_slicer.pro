@@ -1,12 +1,12 @@
 ;+
-; $Id: ssg_get_slicer.pro,v 1.5 2003/06/11 18:05:00 jpmorgen Exp $
+; $Id: ssg_get_slicer.pro,v 1.6 2003/06/13 03:52:14 jpmorgen Exp $
 
 ; ssg_get_slicer.  derive slicer shape parameters and record them in
 ; the database
 
 ;-
 
-function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, slicer_size=slicer_size, blocking=blocking, cr_cutval=cr_cutval
+function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, slicer_size=slicer_size, blocking=blocking, cr_cutval=cr_cutval, noninteractive=noninteractive
 
   ;; Get ready to use this function in a variety of contexts
   if n_params() eq 2 then begin
@@ -48,12 +48,14 @@ function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, sli
   ref_im=template_create(im, med_spec, xdisp)
   ref_im = ssg_slicer(ref_im, hdr, slicer=slicer, /DISTORT)
 
-  answer = strupcase(get_kbrd(0))
-  if answer eq 'D' then begin
-     display, im, /reuse
-     display, ref_im, /reuse
+  if NOT keyword_set(noninteractive) then begin
+     answer = strupcase(get_kbrd(0))
+     if answer eq 'D' then begin
+        display, im, /reuse
+        display, ref_im, /reuse
+     endif
+     if answer eq 'S' then message, 'STOPPING FIT'
   endif
-  if answer eq 'S' then message, 'STOPPING FIT'
   return, total(im*ref_im, /NAN)
 end
 
@@ -229,8 +231,13 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
 ;        display, ssg_slicer(im, hdr, slicer=slicer, /EXTRACT), /reuse
 
-           message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
-           to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd] }
+           if keyword_set(noninteractive) then begin
+              to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd], $
+                        noninteractive:noninteractive }
+           endif else begin
+              message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
+              to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd] }
+           endelse
 
            slicer = tnmin('slicer_compare', slicer_in, $
                           FUNCTARGS=to_pass, /AUTODERIVATIVE, $
