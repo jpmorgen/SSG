@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_nday.pro,v 1.1 2002/10/28 17:37:00 jpmorgen Exp $
+; $Id: ssg_get_nday.pro,v 1.2 2002/11/12 21:32:43 jpmorgen Exp $
 
 ; ssg_get_nday 
 ;
@@ -38,7 +38,7 @@
 ; UT      = '06:24:16.00       '  /  universal time
 
 ;-
-function ssg_get_nday, hdr, REGENERATE=regenerate
+function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted_nday
 
   nday = 0.
   if NOT keyword_set(regenerate) then begin
@@ -93,6 +93,7 @@ function ssg_get_nday, hdr, REGENERATE=regenerate
   ;; ssg_exceptions may modify nday
   ssg_exceptions, im, hdr
   nday = sxpar(hdr, 'NDAY')
+  formatted = string(format='(f11.5)', nday)
 
   return, nday
 
