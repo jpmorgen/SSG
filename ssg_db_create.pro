@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_create.pro,v 1.8 2003/06/11 18:06:20 jpmorgen Exp $
+; $Id: ssg_db_create.pro,v 1.9 2003/06/19 21:46:21 jpmorgen Exp $
 
 ; ssg_db_create  Creates the SSG database structures from scratch.
 ; Hopfully this won't be used very often!  If necessary, however, this
@@ -54,7 +54,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'MMP SSG Reduction Database'
   printf, lun, ' '
   printf, lun, '#maxentries'
-  printf, lun, '6000'
+  printf, lun, '100000'
   printf, lun, ' '
   printf, lun, '#items'
   ;; WARNING if you change any code between here and nday, make sure
@@ -296,7 +296,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'Io [OI] Spectral Fitting Database'
   printf, lun, ' '
   printf, lun, '#maxentries'
-  printf, lun, '6000'
+  printf, lun, '100000'
   printf, lun, ' '
   printf, lun, '#items'
   printf, lun, 'nday		R*8		decimal day since 1990-Jan-01 (midpoint)'
@@ -383,7 +383,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'Io [OI] Spectral Fitting Database (extension)'
   printf, lun, ' '
   printf, lun, '#maxentries'
-  printf, lun, '6000'
+  printf, lun, '100000'
   printf, lun, ' '
   printf, lun, '#items'
   printf, lun, 'nday		R*8		decimal day since 1990-Jan-01 (midpoint)'
@@ -434,7 +434,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'Io [OI] Analysis Database'
   printf, lun, ' '
   printf, lun, '#maxentries'
-  printf, lun, '6000'
+  printf, lun, '100000'
 
   printf, lun, '#items'
   printf, lun, 'date              C*10         yyyy-mm-dd'
