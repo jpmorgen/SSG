@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatgen.pro,v 1.3 2002/11/08 06:46:14 jpmorgen Exp $
+; $Id: ssg_flatgen.pro,v 1.4 2002/11/12 21:20:50 jpmorgen Exp $
 
 ; ssg_flatgen Generate a bestflat frame from all the flat images in a
 ; given directory.  Final image is the total number of electrons
@@ -89,7 +89,8 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            ;; pixels.  pass ssg_spec_extract ihdr so it does
            ;; de-rotation appropriate for this specific image
            ssg_spec_extract, im + edge_mask, ihdr, spec, xdisp, $
-                             med_spec=med_spec, med_xdisp=med_xdisp
+                             med_spec=med_spec, med_xdisp=med_xdisp, $
+                             /TOTAL
            template = template_create(im, med_spec, med_xdisp)
 
            ;; Now rotate the template back to the orientation of the
@@ -108,7 +109,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            ;; Skyflats: create a template with which to divide out any
            ;; spectral features
            if num_skyflats gt 0 then begin
-              ssg_spec_extract, im, ihdr, spec
+              ssg_spec_extract, im, ihdr, spec, /TOTAL
               template = template_create(im, spec)
               im = im/template
            endif
@@ -119,7 +120,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            ;; Show spectra if user wants them
            if keyword_set(showplots) then begin
               wset, 7
-              ssg_spec_extract, im+edge_mask+cr_mask, ihdr, /showplots
+              ssg_spec_extract, im+edge_mask+cr_mask, ihdr, /showplots, /TOTAL
            endif
 
            ;; Make sure not too much of the array is contaminated 
@@ -167,7 +168,8 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
         ;; compare the median and average images in order to get a
         ;; stdev.
         ssg_spec_extract, med_im, hdr, spec, xdisp, $
-                          med_spec=med_spec, med_xdisp=med_xdisp
+                          med_spec=med_spec, med_xdisp=med_xdisp, $
+                          /TOTAL
         template = template_create(med_im, med_spec, med_xdisp)
         template = rot(template, flat_camrot, cubic=-0.5)
         stdev = stddev(total_im-template, /NAN)
@@ -192,7 +194,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
            ;; the true dispersion flat.  So, use the median
            ;; cross-dispersion spectrum to create a template that
            ;; becomes our sky flat
-           ssg_spec_extract, total_im, hdr, med_xdisp=med_xdisp
+           ssg_spec_extract, total_im, hdr, med_xdisp=med_xdisp, /TOTAL
            total_im = template_create(total_im, med_xdisp)
            total_im = rot(total_im, flat_camrot, cubic=-0.5)
            sxaddhist, string('(ssg_flatgen.pro) Created slicer response from median cross-disp spectrum'), hdr
@@ -225,7 +227,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
               lamp_im = smooth(total_im / skyflat, ny/20, /edge_truncate)
               ;; This still has the white light response in it
               ssg_spec_extract, lamp_im, hdr, $
-                                lamp_spec, lamp_xdisp
+                                lamp_spec, lamp_xdisp, /TOTAL
               ;; Make a lamp_im that is just cross-dispersion
               lamp_im = normalize(template_create(total_im, lamp_xdisp))
               lamp_im = rot(lamp_im, flat_camrot, cubic=-0.5)
@@ -240,7 +242,7 @@ pro ssg_flatgen, indir, outname, showplots=showplots, TV=tv, cr_cutval=cr_cutval
         endelse ;; lamp flat
 
         window,6, title=string('Spectra of ', write_name)
-        ssg_spec_extract, total_im, hdr, /showplots
+        ssg_spec_extract, total_im, hdr, /showplots, /TOTAL
         display, total_im, hdr, title = write_name
 
         ;; Write file
