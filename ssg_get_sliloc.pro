@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.4 2003/06/11 18:11:42 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.5 2008/06/12 02:39:34 jpmorgen Exp $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
 ; pattern at the center in the image in the dispersion direction
@@ -82,17 +82,17 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
            ;; are looking at something else
            threshold = 1.       ; Use the max
            contrast = 0.6       ; Flats always have good contrast
-           if (typecodes[i] le 2 or typecodes[i] ge 5) then begin
-              ;; Check to see if we are getting our preliminary edge position
-              if NOT keyword_set(good_lim) then $
-                message, 'Skipping object/comp until a good preliminary edge position is found'
-              ;; Threshold still wants to be 1 for the max, but the
-              ;; contrast is generally much worse on these, so only go
-              ;; a little ways down the peak
-              threshold = 1.
-              contrast = 0.2
-           endif
-           CATCH, /cancel
+;           if (typecodes[i] le 2 or typecodes[i] ge 5) then begin
+;              ;; Check to see if we are getting our preliminary edge position
+;              if NOT keyword_set(good_lim) then $
+;                message, 'Skipping object/comp until a good preliminary edge position is found'
+;              ;; Threshold still wants to be 1 for the max, but the
+;              ;; contrast is generally much worse on these, so only go
+;              ;; a little ways down the peak
+;              threshold = 1.
+;              contrast = 0.2
+;           endif
+;           CATCH, /cancel
 
            im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
            biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
@@ -108,61 +108,63 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
            ;; For comps, use the total x-disp spectrum
            if typecodes[i] eq 2 then y = xdisp
            
-           ;; We want to find the first and last edges in the
-           ;; cross-dispersion direction.  I have a whole system for
-           ;; doing this called edge find.  It works best if it is
-           ;; pased the error bars of the original points.  Since we
-           ;; have converted to electrons,  these should be the square
-           ;; root of the counts in those channels
-           npts = N_elements(y)
-           if keyword_set(in_limits) then begin
-              limits = in_limits
-           endif else begin
-              if keyword_set(good_lim) then begin
-                 limits = good_lim
-              endif else begin
-                 limits = [0,npts/2.,npts/2,npts-1]
-              endelse
-           endelse
-           if limits[0] lt 0 then limits[0] = 0
-           if limits[1] ge npts then begin
-              message, /CONTINUE, 'WARNING: strange value on sli_bot upper limit'
-              limits[1] = npts-1
-           endif
-           if limits[1] ge npts then begin
-              message, /CONTINUE, 'WARNING: strange value on sli_top lower limit'
-              limits[1] = 0
-           endif
-           if limits[3] ge npts then limits[3] = npts-1
+;;           ;; We want to find the first and last edges in the
+;;           ;; cross-dispersion direction.  I have a whole system for
+;;           ;; doing this called edge find.  It works best if it is
+;;           ;; pased the error bars of the original points.  Since we
+;;           ;; have converted to electrons,  these should be the square
+;;           ;; root of the counts in those channels
+;;           npts = N_elements(y)
+;;           if keyword_set(in_limits) then begin
+;;              limits = in_limits
+;;           endif else begin
+;;              if keyword_set(good_lim) then begin
+;;                 limits = good_lim
+;;              endif else begin
+;;                 limits = [0,npts/2.,npts/2,npts-1]
+;;              endelse
+;;           endelse
+;;           if limits[0] lt 0 then limits[0] = 0
+;;           if limits[1] ge npts then begin
+;;              message, /CONTINUE, 'WARNING: strange value on sli_bot upper limit'
+;;              limits[1] = npts-1
+;;           endif
+;;           if limits[1] ge npts then begin
+;;              message, /CONTINUE, 'WARNING: strange value on sli_top lower limit'
+;;              limits[1] = 0
+;;           endif
+;;           if limits[3] ge npts then limits[3] = npts-1
 
-           if keyword_set(plot) then $
-             title = "Slicer Bottom, derivative"
-           m_sli_bots[i]  = ssg_edge_find(y, 'left', threshold=threshold, $
-                                          contrast=contrast, $
-                                          limits=[limits[0],limits[1]], $
-                                          yerr=sqrt(ey2), error=temp, $
-                                          plot=title)
-
-           e_sli_bots[i] = temp
-
-           if keyword_set(plot) then begin
-              wait, 0.3
-              title = "Slicer Top, derivative"
-           endif
-           m_sli_tops[i] = ssg_edge_find(y, 'right', threshold=threshold, $
-                                         contrast=contrast, $
-                                         limits=[limits[2],limits[3]], $
-                                         yerr=sqrt(ey2), error=temp, $
-                                         plot=title)
-
-           e_sli_tops[i] = temp
-           ngood = ngood + 1
-           if keyword_set(showplots) then begin
-              wait, 0.3
-              plot, y, title='cross-dispersion spectrum'
-              plots, [m_sli_bots[i], m_sli_bots[i]], [-1E32, 1E32]
-              plots, [m_sli_tops[i], m_sli_tops[i]], [-1E32, 1E32]
-           endif
+           junk = ssg_slice_find(y)
+;
+;           if keyword_set(plot) then $
+;             title = "Slicer Bottom, derivative"
+;           m_sli_bots[i]  = ssg_edge_find(y, 'left', threshold=threshold, $
+;                                          contrast=contrast, $
+;                                          limits=[limits[0],limits[1]], $
+;                                          yerr=sqrt(ey2), error=temp, $
+;                                          plot=title)
+;
+;           e_sli_bots[i] = temp
+;
+;           if keyword_set(plot) then begin
+;              wait, 0.3
+;              title = "Slicer Top, derivative"
+;           endif
+;           m_sli_tops[i] = ssg_edge_find(y, 'right', threshold=threshold, $
+;                                         contrast=contrast, $
+;                                         limits=[limits[2],limits[3]], $
+;                                         yerr=sqrt(ey2), error=temp, $
+;                                         plot=title)
+;
+;           e_sli_tops[i] = temp
+;           ngood = ngood + 1
+;           if keyword_set(showplots) then begin
+;              wait, 0.3
+;              plot, y, title='cross-dispersion spectrum'
+;              plots, [m_sli_bots[i], m_sli_bots[i]], [-1E32, 1E32]
+;              plots, [m_sli_tops[i], m_sli_tops[i]], [-1E32, 1E32]
+;           endif
         endelse ;; CATCH if err
      endfor ;; all files in directory
      ;; Use the flatfield edges to define a small region to search
