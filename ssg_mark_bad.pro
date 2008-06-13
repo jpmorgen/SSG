@@ -1,8 +1,7 @@
-; $Id: ssg_mark_bad.pro,v 1.3 2003/06/11 18:11:35 jpmorgen Exp $
+; $Id: ssg_mark_bad.pro,v 1.4 2008/06/13 11:50:26 jpmorgen Exp $
 
 ; ssg_mark_bad.pro.  displays a graph like jpm_polyfit + allows the
-; user to display images + spectra (left button) mark things as bad
-; (middle button), and exit (right button)
+; user to display images + spectra and mark them as bad
 
 
 function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=winnum, spec_winnum=spec_winnum, xtitle=xtitle, ytitle=ytitle, xtickunits=xtickunits, measure_errors=measure_errors, legend=legend_text, reuse=reuse, MJD=MJD
@@ -11,7 +10,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
   if NOT keyword_set(spec_winnum) then spec_winnum=6
   ;; check to see if y is a set of axes to plot
 
-  y_save = y
+  x_save = x
   bad_stack = intarr(N_elements(x))
   bad_stack[*] = -1
 
@@ -189,7 +188,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
           answer eq 'A'
 
         if answer eq 'A' then begin
-           y = y_save
+           x = x_save
            if keyword_set(measure_errors) then $
              measure_errors = abs(measure_errors)
         endif ;; A
@@ -260,7 +259,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
         if idx eq -1 then begin
            message, /CONTINUE, 'ALL POINTS RESURRECTED'
         endif else begin
-           y[idx] = y_save[idx]
+           x[idx] = x_save[idx]
            if keyword_set(measure_errors) then $
              measure_errors[idx] = abs(measure_errors[idx])
         endelse
