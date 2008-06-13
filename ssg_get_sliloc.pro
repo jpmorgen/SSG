@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.5 2008/06/12 02:39:34 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.6 2008/06/13 09:35:41 jpmorgen Exp $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
 ; pattern at the center in the image in the dispersion direction
@@ -35,12 +35,15 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
-  ;; Get all the files in the directory so we can mark camrot as not
+  ;; Get all the files in the directory so we can mark slicer position as not
   ;; measured on the ones where we can't measure it.
   entries = dbfind(string("dir=", indir))
 
   dbext, entries, "fname, nday, date, typecode, bad, m_sli_bot, e_sli_bot, m_sli_top, e_sli_top, sli_cent, e_sli_cent", $
          files, ndays, dates, typecodes, badarray, m_sli_bots, e_sli_bots, m_sli_tops, e_sli_tops, sli_cents, e_sli_cents
+
+dbclose
+
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
@@ -64,124 +67,145 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
 
      if keyword_set(showplots) then window,winnum
 
-     ;; Make a loop to do the flats first, from which we get a good
-     ;; idea of where to look for the edges in the objects and comps,
-     ;; where edges don't show as well.
-     repeat begin
-     for i=0,nf-1 do begin
-        message, 'Looking at ' + files[i], /CONTINUE
-        CATCH, err
-        if err ne 0 then begin
-           message, /NONAME, !error_state.msg, /CONTINUE
-           message, 'skipping ' + files[i], /CONTINUE
-        endif else begin
-           if badarray[i] ge 8192 then message, 'BAD FILE, use display, ssg_spec_extract, and look at the header if you are unsure why'
-           if typecodes[i] lt 2 then message, 'Skipping bias/dark images'
+     good_idx = where(typecodes ge 2, nf)
+     ;; Read in a file to get the size of the cross-dispersion array
+     im = ssgread(files[0], hdr, eim, ehdr, /DATA, /TRIM)
+     asize = size(im) & nx = asize(1) & ny = asize(2)
+     xdisps_d2 = fltarr(ny, nf)
+     for ifile=0,nf-1 do begin
+        im = ssgread(files[good_idx[ifile]], hdr, eim, ehdr, /DATA, /TRIM)
+        ssg_spec_extract, im, hdr, spec, xdisp, med_xdisp=y, /total        
+        ;; For comps, use the total x-disp spectrum, though the second
+        ;; derivative amplitude turns out to be significantly less
+        if typecodes[ifile] eq 2 then begin
+           y = xdisp
+        endif
+        dy = deriv(y)
+        d2y = deriv(dy)
+        if keyword_set(showplots) then begin
+           plot, d2y
+        endif
+        xdisps_d2[*,ifile] = d2y
+     endfor
+     ;; histeq scaling works nicely.
+     ;;atv, xdisps_d2
+     display, xdisps_d2, zoom=4, /reuse
 
-           ;; Set threshold and contrast for flats + override if we
-           ;; are looking at something else
-           threshold = 1.       ; Use the max
-           contrast = 0.6       ; Flats always have good contrast
-;           if (typecodes[i] le 2 or typecodes[i] ge 5) then begin
-;              ;; Check to see if we are getting our preliminary edge position
-;              if NOT keyword_set(good_lim) then $
-;                message, 'Skipping object/comp until a good preliminary edge position is found'
-;              ;; Threshold still wants to be 1 for the max, but the
-;              ;; contrast is generally much worse on these, so only go
-;              ;; a little ways down the peak
-;              threshold = 1.
-;              contrast = 0.2
-;           endif
-;           CATCH, /cancel
+     ;; We have a 10 slicer
+     correlates = fltarr(ny/10., nf, nf)
+     xdisp_correlate = fltarr(ny/10.)
+     xdisp_peaks = fltarr(nf, nf)
+     for ifiles_shift=0,nf-1 do begin
+        for ixdisp_shift=0, ny/10.-1 do begin
+           ;; A little confusing with the -ifiles shift.  Use two
+           ;; computer keyboards to illustrate why you want it this way.
+           shift_d2 = shift(xdisps_d2, ixdisp_shift-ny/20., -ifiles_shift)
+           for ifile=0, nf-1 do begin
+              correlates[ixdisp_shift,ifiles_shift,ifile] = $
+                total(xdisps_d2[*,ifile] * shift_d2[*,ifile])
+           endfor
+        endfor
+     endfor
 
-           im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
-           biasfile = strtrim(sxpar(hdr,'BIASFILE',COUNT=count))
-           if count eq 0 then message, 'WARNING: works better if you call ssg_biassub first', /CONTINUE
+     for ifiles_shift=0,nf-1 do begin
+        for ifile=0,nf-1 do begin
+           ;; Find peak in cross dispersion correlation.  Data seems
+           ;; to have a good peak + climb back up towards secondary
+           ;; peaks.  Start at the good peak and find the fist valley
+           ;; on either side.
+           xdisp_correlate = reform(correlates[*, ifiles_shift, ifile])
+           junk = max(xdisp_correlate, peak_idx)
+           right = peak_idx + $
+                   first_peak_find(-xdisp_correlate[peak_idx:ny/10.-1], $
+                                   'left', /poly, /quiet)
+           left = first_peak_find(-xdisp_correlate[0:peak_idx-1], $
+                                  'right', /poly, /quiet)
+           xdisp_peaks[ifiles_shift, ifile] = $
+             peak_find(xdisp_correlate[left:right], /poly) + left - ny/20.
+        endfor
+        message, /INFO, 'Finished with shift:' + strtrim(ifiles_shift, 2)
+     endfor
 
-           asize = size(im) & nx = asize(1) & ny = asize(2)
+     ;;atv, xdisp_peaks
+     ;;stop
+     display, xdisp_peaks, zoom=4, /reuse
 
-           ;; For continuum dominated spectra (Io), use the median
-           ;; cross-dispersion spectrum
-           ssg_spec_extract, im, hdr, spec, xdisp, med_xdisp=y, /total
-           ssg_spec_extract, eim^2, hdr, med_xdisp=ey2, /total
+     peak_meds = fltarr(nf)
+     peak_means = fltarr(nf)
+     ;;peak_flat_meds = fltarr(nf)
+     ;;peak_flat_means = fltarr(nf)
+     for ifile=0, nf-1 do begin
+        peak_meds[ifile] = median(xdisp_peaks[*, ifile])
+        peak_means[ifile] = mean(xdisp_peaks[*, ifile])
+        ;; Get median and mean offsets of each file from the flats
+     endfor
+     ;;window,0
+     ;;plot, peak_meds, yrange=[-ny/20., ny/20]
+     ;;oplot, peak_means, linestyle=dashed
 
-           ;; For comps, use the total x-disp spectrum
-           if typecodes[i] eq 2 then y = xdisp
-           
-;;           ;; We want to find the first and last edges in the
-;;           ;; cross-dispersion direction.  I have a whole system for
-;;           ;; doing this called edge find.  It works best if it is
-;;           ;; pased the error bars of the original points.  Since we
-;;           ;; have converted to electrons,  these should be the square
-;;           ;; root of the counts in those channels
-;;           npts = N_elements(y)
-;;           if keyword_set(in_limits) then begin
-;;              limits = in_limits
-;;           endif else begin
-;;              if keyword_set(good_lim) then begin
-;;                 limits = good_lim
-;;              endif else begin
-;;                 limits = [0,npts/2.,npts/2,npts-1]
-;;              endelse
-;;           endelse
-;;           if limits[0] lt 0 then limits[0] = 0
-;;           if limits[1] ge npts then begin
-;;              message, /CONTINUE, 'WARNING: strange value on sli_bot upper limit'
-;;              limits[1] = npts-1
-;;           endif
-;;           if limits[1] ge npts then begin
-;;              message, /CONTINUE, 'WARNING: strange value on sli_top lower limit'
-;;              limits[1] = 0
-;;           endif
-;;           if limits[3] ge npts then limits[3] = npts-1
+     ;; Make an "ueber flat"
+     flat_idx = where(typecodes[good_idx] eq 3, nflats)
+     xdisp_axis = indgen(ny)
 
-           junk = ssg_slice_find(y)
-;
-;           if keyword_set(plot) then $
-;             title = "Slicer Bottom, derivative"
-;           m_sli_bots[i]  = ssg_edge_find(y, 'left', threshold=threshold, $
-;                                          contrast=contrast, $
-;                                          limits=[limits[0],limits[1]], $
-;                                          yerr=sqrt(ey2), error=temp, $
-;                                          plot=title)
-;
-;           e_sli_bots[i] = temp
-;
-;           if keyword_set(plot) then begin
-;              wait, 0.3
-;              title = "Slicer Top, derivative"
-;           endif
-;           m_sli_tops[i] = ssg_edge_find(y, 'right', threshold=threshold, $
-;                                         contrast=contrast, $
-;                                         limits=[limits[2],limits[3]], $
-;                                         yerr=sqrt(ey2), error=temp, $
-;                                         plot=title)
-;
-;           e_sli_tops[i] = temp
-;           ngood = ngood + 1
-;           if keyword_set(showplots) then begin
-;              wait, 0.3
-;              plot, y, title='cross-dispersion spectrum'
-;              plots, [m_sli_bots[i], m_sli_bots[i]], [-1E32, 1E32]
-;              plots, [m_sli_tops[i], m_sli_tops[i]], [-1E32, 1E32]
-;           endif
-        endelse ;; CATCH if err
-     endfor ;; all files in directory
-     ;; Use the flatfield edges to define a small region to search
-     ;; over for the rest of the images.  Take a little less than a
-     ;; slice in each direction
-     if NOT keyword_set(good_lim) then begin
-        good_lim = [median(m_sli_bots),median(m_sli_tops)]
-        delta = good_lim[1]-good_lim[0]
-        good_lim = [good_lim[0]-delta/15., good_lim[0]+delta/15., $
-                    good_lim[1]-delta/15., good_lim[1]+delta/15.]
-        
-     endif else begin
-        good_lim = -1
-     endelse
-     endrep until N_elements(good_lim) eq 1
-     CATCH, /CANCEL
-     if ngood eq 0 then message, 'ERROR: no properly prepared files found, database not updated'
+     shifted_flats = fltarr(ny, nflats)
+     for iflat=0, nflats-1 do begin
+        shifted_flats[*, iflat] = interpol(xdisps_d2[*, flat_idx[iflat]], xdisp_axis, $
+                                           xdisp_axis + peak_meds[flat_idx[iflat]])
+     endfor
+
+     display, shifted_flats, zoom=4
+
+     best_flat_d2 = fltarr(ny)
+     for ixdisp=0, ny-1 do begin
+        best_flat_d2[ixdisp] = median(shifted_flats[ixdisp, *])
+     endfor
+
+     window,0
+     plot, best_flat_d2
+
+     best_flat_correlates = fltarr(ny/10., nf)
+     for ixdisp_shift=0, ny/10.-1 do begin
+        shift_d2 = shift(xdisps_d2, ixdisp_shift-ny/20., 0)
+        for ifile=0, nf-1 do begin
+           best_flat_correlates[ixdisp_shift, ifile] = $
+             total(best_flat_d2 * shift_d2[*,ifile])
+        endfor
+     endfor
+     
+     display, best_flat_correlates, zoom=4
+
+     best_xdisp_peaks = fltarr(nf)
+     best_xdisp_peaks_errors = fltarr(nf)
+     for ifile=0,nf-1 do begin
+        ;; Find peak in cross dispersion correlation.  Data seems
+        ;; to have a good peak + climb back up towards secondary
+        ;; peaks.  Start at the good peak and find the fist valley
+        ;; on either side.
+        xdisp_correlate = reform(best_flat_correlates[*, ifile])
+        junk = max(xdisp_correlate, peak_idx)
+        right = peak_idx + $
+                first_peak_find(-xdisp_correlate[peak_idx:ny/10.-1], $
+                                'left', /poly, /quiet)
+        left = first_peak_find(-xdisp_correlate[0:peak_idx-1], $
+                               'right', /poly, /quiet)
+        best_xdisp_peaks[ifile] = $
+          peak_find(xdisp_correlate[left:right], /poly, $
+                    error=error) + left - ny/20.
+        best_xdisp_peaks_errors[ifile] = error
+     endfor
+
+     wset, 0
+     ploterr, best_xdisp_peaks, best_xdisp_peaks_errors
+     
+     best_flat_left  = first_peak_find(best_flat_d2, 'left')
+     best_flat_right = first_peak_find(best_flat_d2, 'right')
+
+     m_sli_bots  = best_flat_left + best_xdisp_peaks
+     e_sli_bots  = best_xdisp_peaks_errors
+     m_sli_tops  = best_flat_right + best_xdisp_peaks
+     e_sli_tops  = best_xdisp_peaks_errors
+     sli_cents   = (best_flat_left + best_flat_right)/2. + best_xdisp_peaks
+     e_sli_cents = best_xdisp_peaks_errors
 
   endif ;; not reviewing
 
