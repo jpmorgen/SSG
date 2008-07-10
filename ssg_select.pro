@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_select.pro,v 1.1 2002/12/16 13:36:47 jpmorgen Exp $
+; $Id: ssg_select.pro,v 1.2 2008/07/10 15:31:10 jpmorgen Exp $
 
 ; ssg_select.  Displays relevant information from the databases to try
 ; to help a user select one or more spectra to fit, grab parameters
@@ -65,25 +65,29 @@ function ssg_select, nday_start_or_range, count=count, multi=multi, title=title
      dbopen, fdbname, 0
      fentries = where_nday_eq(mean(nday_range), $
                               tolerance=abs(nday_range[1]-nday_range[0])/2., $
-                              count=count, silent=silent)
-     if count eq 0 then begin
+                              count=fcount, silent=silent)
+     if fcount eq 0 then begin
         message, /CONTINUE, 'WARNING: no entries in fitting database between ' + string(nday_range[0]) + ' and ' + string(nday_range[1]) + ' returning nday = -1.  Did you run ssg_extract first?'
         count = 0
         return, -1
      endif
-
+print, 'hello world'
      dbext, fentries, 'nday, new_spec, fit_vers, bad, nfree, chisq, redchisq', ndays, new_specs, fit_vers, fbaddarray, nfrees, chisqs, redchisqs
 
      ;; Extract these entries from the reduction database
 
      dbopen, rdbname, 0
-     rentries = where_nday_eq(ndays, count=count, silent=silent)
-     if count eq 0 then $
-       message,  'ERROR: entires in fitting database do not have corresponding entries in reduction database.  This is a bad thing'
+     rentries = where_nday_eq(ndays, count=rcount, silent=silent)
+     if rcount ne fcount then begin
+        message,  'ERROR: entires in fitting database do not have corresponding entries in reduction database.  This is a bad thing'
+     endif
 
      dbext, rentries, "fname, date, typecode, bad, nbad, ncr", files, dates, typecodes, badarray, nbads, ncrs
 
      dbext, rentries, "med_spec, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross", med_specs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps
+     ;; Close the reduced database, since occationally its
+     ;; numbers don't match the fit database numbers.
+     dbclose
 
      ;; Prepare plot X axis.  Don't show 100 years on the first time
      ;; around unless there is really that much data :-)
@@ -184,14 +188,18 @@ function ssg_select, nday_start_or_range, count=count, multi=multi, title=title
         print, x[marked_idx]
 ;        message, /info, 'Y value(s) at selection'
 ;        print, py[marked_idx,*]
-
+        
+        ;; Open the fit database again, since that is where we got the
+        ;; x list from
+        dbopen, fdbname, 0
         entries = where_nday_eq(x[marked_idx], count=count, silent=silent)
         if count eq 0 then begin
            message, /CONTINUE, 'ERROR: no match found for you selection.  Is your database still open?  Were you plotting against nday?'
         endif else begin
            dbext, entries, "nday", marked_ndays
-           if N_elements(marked_ndays) ne nmarked then $
-             message, 'ERROR: there was some problem with the database?'
+           if N_elements(marked_ndays) ne nmarked then begin
+              message, 'ERROR: there was some problem with the database?'
+           endif
            if nmarked eq 1 then begin
               dbclose
               return, marked_ndays
