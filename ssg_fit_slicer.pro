@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_slicer.pro,v 1.5 2003/06/13 03:52:26 jpmorgen Exp $
+; $Id: ssg_fit_slicer.pro,v 1.6 2009/07/01 22:00:34 jpmorgen Exp $
 
 ; ssg_fit_slicer.  Fit J-shaped or tilted slices
 
@@ -34,13 +34,14 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
 
   refit=1
   if keyword_set(noninteractive) then $
-    refit = 0 $
-  else $
-    window,7
+    refit = 0
 
   asize = size(m_slicers)
   if asize[0] lt 2 then message, 'ERROR: improperly formatted database--make this code and ssg_db_create consistent'
   max_npxd = asize[1]
+  ;; --> Square test does not give me what I think it does.  Array is
+  ;; 100 elements long from the database, so it is always 10.
+  ;; --> fix this by adding npxd,npd to database or by some other means.
   square_test = sqrt(max_npxd)
   if square_test ne fix(square_test) then message, 'ERROR: I can only deal with a square array of coefficients'
 
@@ -97,14 +98,15 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
 
 
   if NOT keyword_set(noninteractive) then begin
-     if NOT keyword_set(write) then $
-       repeat begin
-        message, /CONTINUE, 'Write this fit to the database and FITS headers?([Y]/N)'
-        answer = get_kbrd(1)
-        if byte(answer) eq 10 then answer = 'Y'
-        answer = strupcase(answer)
-     endrep until answer eq 'Y' or answer eq 'N'
+     if NOT keyword_set(write) then begin
+        repeat begin
+           message, /CONTINUE, 'Write this fit to the database and FITS headers?([Y]/N)'
+           answer = get_kbrd(1)
+           if byte(answer) eq 10 then answer = 'Y'
+           answer = strupcase(answer)
+        endrep until answer eq 'Y' or answer eq 'N'
      if answer eq 'Y' then write=1
+     endif
   endif
 
   ;; Now write the information to the FITS headers
