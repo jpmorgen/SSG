@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blip_search.pro,v 1.2 2012/11/26 22:36:10 jpmorgen Exp $
+; $Id: ssg_blip_search.pro,v 1.3 2012/11/26 22:36:29 jpmorgen Exp $
 ;
 ; $Log: ssg_blip_search.pro,v $
+; Revision 1.3  2012/11/26 22:36:29  jpmorgen
+; Version with bug fixed
+;
 ; Revision 1.2  2012/11/26 22:36:10  jpmorgen
 ; Version I submitted for abstract
 ;
@@ -216,7 +219,7 @@ pro ssg_blip_search, $
         if keyword_set(sigma) then begin
            ;; Intensity diffs based on normalized sigma
            diff1 = (mintensity[idx[1:N_in_gap-1]] / merr_intensity[idx[1:N_in_gap-1]] $
-                    - mintensity[idx[0:N_in_gap-2]] / merr_intensity[idx[1:N_in_gap-1]])
+                    - mintensity[idx[0:N_in_gap-2]] / merr_intensity[idx[0:N_in_gap-2]])
            units = 'sigma'
         endif else begin
            ;; Just plain intensity diffs
