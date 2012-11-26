@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blip_search.pro,v 1.1 2012/07/20 01:44:31 jpmorgen Exp $
+; $Id: ssg_blip_search.pro,v 1.2 2012/11/26 22:36:10 jpmorgen Exp $
 ;
 ; $Log: ssg_blip_search.pro,v $
+; Revision 1.2  2012/11/26 22:36:10  jpmorgen
+; Version I submitted for abstract
+;
 ; Revision 1.1  2012/07/20 01:44:31  jpmorgen
 ; Initial revision
 ;
@@ -43,19 +46,53 @@
 pro ssg_blip_search, $
    sigma=sigma, $
    threshold=threshold, $
+   nday_threshold=nday_threshold, $
    ndays=ndays, $
    long_3s=long_3s, $
    binsize=binsize, $
    east=east, $
    west=west, $
+   front=front, $
+   back=back, $
+   plot=plot, $
+   ps=ps, $
+   jpeg=jpeg, $
    _EXTRA=extra ; args to plot
 
   init = {tok_sysvar}
 
+  ;; Be polite, but get the line thicknesses we need for PS output
+  ;; (leave for terminal output since that gets us started on PS output)
+  oPthick     = !P.thick
+  oPcharsize  = !P.charsize
+  oPcharthick = !P.charthick
+  oXthick     = !X.thick
+  oYthick     = !Y.thick
+
+  !P.thick = 3
+  !P.charsize = 1.5
+  !P.charthick = 2
+  !X.thick = 2
+  !Y.thick = 2      
+
   ;; Default threshold for finding blips
   if N_elements(threshold) eq 0 then $
      threshold = 5
+  
+  ;; Default threshold for time gaps relative to the mean time between
+  ;; points for tha tnight
+  if N_elements(nday_threshold) eq 0 then $
+     nday_threshold = 2
 
+  ;; Initialize postscipt output
+  if keyword_set(ps) then begin
+     if size(ps, /TNAME) ne 'STRING' then $
+       ps = 'ssg_blip_search_out.eps'
+     set_plot, 'ps'
+     device, /landscape, filename=ps, /encap
+  endif
+
+  ;; Initialize output arrays for pfo_array_append
   ndays = 'None'
   long_3s = 'None'
 
@@ -68,16 +105,37 @@ pro ssg_blip_search, $
                  dbfind(/silent, "lambda=6300", $          ;; make sure we have the right line
                         dbfind(/silent, "obj_code=1")))    ;; Io
 
+  print, 'Total number of Io [OI] points: ', N_elements(Io_OI)
+
   if keyword_set(east) + keyword_set(west) gt 1 then $
      message, 'ERROR: you cannot specify both east and west'
 
   if keyword_set(east) then begin
      Io_OI = dbfind(/silent, "side=east", Io_OI)
+     print, 'Number of points on the east: ',  N_elements(Io_OI)
   endif
 
   if keyword_set(west) then begin
      Io_OI = dbfind(/silent, "side=west", Io_OI)
+     print, 'Number of points on the west: ',  N_elements(Io_OI)
   endif
+
+  if keyword_set(front) + keyword_set(back) gt 1 then $
+     message, 'ERROR: you cannot specify both front and back'
+
+  if keyword_set(back) then begin
+     left = dbfind(/silent, "phi<90", Io_OI)
+     right = dbfind(/silent, "phi>270", Io_OI)
+     Io_OI = [left, right]
+     print, 'Number of points in front: ',  N_elements(Io_OI)
+  endif
+  
+  if keyword_set(front) then begin
+     Io_OI = dbfind(/silent, "phi<270", $
+                    dbfind(/silent, "phi>90"))
+     print, 'Number of points in back: ',  N_elements(Io_OI)
+  endif
+  
 
   ;; Handle each nday one at a time
   for inday=0,4000 do begin
@@ -97,40 +155,75 @@ pro ssg_blip_search, $
      dbext, OI, 'nrows, numlines, deldot, deldot_m, err_deldot_m', mnrows, mnumlines, mdeldot, mdeldot_m, merr_deldot_m
      dbext, OI, 'phi', mphi
 
-;;     ;; Plot basic data to search for correlations between intensity
-;;     ;; and blips
-;;     plot, mnday, mfcont/5, psym=!tok.triangle
-;;     oploterr, mnday, mfcont/5, merr_fcont/5, !tok.triangle
-;;     oplot, mnday, mintensity, psym=!tok.plus
-;;     oploterr, mnday, mintensity, merr_intensity, !tok.plus
-
      N_nday = N_elements(mnday)
      idx = indgen(N_nday)
      ;; Set up our loop for continuous blocks of time.
      nday_diff = mnday[idx[1:N_nday-1]] - mnday[idx[0:N_nday-2]]
-     gap_idx = where(nday_diff gt 2*mean(nday_diff), ntime_segments)
+     ;; Generally we have a constant cadance with occational large
+     ;; pauses.  Use median instead of the mean to spot the right
+     ;; side of our gaps.  This is the index into nday_diff, but it is
+     ;; labeled as the gap_right_idx, since it is to be used as the
+     ;; index into parent arrays
+     gap_right_idx = where(nday_diff gt nday_threshold*median(nday_diff), ntime_segments)
+
+     if ntime_segments eq 0 then begin
+        ;; If no gaps, replace where's -1 with the right bound of the
+        ;; array
+        gap_right_idx = N_nday-1
+     endif else begin
+        ;; If gaps, append the right bound of the array to our gap
+        ;; list since where won't find that
+        pfo_array_append, gap_right_idx, N_nday-1
+     endelse
      ntime_segments += 1
-     ;; Set up our default interval idx
-     gap_idx_left = 0
-     ;; Handle the case where we have no gap
-     if gap_idx eq !tok.nowhere then $
-        gap_idx = idx[N_nday-1]
+
+     ;; Put the left side of our first interval at idx=0
+     gap_left_idx = 0
      for igap=0,ntime_segments-1 do begin
-        gap
+
+        ;; Plot basic data to search for correlations between intensity
+        ;; and blips
+        if keyword_set(plot) then begin
+           plot, mnday, mfcont/5, psym=!tok.triangle
+           oploterr, mnday, mfcont/5, merr_fcont/5, !tok.triangle
+           oplot, mnday, mintensity, psym=!tok.plus
+           oploterr, mnday, mintensity, merr_intensity, !tok.plus
+           wait, 0.5
+        endif ;; plot
+
+        ;; Regenerate idx for this particular time segment
+        N_in_gap = gap_right_idx[igap] - gap_left_idx + 1
+
+        ;; Don't bother for gaps that have less than 3 points
+        if N_in_gap lt 3 then begin
+           message, /INFORMATIONAL, 'NOTE: skipping gap with only ' + strtrim(N_in_gap, 2) + ' points'
+           CONTINUE
+        endif
+
+        idx = indgen(N_in_gap) + gap_left_idx
+        print, 'new segment: ', idx
+
+        if keyword_set(plot) then begin
+           oplot, mnday[idx], mfcont[idx]/5, psym=!tok.triangle, thick=3
+           oploterr, mnday[idx], mfcont[idx]/5, merr_fcont/5, !tok.triangle
+           oplot, mnday[idx], mintensity[idx], psym=!tok.plus, thick=3
+           oploterr, mnday[idx], mintensity[idx], merr_intensity, !tok.plus
+           wait, 1
+        endif ;; plot
 
         ;; Run a basic blip search algorithm.  Diff2 gets large if there
         ;; is a blip.
         if keyword_set(sigma) then begin
            ;; Intensity diffs based on normalized sigma
-           diff1 = (mintensity[idx[1:N_nday-1]] / merr_intensity[idx[1:N_nday-1]] $
-                    - mintensity[idx[0:N_nday-2]] / merr_intensity[idx[1:N_nday-1]])
+           diff1 = (mintensity[idx[1:N_in_gap-1]] / merr_intensity[idx[1:N_in_gap-1]] $
+                    - mintensity[idx[0:N_in_gap-2]] / merr_intensity[idx[1:N_in_gap-1]])
            units = 'sigma'
         endif else begin
            ;; Just plain intensity diffs
-           diff1 = (mintensity[idx[1:N_nday-1]] - mintensity[idx[0:N_nday-2]])
+           diff1 = (mintensity[idx[1:N_in_gap-1]] - mintensity[idx[0:N_in_gap-2]])
            units = 'kR'
         endelse
-        diff2 = diff1[idx[0:N_nday-3]] - diff1[idx[1:N_nday-2]]
+        diff2 = diff1[idx[0:N_in_gap-3]] - diff1[idx[1:N_in_gap-2]]
 
         ;; If diff2 is greater than the threshold value, add this nday to
         ;; the list of candidate ndays to check.  Note that diff2 is
@@ -139,25 +232,34 @@ pro ssg_blip_search, $
         ;; we need to multiply it by 2
         blip_idx = where(diff2 ge threshold*2, count)
         if count gt 0 then begin
-           if bad_nday_count gt 0 then begin
-              message, /CONTINUE, 'WARNING: NOT adding blips on nday= ' + strtrim(mnday[0], 2) + ' with discontinuous time'
-              CONTINUE
-
-           endif
+           ;; unwrap
+           blip_idx = idx[blip_idx]
+           if keyword_set(plot) then begin
+              for iblip=0, count-1 do begin
+                 plots, replicate(mnday[blip_idx[iblip]+1], 2), !y.crange
+              endfor
+           endif ;; plot
            pfo_array_append, ndays, mnday[blip_idx+1]
            pfo_array_append, long_3s, mlong_3[blip_idx+1]
+           if keyword_set(plot) then begin
+              wait,1
+           endif ;; plot
         endif
 
         ;; Keep track of our parent distribution in sysIII.  Be careful
         ;; here, since we cannot sampling the first and last point of
         ;; each day (-->and eventually each continuous interval) for
         ;; blips,
-        pfo_array_append, parent_long_3s, mlong_3[1:N_nday-2]
+        pfo_array_append, parent_long_3s, mlong_3[1:N_in_gap-2]
 
 ;;     plot, mnday, mintensity, psym=!tok.plus, yrange=[-20,20]
 ;;     oplot, mnday[1:N_nday-2], diff2, psym=!tok.diamond
 ;;     wait,0.2
 
+        ;; Move the left side of our gap forward if we have any more
+        ;; gaps to process
+        if igap lt ntime_segments then $
+           gap_left_idx = gap_right_idx[igap] + 1
      endfor ;; time segments
 
   endfor
@@ -165,38 +267,79 @@ pro ssg_blip_search, $
   dbclose
 
   if N_elements(binsize) eq 0 then $
-     binsize = 30.
-  hist = histogram(long_3s, binsize=binsize)
+     binsize = 40.
+
+  ;; Make X-axis plot in the middle of the bins
+  nbins = 360./binsize
+  xaxis = findgen(nbins)*binsize + binsize/2.
+
+  ;; Here is our answer
+  hist = histogram(long_3s, binsize=binsize, min=0., max=nbins*binsize)
   long_3_hist = histogram(parent_long_3s, binsize=binsize)
 
-  xaxis = findgen(360./binsize)*binsize
-  yaxis = float(hist)/float(long_3_hist)
-  plot, xaxis, yaxis, psym=!tok.hist, xstyle=!tok.extend+!tok.exact, ystyle=!tok.extend, $
-        xrange=[0,360], $
+  ;; Express bins in counts so I can see what is really there
+  norm = mean(float(long_3_hist)) / float(long_3_hist)
+  yaxis = float(hist) * norm
+  yerr = sqrt(hist) * norm
+  ;; Put full bin on
+  pxaxis = [0, xaxis, 360]
+  pyaxis = [yaxis[0], yaxis, yaxis[nbins-1]]
+  yrange = [0, max(yaxis) + max(yerr)]
+  plot, pxaxis, pyaxis, psym=!tok.hist, xstyle=!tok.exact, ystyle=!tok.extend, $
+        xrange=[0,360], xtickinterval=90, $
         xtitle='!6System III longitude (degrees)', $
-        ytitle='Fraction of points that are "blips" above threashold = ' + strtrim(threshold,2) + ' ' + units, $
+        yrange=yrange, $
+        ytitle='Normalized number points', $
+        xmargin=[14,0], $
         _EXTRA=extra
-  oploterr, xaxis, yaxis, sqrt(hist)/float(long_3_hist), !tok.dot
+  oploterr, xaxis, yaxis, yerr, !tok.dot
 
-  print, 'Average fraction of points that are "blips" above threashold ' + strtrim(threshold,2) + ' ' + units + ' = ' +  strtrim(mean(yaxis), 2)
+  ;;  ;; Put on threashold value
+  ;;  xyouts, /norm, 0.75, 0.85, 'Threshold = ' + strtrim(threshold,2) + ' ' + units
+
+  ;; Put on East/West / front/back labels
+  if keyword_set(east) then $
+     xyouts, /norm, 0.75, 0.85, 'East'
+  if keyword_set(west) then $
+     xyouts, /norm, 0.75, 0.85, 'West'
+
+  ;; Put on East/West / front/back labels
+  if keyword_set(front) then $
+     xyouts, /norm, 0.75, 0.85, 'Anti-Jovian'
+  if keyword_set(back) then $
+     xyouts, /norm, 0.75, 0.85, 'Sub-Jovian'
+
+  print, 'Average number of points that are "blips" above threashold ' + strtrim(threshold,2) + ' ' + units + ' = ' +  strtrim(mean(yaxis), 2)
 
   ;; Plot a dashed line of the expected statistical value for our
   ;; threshold (in sigma case).  Make sure we divide by 2, since we
   ;; are only sampling "up" blips
   if keyword_set(sigma) then begin
-     yaxis = erfc(threshold) / 2.
+     yaxis = erfc(threshold) / 2. * mean(float(long_3_hist))
      plots, [0,360], yaxis, linestyle=!tok.dashed
-     xyouts, 0, yaxis[0]+0.002, 'Expected Fraction for ' + strtrim(threshold, 2) + ' sigma', $
-             charsize=3
+     xyouts, 5, yaxis[0]+0.2, 'Expected number for threshold = ' + strtrim(threshold, 2) + ' sigma (const. [OI] signal)'
   endif
 
   ;; Put in plane crossings
   plots, [112, 112], !y.crange, linestyle=!tok.dotted
   plots, [292, 292], !y.crange, linestyle=!tok.dotted
      
-;;  ;; Put in east/west annotation
-;;  if keyword_set(east) then $
-;;     xyouts
+  if keyword_set(ps) then begin
+     device,/close
+     set_plot, 'x' 
+  endif
+
+  if keyword_set(jpeg) then begin
+     if size(jpeg, /TNAME) ne 'STRING' then $
+       jpeg = 'ssg_blip_search_out.jpeg'
+     write_jpeg, jpeg, tvrd(true=1), quality=75, true=1
+  endif
+
+  !P.thick     = oPthick    
+  !P.charsize  = oPcharsize 
+  !P.charthick = oPcharthick
+  !X.thick     = oXthick    
+  !Y.thick     = oYthick    
 
 
 end
