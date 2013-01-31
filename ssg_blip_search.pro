@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blip_search.pro,v 1.4 2012/11/27 21:57:56 jpmorgen Exp $
+; $Id: ssg_blip_search.pro,v 1.5 2013/01/31 13:39:20 jpmorgen Exp $
 ;
 ; $Log: ssg_blip_search.pro,v $
+; Revision 1.5  2013/01/31 13:39:20  jpmorgen
+; About to add time limit
+;
 ; Revision 1.4  2012/11/27 21:57:56  jpmorgen
 ; Fixed a bunch of stuff.  About to switch to portrait PS output
 ;
@@ -298,8 +301,10 @@ pro ssg_blip_search, $
   nbins = 360./binsize
   xaxis = findgen(nbins)*binsize + binsize/2.
 
-  ;; Here is our answer
-  hist = histogram(long_3s, binsize=binsize, min=0., max=359.99)
+  ;; Here is our answer.  Catch the case where we have no blips detected
+  hist = 0.
+  if size(long_3s, /TNAME) ne 'STRING' then $
+     hist = histogram(long_3s, binsize=binsize, min=0., max=359.99)
   long_3_hist = histogram(parent_long_3s, binsize=binsize, min=0., max=359.99)
 print, hist
 print, long_3_hist
@@ -314,11 +319,12 @@ print, long_3_hist
   pyaxis = [yaxis[0], yaxis, yaxis[nbins-1]]
   yrange = [0, max(yaxis) + max(yerr)]
   plot, pxaxis, pyaxis, psym=!tok.hist, xstyle=!tok.exact, ystyle=!tok.exact+!tok.extend, $
-        xrange=[0,360], xtickinterval=90, $
+        xrange=[0,360], xtickinterval=90, xminor=9, $
         xtitle='!6System III longitude (degrees)', $
         yrange=yrange, $
         ytitle='Normalized number points', $
-        xmargin=[14,0], $
+        $;;xmargin=[14,0], $ ;; looked good for landscape
+        xmargin=[7,2], $
         _EXTRA=extra
   oploterr, xaxis, yaxis, yerr, !tok.dot
 
@@ -345,7 +351,7 @@ print, long_3_hist
   if keyword_set(sigma) then begin
      yaxis = erfc(threshold) / 2. * mean(float(long_3_hist))
      plots, [0,360], yaxis, linestyle=!tok.dashed
-     toprint = string(format='("Expected number for threshold = ", F4.1, " sigma (const. [OI] signal)")',  + threshold)
+     toprint = string(format='("Expected number for threshold = ", F4.1, " sigma")',  + threshold)
      xyouts, 5, yaxis[0]+0.2, toprint
   endif
 
