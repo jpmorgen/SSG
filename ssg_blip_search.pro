@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blip_search.pro,v 1.5 2013/01/31 13:39:20 jpmorgen Exp $
+; $Id: ssg_blip_search.pro,v 1.6 2013/04/29 16:39:47 jpmorgen Exp $
 ;
 ; $Log: ssg_blip_search.pro,v $
+; Revision 1.6  2013/04/29 16:39:47  jpmorgen
+; About to add negative blips
+;
 ; Revision 1.5  2013/01/31 13:39:20  jpmorgen
 ; About to add time limit
 ;
@@ -56,6 +59,7 @@ pro ssg_blip_search, $
    sigma=sigma, $
    threshold=threshold, $
    nday_threshold=nday_threshold, $
+   min_cadence=min_cadence, $
    ndays=ndays, $
    long_3s=long_3s, $
    binsize=binsize, $
@@ -90,9 +94,15 @@ pro ssg_blip_search, $
      threshold = 5
   
   ;; Default threshold for time gaps relative to the mean time between
-  ;; points for tha tnight
+  ;; points for that night
   if N_elements(nday_threshold) eq 0 then $
      nday_threshold = 2
+
+  ;; Minimum cadence in minutes.  A cadence greater than this
+  ;; doesn't adequately sample the data to find blips as we are
+  ;; thinking of them in this context.
+  if N_elements(min_cadence) eq 0 then $
+     min_cadence = 30
 
   ;; Initialize postscipt output
   if keyword_set(ps) then begin
@@ -167,8 +177,11 @@ pro ssg_blip_search, $
 
      N_nday = N_elements(mnday)
      idx = indgen(N_nday)
-     ;; Set up our loop for continuous blocks of time.
+     ;; Find time differences between adjacent points
      nday_diff = mnday[idx[1:N_nday-1]] - mnday[idx[0:N_nday-2]]
+
+     ;; Set up our loop for continuous blocks of time.
+     
      ;; Generally we have a constant cadance with occational large
      ;; pauses.  Use median instead of the mean to spot the right
      ;; side of our gaps.  This is the index into nday_diff, but it is
@@ -190,7 +203,7 @@ pro ssg_blip_search, $
      ;; Put the left side of our first interval at idx=0
      gap_left_idx = 0
      for igap=0,ntime_segments-1 do begin
-
+        
         ;; Plot basic data to search for correlations between intensity
         ;; and blips
         if keyword_set(plot) then begin
@@ -213,6 +226,14 @@ pro ssg_blip_search, $
         idx = indgen(N_in_gap) + gap_left_idx
         print, 'new segment: ', idx
 
+        ;; Check to see if the sampling in this gap is close enough to
+        ;; our desired minimum cadence (in minutes)
+        cadence = mean(nday_diff[0:idx[N_in_gap-2]]) * 24.*60.
+        if cadence gt min_cadence then begin
+           message, /INFORMATIONAL, 'NOTE: skipping gap which has cadence of ' + strtrim(cadence, 2) + ' minutes'
+           CONTINUE
+        endif
+        
         if keyword_set(plot) then begin
            oplot, mnday[idx], mfcont[idx]/5, psym=!tok.triangle, thick=3
            oploterr, mnday[idx], mfcont[idx]/5, merr_fcont/5, !tok.triangle
