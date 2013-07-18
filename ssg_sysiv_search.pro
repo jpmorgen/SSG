@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_sysiv_search.pro,v 1.1 2013/07/18 16:41:23 jpmorgen Exp $
+; $Id: ssg_sysiv_search.pro,v 1.2 2013/07/18 17:08:47 jpmorgen Exp $
 ;
 ; $Log: ssg_sysiv_search.pro,v $
+; Revision 1.2  2013/07/18 17:08:47  jpmorgen
+; Basic version.  Hope units of PSD are correct on plot
+;
 ; Revision 1.1  2013/07/18 16:41:23  jpmorgen
 ; Initial revision
 ;
@@ -59,29 +62,11 @@
 ;
 ;-
 pro ssg_sysiv_search, $
-   positive=positive, $
-   negative=negative, $
-   sigma=sigma, $
-   threshold=threshold, $
-   nday_threshold=nday_threshold, $
-   min_cadence=min_cadence, $
-   ndays=ndays, $
-   long_3s=long_3s, $
-   binsize=binsize, $
-   east=east, $
-   west=west, $
-   front=front, $
-   back=back, $
-   plot=plot, $
-   blip_plot=blip_plot, $
    ps=ps, $
    jpeg=jpeg, $
    _EXTRA=extra ; args to plot
 
   init = {tok_sysvar}
-
-  if keyword_set(positive) + keyword_set(negative) ne 1 then $
-     message, 'ERROR: specify /positive or /negative for the kind of blips you are looking for'
 
   ;; Be polite, but get the line thicknesses we need for PS output
   ;; (leave for terminal output since that gets us started on PS output)
@@ -91,332 +76,45 @@ pro ssg_sysiv_search, $
   oXthick     = !X.thick
   oYthick     = !Y.thick
 
-  !P.thick = 3
-  !P.charsize = 1.5
-  !P.charthick = 2
-  !X.thick = 2
-  !Y.thick = 2      
-
-  ;; Default threshold for finding blips
-  if N_elements(threshold) eq 0 then $
-     threshold = 5
-  
-  ;; Default threshold for time gaps relative to the mean time between
-  ;; points for that night
-  if N_elements(nday_threshold) eq 0 then $
-     nday_threshold = 2
-
-  ;; Minimum cadence in minutes.  A cadence greater than this
-  ;; doesn't adequately sample the data to find blips as we are
-  ;; thinking of them in this context.
-  if N_elements(min_cadence) eq 0 then $
-     min_cadence = 30
 
   ;; Initialize postscipt output
   if keyword_set(ps) then begin
-     if size(ps, /TNAME) ne 'STRING' then $
-       ps = 'ssg_blip_search_out.eps'
-     set_plot, 'ps'
-     device, /portrait, filename=ps, /encap
-  endif
+     !P.thick = 3
+      !P.charsize = 1.5
+      !P.charthick = 2
+      !X.thick = 2
+      !Y.thick = 2      
+      if size(ps, /TNAME) ne 'STRING' then $
+        ps = 'ssg_sysiv_search_out.eps'
+      set_plot, 'ps'
+      device, /portrait, filename=ps, /encap
+   endif
 
-  ;; Initialize output arrays for pfo_array_append
-  ndays = 'None'
-  long_3s = 'None'
+   dbclose ;; just in case
+   dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
 
+   ;; Find all the Io [OI] measurements
+   Io_OI = dbfind(/silent, "intensity>0.001", $             ;; screen out junk
+                  dbfind(/silent, "lambda=6300", $          ;; make sure we have the right line
+                         dbfind(/silent, "obj_code=1")))    ;; Io
 
-  dbclose ;; just in case
-  dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
+   print, 'Total number of Io [OI] points: ', N_elements(Io_OI)
 
-  ;; Find all the Io [OI] measurements
-  Io_OI = dbfind(/silent, "intensity>0.001", $             ;; screen out junk
-                 dbfind(/silent, "lambda=6300", $          ;; make sure we have the right line
-                        dbfind(/silent, "obj_code=1")))    ;; Io
+   dbext, Io_OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
 
-  print, 'Total number of Io [OI] points: ', N_elements(Io_OI)
+   dbclose
 
-  if keyword_set(east) + keyword_set(west) gt 1 then $
-     message, 'ERROR: you cannot specify both east and west'
+   ;; scargle input is time, signal, output is power spectral density
+   ;; as a function of angular frequency, omega.  Convert mnday to
+   ;; hours, so omega, reads in 1/hour
 
-  if keyword_set(east) then begin
-     Io_OI = dbfind(/silent, "side=east", Io_OI)
-     print, 'Number of points on the east: ',  N_elements(Io_OI)
-  endif
+   scargle, mnday/24., mintensity, omega, psd
 
-  if keyword_set(west) then begin
-     Io_OI = dbfind(/silent, "side=west", Io_OI)
-     print, 'Number of points on the west: ',  N_elements(Io_OI)
-  endif
+   ;; plot frequency, rather than angular frequency.
+   plot, omega/(2.*!pi), psd*(2.*!pi), $
+         xtitle='Frequency (hr!u-1!n)', $
+         ytitle='Power Spectral density'
 
-  if keyword_set(front) + keyword_set(back) gt 1 then $
-     message, 'ERROR: you cannot specify both front and back'
-
-  if keyword_set(back) then begin
-     left = dbfind(/silent, "phi<90", Io_OI)
-     right = dbfind(/silent, "phi>270", Io_OI)
-     Io_OI = [left, right]
-     print, 'Number of points in front: ',  N_elements(Io_OI)
-  endif
-  
-  if keyword_set(front) then begin
-     Io_OI = dbfind(/silent, "phi<270", $
-                    dbfind(/silent, "phi>90"))
-     print, 'Number of points in back: ',  N_elements(Io_OI)
-  endif
-  
-
-  ;; Handle each nday one at a time
-  for inday=0,4000 do begin
-     ;; Create the strings necessary to query the ZDBASE for nday
-     ndayl = string(format='("nday>", i5)', inday)
-     ndayh = string(format='("nday<", i5)', inday+1)
-     OI = dbfind(/silent, ndayl, $ ;; correct nday
-                 dbfind(/silent, ndayh, Io_OI), $
-                 count=count)
-
-     ;; Don't bother with ndays unless they have at least 3 points
-     if count lt 3 then $
-        CONTINUE
-
-     ;; Extract quantities we care about.
-     dbext, OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
-     dbext, OI, 'nrows, numlines, deldot, deldot_m, err_deldot_m', mnrows, mnumlines, mdeldot, mdeldot_m, merr_deldot_m
-     dbext, OI, 'phi', mphi
-
-     N_nday = N_elements(mnday)
-     idx = indgen(N_nday)
-     ;; Find time differences between adjacent points
-     nday_diff = mnday[idx[1:N_nday-1]] - mnday[idx[0:N_nday-2]]
-
-     ;; Set up our loop for continuous blocks of time.
-     
-     ;; Generally we have a constant cadance with occational large
-     ;; pauses.  Use median instead of the mean to spot the right
-     ;; side of our gaps.  This is the index into nday_diff, but it is
-     ;; labeled as the gap_right_idx, since it is to be used as the
-     ;; index into parent arrays
-     gap_right_idx = where(nday_diff gt nday_threshold*median(nday_diff), ntime_segments)
-
-     if ntime_segments eq 0 then begin
-        ;; If no gaps, replace where's -1 with the right bound of the
-        ;; array
-        gap_right_idx = N_nday-1
-     endif else begin
-        ;; If gaps, append the right bound of the array to our gap
-        ;; list since where won't find that
-        pfo_array_append, gap_right_idx, N_nday-1
-     endelse
-     ntime_segments += 1
-
-     ;; Put the left side of our first interval at idx=0
-     gap_left_idx = 0
-     for igap=0,ntime_segments-1 do begin
-        
-        ;; Plot basic data to search for correlations between intensity
-        ;; and blips
-        if keyword_set(plot) then begin
-           plot, mnday, mfcont/5, psym=!tok.triangle
-           oploterr, mnday, mfcont/5, merr_fcont/5, !tok.triangle
-           oplot, mnday, mintensity, psym=!tok.plus
-           oploterr, mnday, mintensity, merr_intensity, !tok.plus
-           wait, 0.5
-        endif ;; plot
-
-        ;; Regenerate idx for this particular time segment
-        N_in_gap = gap_right_idx[igap] - gap_left_idx + 1
-
-        ;; Don't bother for gaps that have less than 3 points
-        if N_in_gap lt 3 then begin
-           message, /INFORMATIONAL, 'NOTE: skipping gap with only ' + strtrim(N_in_gap, 2) + ' points'
-           CONTINUE
-        endif
-
-        idx = indgen(N_in_gap) + gap_left_idx
-        print, 'new segment: ', idx
-
-        ;; Check to see if the sampling in this gap is close enough to
-        ;; our desired minimum cadence (in minutes)
-        cadence = mean(nday_diff[0:idx[N_in_gap-2]]) * 24.*60.
-        if cadence gt min_cadence then begin
-           message, /INFORMATIONAL, 'NOTE: skipping gap which has cadence of ' + strtrim(cadence, 2) + ' minutes'
-           CONTINUE
-        endif
-        
-        if keyword_set(plot) then begin
-           oplot, mnday[idx], mfcont[idx]/5, psym=!tok.triangle, thick=3
-           oploterr, mnday[idx], mfcont[idx]/5, merr_fcont/5, !tok.triangle
-           oplot, mnday[idx], mintensity[idx], psym=!tok.plus, thick=3
-           oploterr, mnday[idx], mintensity[idx], merr_intensity, !tok.plus
-           wait, 1
-        endif ;; plot
-
-        ;; Run a basic blip search algorithm.  Diff2 gets large if there
-        ;; is a blip.
-        if NOT keyword_set(sigma) then begin
-           ;; Just plain intensity diffs
-           diff1 = (mintensity[idx[1:N_in_gap-1]] - mintensity[idx[0:N_in_gap-2]])
-           units = 'kR'
-           diff2 = diff1[idx[0:N_in_gap-3]] - diff1[idx[1:N_in_gap-2]]
-        endif else begin
-           ;; Intensity diffs based on normalized sigma.  Had a bug in
-           ;; this when I did my initial abstract for 2012 AGU
-           diff1 = (mintensity[idx[1:N_in_gap-1]] / merr_intensity[idx[1:N_in_gap-1]] $
-                    - mintensity[idx[0:N_in_gap-2]] / merr_intensity[idx[0:N_in_gap-2]])
-           diff2 = diff1[idx[0:N_in_gap-3]] - diff1[idx[1:N_in_gap-2]]
-           units = 'sigma'
-
-           ;; Worked this out on paper.  Just do three points at a
-           ;; time + divide the cumulative difference by the average
-           ;; error.  Had a couple of bugs in this when I made my
-           ;; abstract for MOP
-           diff2 = fltarr(N_in_gap-2)
-           for i=0,N_in_gap-3 do begin
-              ;; This is wrong: should be 3* error bar
-              ;; diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i]] - mintensity[idx[i+2]]) / $
-              ;;            mean(merr_intensity[idx[i:i+2]])
-              ;; This is technically the best, but led to exaggerated
-              ;; negative events.
-              ;; diff2[i] = (2*(mintensity[idx[i+1]] / merr_intensity[idx[i+1]]) $
-              ;;             - mintensity[idx[i]] / merr_intensity[idx[i]] $
-              ;;            - mintensity[idx[i+2]]) / merr_intensity[idx[i+2]]
-              ;; This led to the nicest distribution of positive and
-              ;; negative events, but the error is wrong
-              ;; diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i]] - mintensity[idx[i+2]]) / $
-              ;;            3*mean(merr_intensity[idx[i:i+2]])
-              ;; This does the errors correctly
-              diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i]] - mintensity[idx[i+2]]) / $
-                         sqrt(2*merr_intensity[idx[i+1]]^2. +  $
-                              merr_intensity[idx[i]]^2. + $
-                              merr_intensity[idx[i+2]]^2.)
-           endfor
-        endelse
-
-        ;; If diff2 is greater (less) than the threshold value, add
-        ;; this nday to the list of candidate ndays to check.  Note
-        ;; that diff2 is shifted by a full idx value from mnday et al.
-        ;; Make the threshold read as the average distance about the
-        ;; continuum, so we need to multiply it by 2
-        if keyword_set(positive) then $
-           blip_idx = where(diff2 ge threshold*2, count)
-        if keyword_set(negative) then $
-           blip_idx = where(-diff2 ge threshold*2, count)
-
-        if count gt 0 then begin
-           ;; unwrap
-           blip_idx = idx[blip_idx]
-           ;; Plot only days with blips
-           if keyword_set(blip_plot) then begin
-              ymax = max([mfcont/5, mintensity])
-              plot, mnday, mfcont/5, psym=!tok.triangle, yrange=[0, ymax]
-              oploterr, mnday, mfcont/5, merr_fcont/5, !tok.triangle
-              oplot, mnday, mintensity, psym=!tok.plus
-              oploterr, mnday, mintensity, merr_intensity, !tok.plus
-              wait,1
-           endif
-           if keyword_set(plot) or keyword_set(blip_plot) then begin
-              for iblip=0, count-1 do begin
-                 plots, replicate(mnday[blip_idx[iblip]+1], 2), !y.crange, thick=1, linestyle=!tok.dashed
-              endfor
-              wait,2
-           endif ;; plot
-           pfo_array_append, ndays, mnday[blip_idx+1]
-           pfo_array_append, long_3s, mlong_3[blip_idx+1]
-        endif
-
-        ;; Keep track of our parent distribution in sysIII.  Be careful
-        ;; here, since we cannot sampling the first and last point of
-        ;; each day (-->and eventually each continuous interval) for
-        ;; blips,
-        pfo_array_append, parent_long_3s, mlong_3[idx[1:N_in_gap-2]]
-
-;;     plot, mnday, mintensity, psym=!tok.plus, yrange=[-20,20]
-;;     oplot, mnday[1:N_nday-2], diff2, psym=!tok.diamond
-;;     wait,0.2
-
-        ;; Move the left side of our gap forward if we have any more
-        ;; gaps to process
-        if igap lt ntime_segments then $
-           gap_left_idx = gap_right_idx[igap] + 1
-     endfor ;; time segments
-
-  endfor
-
-  dbclose
-
-  if N_elements(binsize) eq 0 then $
-     binsize = 40.
-
-  ;; Make X-axis plot in the middle of the bins
-  nbins = 360./binsize
-  xaxis = findgen(nbins)*binsize + binsize/2.
-
-  ;; Here is our answer.  Catch the case where we have no blips detected
-  hist = 0.
-  if size(long_3s, /TNAME) ne 'STRING' then $
-     hist = histogram(long_3s, binsize=binsize, min=0., max=359.99)
-  long_3_hist = histogram(parent_long_3s, binsize=binsize, min=0., max=359.99)
-print, hist
-print, long_3_hist
-  ;; Express bins in counts so I can see what is really there
-  norm = mean(float(long_3_hist)) / float(long_3_hist)
-;print, norm
-;norm = 1.
-  yaxis = float(hist) * norm
-  yerr = sqrt(hist) * norm
-  ;; Put full bin on
-  pxaxis = [0, xaxis, 360]
-  pyaxis = [yaxis[0], yaxis, yaxis[nbins-1]]
-  yrange = [0, max(yaxis) + max(yerr)]
-  plot, pxaxis, pyaxis, psym=!tok.hist, xstyle=!tok.exact, ystyle=!tok.exact+!tok.extend, $
-        xrange=[0,360], xtickinterval=90, xminor=9, $
-        xtitle='!6System III longitude (degrees)', $
-        yrange=yrange, $
-        ytitle='Normalized number points', $
-        $;;xmargin=[14,0], $ ;; looked good for landscape
-        xmargin=[7,2], $
-        _EXTRA=extra
-  oploterr, xaxis, yaxis, yerr, !tok.dot
-
-  ;;  ;; Put on threashold value
-  ;;  xyouts, /norm, 0.75, 0.85, 'Threshold = ' + strtrim(threshold,2) + ' ' + units
-
-  ;; Put in positive/negative label
-  if keyword_set(positive) then $
-     xyouts, /norm, 0.15, 0.85, 'Positive Departures'
-  if keyword_set(negative) then $
-     xyouts, /norm, 0.15, 0.85, 'Negative Departures'
-
-  ;; Put on East/West / front/back labels
-  if keyword_set(east) then $
-     xyouts, /norm, 0.75, 0.85, 'East'
-  if keyword_set(west) then $
-     xyouts, /norm, 0.75, 0.85, 'West'
-
-  ;; Put on East/West / front/back labels
-  if keyword_set(front) then $
-     xyouts, /norm, 0.75, 0.85, 'Anti-Jovian'
-  if keyword_set(back) then $
-     xyouts, /norm, 0.75, 0.85, 'Sub-Jovian'
-
-  print, 'Average number of points that are "blips" above threashold ' + strtrim(threshold,2) + ' ' + units + ' = ' +  strtrim(mean(yaxis), 2)
-
-  ;; Plot a dashed line of the expected statistical value for our
-  ;; threshold (in sigma case).  Make sure we divide by 2, since we
-  ;; are only sampling "up" (or down) blips
-  if keyword_set(sigma) then begin
-     yaxis = erfc(threshold) / 2. * mean(float(long_3_hist))
-     plots, [0,360], yaxis, linestyle=!tok.dashed
-     toprint = string(format='("Expected number for threshold = ", F4.1, " sigma")',  + threshold)
-     ;; Put label slightly above line
-     above = (!y.crange[1] - !y.crange[0]) / 30.
-     xyouts, 5, yaxis[0]+above, toprint
-     ;; print value as well
-     print, string(format='("Expected number for threshold = ", F4.1, " sigma = ", F4.1)',  + threshold, yaxis)
-  endif
-
-  ;; Put in plane crossings
-  plots, [112, 112], !y.crange, linestyle=!tok.dotted
-  plots, [292, 292], !y.crange, linestyle=!tok.dotted
      
   if keyword_set(ps) then begin
      device,/close
@@ -425,7 +123,7 @@ print, long_3_hist
 
   if keyword_set(jpeg) then begin
      if size(jpeg, /TNAME) ne 'STRING' then $
-       jpeg = 'ssg_blip_search_out.jpeg'
+       jpeg = 'ssg_sysiv_search_out.jpeg'
      write_jpeg, jpeg, tvrd(true=1), quality=75, true=1
   endif
 
