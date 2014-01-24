@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit.pro,v 1.1 2002/12/16 13:34:04 jpmorgen Exp $
+; $Id: ssg_fit.pro,v 1.2 2014/01/24 21:09:23 jpmorgen Exp $
 
 ; ssg_fit.  Use MPFITFUN to fit the Io spectra
 ; nday_range can just be 
@@ -8,7 +8,7 @@
 
 pro ssg_fit, nday_start_or_range
 
-  ON_ERROR, 2
+;  ON_ERROR, 2
   if NOT keyword_set(nday_start_or_range) then $
     nday_start_or_range = [0,36500] ; Somewhat generous :-)
 
