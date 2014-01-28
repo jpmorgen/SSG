@@ -1,6 +1,6 @@
 ;+
 
-; $Id: ssg_fit1spec.pro,v 1.7 2004/06/25 00:55:24 jpmorgen Exp $
+; $Id: ssg_fit1spec.pro,v 1.8 2014/01/28 20:40:00 jpmorgen Exp $
 
 ; ssg_fit1spec.pro
 
@@ -87,7 +87,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                   disp_min_ew=disp_min_ew, maxiter=maxiter, quiet=quiet, $
                   grave_report=grave_report, nprint=nprint, min_ew=min_ew, $
                   xtol=xtol, ftol=ftol, gtol=gtol, resdamp=resdamp, $
-                  mpstep=mpstep, landscape=landscape
+                  mpstep=mpstep, landscape=landscape, autofit=autofit
 
   init = {ssg_sysvar}
 
@@ -99,7 +99,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   endif
   if N_elements(obj) eq 0 then obj = !eph.io
   if N_elements(nprint) eq 0 then nprint=10
-  if N_elements(maxiter) eq 0 then maxiter = 100
+  if N_elements(maxiter) eq 0 then maxiter = 150
   if N_elements(grave_report) eq 0 then grave_report = 10
   if N_elements(min_ew) eq 0 then min_ew = 0.5
   if N_elements(disp_min_ew) eq 0 then disp_min_ew = 10
@@ -109,6 +109,12 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if N_elements(resdamp) eq 0 then resdamp=0
   if N_elements(mpstep) eq 0 then mpstep=0
   if N_elements(landscape) eq 0 then landscape=1
+  if N_elements(autofit) eq 0 then autofit=0
+  ;; 8 sometimes covers too much, but STATUS=3 or more automatically
+  ;; narrows down
+  if N_elements(auto_dd_numlines) eq 0 then auto_dd_numlines = 8
+  ;; 4 gives 7 A of coverage for Io on the east
+  if N_elements(final_numlines) eq 0 then final_numlines = 4
 
   if N_elements(N_continuum_in) eq 0 then N_continuum_in = 3
   N_continuum_orig = N_continuum_in
@@ -120,11 +126,18 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if count eq 0 then message, $
     'ERROR: nday ' + strtrim(nday,2) + ' not found in ' + rdbname
 
-  dbext, rentry, 'nday, dir, fname, object, date, time, bad', ndays, dirs, files, objects, dates, times, badarray
+  dbext, rentry, 'nday, dir, fname, object, date, time, bad, slice', ndays, dirs, files, objects, dates, times, badarray, slices
 
   dbext, rentry, 'wavelen, spectrum, spec_err, cross_disp, cross_err, disp_pix, dispers', wavelengths, spectra, spec_errors, cross_disps, cross_errors, disp_pix, orig_dispers
 
   dbclose
+
+  ;; --> temporary code to get around bad slice values
+  if abs(slices[0,0]) gt 0.008 then $
+    message, 'ERROR: bad slicer tilt value detected: ' + strtrim(slices[0,0], 2)
+  if min(wavelengths[*,0], /NAN) lt 6280 or $
+    max(wavelengths[*,0], /NAN) gt 6320 then $
+    message, 'ERROR: code not debugged for non [OI] spectra'
   
   dirs = strtrim(dirs)
   files=strtrim(files)
@@ -137,33 +150,6 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   fdbname = 'oi_6300_fit'
 
   message, /INFO, 'fitting spectrum nday = ' + strtrim(nday, 2)
-
-;
-;  ;; Check on the source of these and add to it.  These come from
-;  ;; Melanie.
-;  weak_solar_lines = [6286.3d, $
-;                      6286.64d, $
-;                      6298.97d, $
-;                      6301.0d, $
-;                      6301.86d]
-;
-;  ;; Doing a residual analysis on 10/14/03.  Weak is no longer the
-;  ;; right word for the feature to the blue of 6299.5957.  Since I am
-;  ;; treating this separately, I might as well do the whole line
-;  ;; complex.  Try putting a line the same distance away from the
-;  ;; 6301.5115 line
-;  broad_solar_lines = [6299.29d, 6299.5957d, 6301d]
-;  broad_solar_line_EWs = [-5, -40, -5]
-;
-;  ;; This is the atmospheric line list that Melanie was using.  
-;;  atm_absorb = [6298.457d, 6299.228d, 6302.0001d, 6302.7642d];
-;
-;; I am not sure where this one came from: , 6304.53d
-;
-;  ;; I got the weak atm absorption lines by fitting residuals.
-;  ;; Sometimes these are not so weak!
-;  weak_atm_lines = [6290.85d, 6292.575d, 6294.675d]
-  
 
   ;; Check my ephemeris code against what Melanie and Divia downloaded
   dbopen,'io6300_integrated',0  
@@ -261,7 +247,6 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      !sso.special_lines = ptr_new(specials, /no_copy)
   endif ;; Io line(s) in lparinfo
 
-
   ;; This depends on having the reduced files around
   cd, dirs[0]
   im=ssgread(files[0], hdr, /DATA)
@@ -326,6 +311,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   save_right_pix = right_pix
   niter = -1
   saved = 0
+  status = 0
   repeat begin
      
      ;; Extract useful things from parameter list, recording any
@@ -339,7 +325,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         disp_order = 0
      endif else begin
         ;; Maybe not the best way to pick dispersion out, but works
-        ;; for now
+        ;; for now.  NOTE, this is not quite the same thing as
+        ;; sso_get_disp_idx.
         disp_idx = where(parinfo.pfo.inaxis eq !pfo.Xin and $
                          parinfo.pfo.outaxis eq !pfo.Xaxis, $
                          disp_order)
@@ -460,17 +447,15 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                          parinfo_template=!ssg.parinfo)
            cont_par[0].fixed = 1
            cont_par[1].value = median(spectra[*,0])
+           ;; See if this helps the problem with mpfit getting stuck
+           ;; on status 2
+           ;; cont_par[1].relstep = 0.01
+           ;; nope
            parinfo = [parinfo, cont_par]
         endif ;; Continuum initialization
         ;; Keep continuum handy as a separate variable
         cont_idx = where(parinfo.sso.ptype eq !sso.cont, N_continuum)
         N_continuum = N_continuum - 1
-
-        ;; Make a continuum spectrum for subtraction in graveyard
-        ;; calculations.  Using original dispersion axis pixels so bad
-        ;; data doesn't interfere with model calculations.
-        cont_spec = pfo_funct(disp_pix[left_pix:right_pix], parinfo=parinfo, $
-                              idx=[disp_idx, cont_idx])
 
         ;; DOPPLER SHIFTS
         sso_dg_assign, parinfo
@@ -478,274 +463,11 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         if ndop eq 0 then $
           message, 'ERROR: no Doppler shifts found'
 
-        ;; Do a preliminary run of the model so we can recalculate the
-        ;; observed wavelenghts so the graveyard works properly
-        model_spec = pfo_funct(pix_axis, parinfo=parinfo)
-
         ;; GRAVEYARD.  
-
-        ;; EQUIVALENT WIDTH LIMIT min_ew
-        ;; Check for lines that have negligable equivalent widths and
-        ;; mark them with our own status value.  In case we change
-        ;; min_ew, check all the lines each time.
-        ew_idx = where(parinfo.sso.ptype eq !sso.line and $
-                       parinfo.sso.ttype eq !sso.ew, new)
-        if new gt 0 then begin
-           ;; I need to separate out the values since the structure
-           ;; confuses IDL's where statement
-           test_values = parinfo[ew_idx].value
-           small_idx = where(abs(test_values) lt min_ew and $
-                             parinfo[ew_idx].pfo.status ne !ssg.too_small, nsmall)
-           if nsmall gt 0 then begin
-              message, /INFORMATIONAL, 'NOTE: sending ' + strtrim(nsmall, 2) + ' lines to the graveyard because the abs value of their equiv widths are below ' + strtrim(min_ew, 2)
-              for iew=0, nsmall-1 do begin
-                 idx = ew_idx[small_idx[iew]]
-                 dg = parinfo[idx].sso.dg ; Doppler group
-                 rwl = parinfo[idx].sso.rwl ; rest wavelength
-                 myidx = where(parinfo.sso.dg eq dg and $
-                               parinfo.sso.rwl eq rwl)
-                 ;; Mark with a special flag that is unique to the ssg
-                 ;; code so we don't resurrect these lines
-                 parinfo[myidx].pfo.status = !ssg.too_small
-              endfor
-
-           endif ;; found equivalent widths that are too small
-
-           ;; Resurrect lines previously marked as too small that now
-           ;; are above min_ew (i.e. min_ew changed).
-           resur_idx = where(abs(test_values) ge min_ew and $
-                             parinfo[ew_idx].pfo.status eq !ssg.too_small, $
-                             num_resur)
-           if num_resur gt 0 then begin
-              message, /INFORMATIONAL, 'NOTE: resurrecting ' + strtrim(num_resur, 2) + ' lines that have equiv widths above ' + strtrim(min_ew, 2)
-              for iew=0, num_resur-1 do begin
-                 idx = ew_idx[resur_idx[iew]]
-                 dg = parinfo[idx].sso.dg ; Doppler group
-                 rwl = parinfo[idx].sso.rwl ; rest wavelength
-                 myidx = where(parinfo.sso.dg eq dg and $
-                               parinfo.sso.rwl eq rwl)
-                 parinfo[myidx].pfo.status = !pfo.active
-              endfor
-
-          endif ;; resurrected some lines that are now not too small
-
-        endif ;; Equivalent width testing
-
-        ;; Find the line center indexes of things that should potentially
-        ;; be removed from the active line list.  Do this in stages,
-        ;; since owl has lots of NANs in it that seem to be confusing
-        ;; IDL
-        f_idx = where(parinfo.pfo.status eq !pfo.active, npar)
-        lc_idx = where(finite(parinfo[f_idx].sso.owl) and $
-                       parinfo[f_idx].sso.ttype eq !sso.center, nlc)
-        num_to_grave = 0
-        if nlc gt 0 then begin
-           lc_idx = f_idx[lc_idx]
-           grave_lc_idx $
-             = where(parinfo[lc_idx].sso.owl lt left_wval or $
-                     right_wval lt parinfo[lc_idx].sso.owl, $
-             num_to_grave)
-        endif
-
-        if num_to_grave gt grave_report then $
-          message, /INFORMATIONAL, 'NOTE: sending approx ' + strtrim(num_to_grave, 2) + ' lines outside the active region to the graveyard.'
-        for il=0,num_to_grave - 1 do begin
-           ;; find all the parameters for this line
-           c_idx = lc_idx[grave_lc_idx[il]] ; center idx
-           dg = parinfo[c_idx].sso.dg ; Doppler group
-           rwl = parinfo[c_idx].sso.rwl ; rest wavelength
-           if num_to_grave le grave_report then $
-             message, 'NOTE: Looking at graveyard candidate ' + strjoin(sso_dg_path(dg, /name), '-') + ' ' + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
-
-           myidx = where(parinfo[f_idx].sso.dg eq dg and $
-                         parinfo[f_idx].sso.rwl eq rwl)
-           ;; Unwrap
-           myidx = f_idx[myidx]
-
-           ;; Now calculate the model spectrum with just this line in it
-           ;; and compare that to a model spectrum with the line in the
-           ;; middle of the spectrum to see if we are losing too much
-           ;; area.  
-
-           ;; Since pfo_funct recalculates owl, we need to tweak rwl
-           ;; to put the line in the center of the spectrum.  For
-           ;; spectra with significant non-linear dispersion, this
-           ;; won't work, but that is not the case for ssg.  Do it in
-           ;; this order so that owl gets restored to the proper value
-           ;; when we are done here.
-           dw = (left_wval + right_wval)/2. - parinfo[c_idx].sso.owl
-           parinfo[myidx].sso.rwl = rwl + dw
-
-           ;; ON AREA
-           model_spec = pfo_funct(disp_pix[left_pix:right_pix], $
-                                  parinfo=parinfo, $
-                                  idx=[disp_idx, cont_idx, dop_idx, myidx])
-
-           parinfo[myidx].sso.rwl = rwl
-           model_spec = model_spec - cont_spec
-           on_area = total(model_spec, /NAN)
-
-           ;; OFF AREA
-           model_spec = pfo_funct(disp_pix[left_pix:right_pix], $
-                                  parinfo=parinfo, $
-                                  idx=[disp_idx, cont_idx, dop_idx, myidx])
-           model_spec = model_spec - cont_spec
-           off_area = total(model_spec, /NAN)
-
-           ;; Treat multiple lines with the same rest wavelength as one line
-;           if count gt 1 or count eq 0 then begin
-;              message, 'ERROR: unexpected number of lines with rwl=' + string(rwl)
-;              message, 'WARNING: possible multiple entries in catalog ' + string(testparinfo[my_lc_idx[0]].ssggroupID) + ' for rest wavelength ' + string(testparinfo[my_lc_idx[0]].ssgrwl), /CONTINUE
-;              testparinfo[my_lc_idx].ssgowl = !values.f_nan          
-;           endif
-
-           ;; This ratio is somewhat model and instrument profile
-           ;; dependent, but I don't want to make it a command line
-           ;; parameter just yet.  Split the difference between 0.5,
-           ;; which is the symetric line on the edge case and something
-           ;; really severe like 0.01, which would potentially be prone
-           ;; to blowing up.  Also, handle the pathological case of 0
-           ;; area 
-           if off_area - on_area eq 0 or off_area/on_area lt 0.05 then begin
-              ;; This line belongs in the graveyard.
-              if num_to_grave le grave_report then $
-                message, 'NOTE: Sending ' + strjoin(sso_dg_path(dg, /name), '-') + ' ' + string(format=!sso.rwl_format, rwl) + ' to the graveyard.', /INFORMATIONAL
-              for iidx=0, N_elements(myidx)-1 do $
-                parinfo[myidx[iidx]].pfo.status = !pfo.inactive
-           endif ;; Moved a line off to the graveyard
-        endfor ;; Moving lines to the graveyard
-
-        ;; RESURRECTION
-
-        ;; Find lines that are not too small and that are inside the
-        ;; active region to see if we need to resurect them.  Bad is
-        ;; not the best name but will do for now.  Make sure we avoid
-        ;; lines that are too small.
-        bad_idx = where(parinfo.pfo.status ne !pfo.active and $
-                        parinfo.pfo.status ne !ssg.too_small, npar)
-        lc_idx = where(finite(parinfo[bad_idx].sso.owl) and $
-                       parinfo[bad_idx].sso.ttype eq !sso.center, nlc)
-        num_resur = 0
-        if nlc gt 0 then begin
-           lc_idx = bad_idx[lc_idx]
-           resur_lc_idx $
-             = where(left_wval lt parinfo[lc_idx].sso.owl and $
-                     parinfo[lc_idx].sso.owl lt right_wval, num_resur)
-        endif
-
-        if num_resur gt grave_report then $
-          message, 'NOTE: Resurrecting aprox ' + strtrim(num_resur, 2) + ' lines that are now in the active region.', /INFORMATIONAL
-        for il=0,num_resur - 1 do begin
-           ;; find all the parameters for this line
-           c_idx = lc_idx[resur_lc_idx[il]] ; center idx
-           dg = parinfo[c_idx].sso.dg ; Doppler group
-           rwl = parinfo[c_idx].sso.rwl ; rest wavelength
-           if num_resur le grave_report then $
-             message, 'NOTE: Looking at resurrection candidate ' + strjoin(sso_dg_path(dg, /name), '-') + ' ' + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
-
-           myidx = where(parinfo[bad_idx].sso.dg eq dg and $
-                         parinfo[bad_idx].sso.rwl eq rwl)
-           ;; Unwrap.
-           myidx = bad_idx[myidx]
-           ;; Don't forget to turn the parameters on so the area
-           ;; calculations work!
-           parinfo[myidx].pfo.status = !pfo.active
-
-           ;; As above, calculate on and off areas
-           ;; ON AREA
-           dw = (left_wval + right_wval)/2. - parinfo[c_idx].sso.owl
-           parinfo[myidx].sso.rwl = rwl + dw
-
-           model_spec = pfo_funct(disp_pix[left_pix:right_pix], $
-                                  parinfo=parinfo, $
-                                  idx=[disp_idx, cont_idx, dop_idx, myidx])
-           parinfo[myidx].sso.rwl = rwl
-
-           model_spec = model_spec - cont_spec
-           on_area = total(model_spec, /NAN)
-
-           ;; OFF AREA
-           model_spec = pfo_funct(disp_pix[left_pix:right_pix], $
-                                  parinfo=parinfo, $
-                                  idx=[disp_idx, cont_idx, dop_idx, myidx])
-
-           model_spec = model_spec - cont_spec
-           off_area = total(model_spec, /NAN)
-
-           ;; SEE DOCUMENTATION ABOVE.  But it is a little harder to do
-           ;; on the way out, since I use the window edge as the trigger
-           if off_area - on_area ne 0 and off_area/on_area ge 0.5 then begin
-              ;; In order to do the calculation, this line was already
-              ;; resurrected.
-              if num_resur le grave_report then $
-                message, 'NOTE: Resurrected ' + strjoin(sso_dg_path(dg, /name), '-') + ' ' + string(format=!sso.rwl_format, rwl), /INFORMATIONAL
-           endif else begin
-              ;; Send line to graveyard
-              for iidx=0, N_elements(myidx)-1 do $
-                parinfo[myidx[iidx]].pfo.status = !pfo.inactive
-           endelse
-        endfor ;; resurrecting lines
-
-        ;; LORENTZIAN WIDTH CHECK
-        ;; --> this depends on the specific definition of the Voigt
-        ;; function in the pfo system.
-        lor_idx = where(parinfo.sso.pfo.pfo.ftype eq !pfo.voigt + 0.4 and $
-                        parinfo.pfo.status eq !pfo.active, nlor)
-        zero_lor_idx = !values.d_nan
-        free_lor_idx = !values.d_nan
-        ;; --> skip if doing initial fit of dispersion, since this
-        ;; messes with fixed/free.  Kind of ugly to do it this way and
-        ;; will cause problems later if lines get fixed.
-        if keyword_set(idisp_fit) then $
-          nlor = 0
-        for ilor=0, nlor-1 do begin
-           idx = lor_idx[ilor]
-           dg = parinfo[idx].sso.dg ; Doppler group
-           rwl = parinfo[idx].sso.rwl ; rest wavelength
-           myidx = where(parinfo.sso.dg eq dg and $
-                         parinfo.sso.rwl eq rwl)
-           my_ew_idx = where(parinfo[myidx].sso.ttype eq !sso.ew, count)
-           if count eq 0 then $
-             message, 'ERROR: equivalent width parameter not found'
-           ;; unnest
-           my_ew_idx = myidx[my_ew_idx]
-           if abs(parinfo[my_ew_idx].value) lt small_ew and $
-             parinfo[idx].fixed eq 0 then begin
-              zero_lor_idx = array_append(idx, zero_lor_idx)
-
-              parinfo[idx].value = 0
-              parinfo[idx].fixed = 1
-           endif ;; too small
-           if abs(parinfo[my_ew_idx].value) ge small_ew and $
-             parinfo[idx].fixed eq 1 then begin
-              free_lor_idx = array_append(idx, free_lor_idx)
-;              message, /INFORMATIONAL, 'NOTE: freeing Lorentzian width of ' + strjoin(sso_dg_path(dg, /name), '-') + ' ' + string(format=!sso.rwl_format, rwl) + ' because its equivalent width is now above ' + strtrim(small_ew, 2)
-              parinfo[idx].fixed = 0
-           endif ;; now big enough
-
-        endfor ;; each Lorentzian parameter
-
-        ;; Print messages about Lorentzian width changes
-        if N_elements(zero_lor_idx) gt grave_report then begin
-           message, /INFORMATIONAL, 'NOTE: zeroing Lorentzian width of ' + strtrim(N_elements(zero_lor_idx),2) + ' lines because their equivalent widths are below ' + strtrim(small_ew, 2)
-        endif else begin
-           if finite(zero_lor_idx[0]) then begin
-              for ilor=0, N_elements(zero_lor_idx)-1 do begin
-                 message, /INFORMATIONAL, 'NOTE: zeroing Lorentzian width of ' + strjoin(sso_dg_path(parinfo[zero_lor_idx[ilor]].sso.dg, /name), '-') + ' ' + string(format=!sso.rwl_format, parinfo[zero_lor_idx[ilor]].sso.rwl) + ' because its equivalent width is below ' + strtrim(small_ew, 2)
-              endfor
-           endif
-        endelse
-
-        if N_elements(free_lor_idx) gt grave_report then begin
-           message, /INFORMATIONAL, 'NOTE: freeing Lorentzian width of ' + strtrim(N_elements(free_lor_idx),2) + ' lines because their equivalent widths are above ' + strtrim(small_ew, 2)
-        endif else begin
-           if finite(free_lor_idx[0]) then begin
-              for ilor=0, N_elements(free_lor_idx)-1 do begin
-                 message, /INFORMATIONAL, 'NOTE: freeing Lorentzian width of ' + strjoin(sso_dg_path(parinfo[free_lor_idx[ilor]].sso.dg, /name), '-') + ' ' + string(format=!sso.rwl_format, parinfo[free_lor_idx[ilor]].sso.rwl) + ' because its equivalent width is above ' + strtrim(small_ew, 2)
-              endfor
-           endif
-        endelse
-        ;; End of GRAVEYARD and RESURRECTION stuff
+        ssg_graveyard, disp_pix, parinfo, pix_limits=[left_pix, right_pix], $
+                       spec=spec, err_spec=err_spec, $
+                       min_ew=min_ew, small_ew=small_ew, $
+                       maxprint=grave_report, quiet=grave_quiet
 
 
         ;; Calculate current model and plot
@@ -775,74 +497,152 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      endelse ;; no good data found in selected wavelength range
 
 
+     ;; --> Eventually move this code into the interactive case section
      message, /CONTINUE, 'TOP LEVEL'
      if keyword_set(idisp_fit) then $
        print, 'Initial dispersion fitting mode'
      if keyword_set(dd_fit) then $
        print, 'Dispersion and solar Doppler fitting mode'
      print, 'Minimum equiv width (milli A) = ', strtrim(min_ew, 2)
-     message, /CONTINUE, 'Use left and right buttons select bracket a region of interest.  Middle button brings up menu.'
 
-     cursor, x1, y1, /DOWN, /DATA
-     ;; Left mouse
-     if !MOUSE.button eq 1 then begin
-        dxs = abs(new_wavelengths - x1)
-        junk = min(dxs, a)
-        left_pix = a[0]
-     endif ;; leftmost mouse button
+     if NOT keyword_set(autofit) then begin
+        ;; Interactive case
+        message, /CONTINUE, 'Use left and right buttons to select/bracket a region of interest.  Middle button brings up menu.'
 
-     ;; Right mouse
-     if !MOUSE.button eq 4 then begin
-        dxs = abs(new_wavelengths - x1)
-        junk = min(dxs, a)
-        right_pix = a[0]
-     endif ;; rightmost mouse button
+        cursor, x1, y1, /DOWN, /DATA
+        ;; Left mouse
+        if !MOUSE.button eq 1 then begin
+           dxs = abs(new_wavelengths - x1)
+           junk = min(dxs, a)
+           left_pix = a[0]
+        endif ;; leftmost mouse button
+
+        ;; Right mouse
+        if !MOUSE.button eq 4 then begin
+           dxs = abs(new_wavelengths - x1)
+           junk = min(dxs, a)
+           right_pix = a[0]
+        endif ;; rightmost mouse button
+     endif ;; autofit
 
      ;; Middle mouse
-     if !MOUSE.button eq 2 then begin
-        message, /CONTINUE, 'Menu:'
-        ts = 'turn on'
-        if keyword_set(idisp_fit) then $
-          ts = '---turn off---'
-        print, ts, ' Initial dispersion fit'
-        ts = 'turn on'
-        if keyword_set(dd_fit) then $
-          ts = '---turn off---'
-        print, ts, ' Dispersion and solar Doppler fit'
-        print, 'Fit '
-        print, 'Print plot '
-        print, 'List current parameters '
-        print, 'Command prompt'
-        print, 'Modify parameters'
-        print, 'unZoom'
-        print, 'Save in database'
-        print, 'Read from database'
-        print, 'Quit'
+     if !MOUSE.button eq 2 or keyword_set(autofit) then begin
         answer = ''
-        for ki = 0,1000 do flush_input = get_kbrd(0)
-        repeat begin
-           message, /CONTINUE, 'I, D, [F], P, L, C, M, R, Z, S, Q?'
-           answer = get_kbrd(1)
-           if byte(answer) eq 10 then answer = 'F'
+        if NOT keyword_set(autofit) then begin
+           message, /CONTINUE, 'Menu:'
+           print, 'Auto fit '
+           ts = 'turn on'
+           if keyword_set(idisp_fit) then $
+             ts = '---turn off---'
+           print, ts, ' Initial dispersion fit'
+           ts = 'turn on'
+           if keyword_set(dd_fit) then $
+             ts = '---turn off---'
+           print, ts, ' Dispersion and solar Doppler fit'
+           print, 'Fit '
+           print, 'Print plot '
+           print, 'List current parameters '
+           print, 'Command prompt'
+           print, 'Modify parameters'
+           print, 'unZoom'
+           print, 'Save in database'
+           print, 'Read from database'
+           print, 'Quit'
+           answer = ''
            for ki = 0,1000 do flush_input = get_kbrd(0)
-           answer = strupcase(answer)
-        endrep until $
-          answer eq 'I' or $
-          answer eq 'D' or $
-          answer eq 'F' or $
-          answer eq 'P' or $
-          answer eq 'L' or $
-          answer eq 'C' or $
-          answer eq 'M' or $
-          answer eq 'R' or $
-          answer eq 'Z' or $
-          answer eq 'S' or $
-          answer eq 'Q'
+           repeat begin
+              message, /CONTINUE, 'A, I, D, [F], P, L, C, M, R, Z, S, Q?'
+              answer = get_kbrd(1)
+              if byte(answer) eq 10 then answer = 'F'
+              for ki = 0,1000 do flush_input = get_kbrd(0)
+              answer = strupcase(answer)
+           endrep until $
+             answer eq 'A' or $
+             answer eq 'I' or $
+             answer eq 'D' or $
+             answer eq 'F' or $
+             answer eq 'P' or $
+             answer eq 'L' or $
+             answer eq 'C' or $
+             answer eq 'M' or $
+             answer eq 'R' or $
+             answer eq 'Z' or $
+             answer eq 'S' or $
+             answer eq 'Q'
+        endif ;; Interactive
 
-        if answer eq 'I' then begin
+        if answer eq 'A' then begin
+           autofit = 1
+        endif ;; Auto fit
+
+
+        ;; INITIAL DISPERSION FITTING.
+
+        ;; A little confusing because we need to loop around three
+        ;; times: 1 turn the fitting on and set the wavelength range,
+        ;; 2 get the graveyard set and do the fit, 3 turn it off
+
+        ;; Check to see if we really converged.  If not, narrow the
+        ;; wavelength range
+        
+        ;; Make sure we wrap around if we are narrowing the wavelength
+        ;; range
+        if autofit eq 2 then $
+          autofit = 1
+
+        if autofit eq 3 and status gt 1 then begin
+           if NOT keyword_set(ifit_numlines) then begin
+              ;; Find the total number of lines and estimate how many per
+              ;; Doppler group (assuming there is an object Doppler group
+              idx = where(parinfo.pfo.status eq !pfo.active and $
+                          parinfo.sso.ttype eq !sso.center and $
+                          parinfo.sso.ptype eq !sso.line, ifit_nlines)
+              tdop_idx = where(parinfo.pfo.status eq !pfo.active and $
+                               parinfo.sso.ptype eq !sso.dop, tndop)
+              ifit_numlines = ifit_nlines / tndop
+           endif else begin
+              ifit_numlines = ifit_numlines - 1
+              message, /CONTINUE, 'NOTE: narrowing wavelength range in initial fit to include ' + strtrim(ifit_numlines, 2) + ' in each non-object Doppler group'
+           endelse
+           wrange = [cont_poly_ref, cont_poly_ref]
+           obj_idx = where(parinfo.sso.dg eq obj_dg, count)
+           if count gt 0 then begin
+              wrange[0] = min(parinfo[obj_idx].sso.owl, /NAN)
+              wrange[1] = max(parinfo[obj_idx].sso.owl, /NAN)
+           endif ;; have some object
+           iwrange = wrange
+           repeat begin
+              wrange = sso_get_wrange(pix_axis, parinfo, ifit_numlines, $
+                                      iwrange, omit=[obj_dg])
+              tnotdone = array_equal(wrange, iwrange)
+              if tnotdone then begin
+                 message, /CONTINUE, 'NOTE: narrowing wavelength range'
+                 ifit_numlines = ifit_numlines - 1
+              endif else begin ;; wrange is OK
+                 pix_range = interpol(pix_axis, xaxis, wrange)
+                 left_pix = pix_range[0]
+                 right_pix = pix_range[1]
+                 autofit = 2
+              endelse
+           endrep until NOT tnotdone
+
+        endif
+
+        if autofit eq 1 and keyword_set(idisp_fit) then begin
+           ;; We have set up for the initial dispersion fit, but not
+           ;; actually done the fit yet.  Successful fitting
+           ;; increments autofit
+           answer = 'F'
+           autofit = 2
+        endif
+        if answer eq 'I' or autofit eq 1 or autofit eq 3 then begin
            if NOT keyword_set(idisp_fit) then begin
+              ;; Turn on dispersion fitting
               disp_fit_old_min_ew = min_ew
-              min_ew = modval(disp_min_ew, 'Minimum equivalent width for dispersion relation fit')
+              if keyword_set(autofit) then $
+                min_ew = disp_min_ew $
+              else $
+                min_ew = modval(disp_min_ew, 'Minimum equivalent width for dispersion relation fit')
 
               ;; Get ready to fix everything but the dispersion relation
               idisp_fit_old_fixed = parinfo.fixed
@@ -857,21 +657,86 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                 parinfo[disp_idx[pridx]].fixed = 1
 
               idisp_fit = 1
-              message, 'Reposition the plot window and do a fit.  Toggle back when you are done', /CONTINUE
-           endif else begin
-              min_ew = modval(disp_fit_old_min_ew, 'Minimum equivalent width for normal fitting')
-              ;; Set parameters back to their previous values and fix dispersion relation 
+              if keyword_set(autofit) then begin
+                 ;; Eventually, I may want to make an input keyword
+                 ;; for this
+                 left_pix = 0
+                 right_pix = nx-1
+              endif else begin
+                 message, 'Reposition the plot window and do a fit.  Toggle back when you are done', /CONTINUE
+              endelse ;; autofit
+           endif else begin ;; Turn off dispersion fitting
+              ;; Set parameters back to their previous values and fix
+              ;; dispersion relation
+              if keyword_set(autofit) then begin
+                 min_ew = disp_fit_old_min_ew
+                 ;; Go ahead and advance in the autofit process
+                 ;; without looping when we are done.
+                 autofit = 4
+              endif else begin
+                 min_ew = modval(disp_fit_old_min_ew, 'Minimum equivalent width for normal fitting')
+              endelse
               parinfo.fixed = idisp_fit_old_fixed
               parinfo[disp_idx].fixed = 1
-
               idisp_fit = 0
-           endelse
+
+           endelse ;; Turn off dispersion fitting
         endif ;; initial dispersion relation fit
 
-        if answer eq 'D' then begin
+        ;; DISPERSION + DOPPLER FITTING
+
+        ;; This is a little more complicated since we need to set
+        ;; min_ew and run the graveyard before we pick the wavelength
+        ;; range
+
+        ;; Check to see if the fitting algorithm got stuck
+        if autofit eq 6 and status ne 1 then begin
+           if auto_dd_numlines le 1 then $
+             message, 'ERROR: fit is just not converging'
+           message, /CONTINUE, 'WARNING: narrowing wavelength range to try to get fit to converge'
+           auto_dd_numlines = auto_dd_numlines - 1
+           autofit = 4
+        endif
+
+        if autofit eq 5 and keyword_set(dd_fit) then begin
+           ;; do fit
+           answer = 'F'
+        endif
+        if autofit eq 4 and keyword_set(dd_fit) then begin
+           ;; Figure out how to position the plot/fit window
+           ;; automatically.  Make sure our wavelegth(s) of
+           ;; interest in centered
+           ;; Default:
+           wrange = [cont_poly_ref, cont_poly_ref]
+           obj_idx = where(parinfo.sso.dg eq obj_dg, count)
+           if count gt 0 then begin
+              wrange[0] = min(parinfo[obj_idx].sso.owl, /NAN)
+              wrange[1] = max(parinfo[obj_idx].sso.owl, /NAN)
+           endif ;; have some object
+           iwrange = wrange
+           wrange = sso_get_wrange(pix_axis, parinfo, auto_dd_numlines, $
+                                   iwrange, omit=[obj_dg])
+           if array_equal(wrange, iwrange) then begin
+              message, /CONTINUE, 'NOTE: narrowing wavelength range'
+              auto_dd_numlines = auto_dd_numlines - 1
+              autofit = 4
+           endif else begin ;; wrange is OK
+              pix_range = interpol(pix_axis, xaxis, wrange)
+              left_pix = pix_range[0]
+              right_pix = pix_range[1]
+              autofit = 5
+           endelse
+        endif ;; finish turning on dispersion + Doppler fit
+
+        if answer eq 'D' or autofit eq 4 or autofit eq 6 then begin
            if NOT keyword_set(dd_fit) then begin
+              ;; Turn on dispersion fitting
               disp_fit_old_min_ew = min_ew
-              min_ew = modval(disp_min_ew, 'Minimum equivalent width for dispersion and solar Doppler fitting')
+              if keyword_set(autofit) then begin
+                 min_ew = disp_min_ew
+              endif else begin
+                 min_ew = modval(disp_min_ew, 'Minimum equivalent width for dispersion and solar Doppler fitting')
+              endelse
               parinfo[disp_idx].fixed = 0
               ;; Fix the reference value(s)
               ftypes = parinfo[disp_idx].pfo.ftype - !pfo.poly
@@ -879,15 +744,95 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               pridx = where(0 lt prnums and prnums lt 10, count)
               if count gt 0 then $
                 parinfo[disp_idx[pridx]].fixed = 1
-
               dd_fit = 1
-              message, 'Reposition the plot window and do a fit.  Toggle back when you are done', /CONTINUE
+              if NOT keyword_set(autofit) then $
+                message, 'Reposition the plot window and do a fit.  Toggle back when you are done', /CONTINUE
+
            endif else begin
-              min_ew = modval(disp_fit_old_min_ew, 'Minimum equivalent width for normal fitting')
+              if keyword_set(autofit) then begin
+                 min_ew = disp_fit_old_min_ew
+                 autofit = 7
+              endif else begin
+                 min_ew = modval(disp_fit_old_min_ew, 'Minimum equivalent width for normal fitting')
+              endelse ;; autofit
               parinfo[disp_idx].fixed = 1
               dd_fit = 0
            endelse
         endif ;; Fit dispersion and solar doppler
+
+        ;; FINAL AUTOFIT
+
+        ;; Check to see if we are done
+        if autofit eq 10 then begin
+           answer = 'Q'
+        endif
+
+        ;; Check to see if the fitting algorithm got stuck
+        if autofit eq 9 and status ne 1 then begin
+           if final_numlines le 1 then $
+             message, 'ERROR: fit is just not converging'
+           message, /CONTINUE, 'WARNING: narrowing wavelength range to try to get fit to converge'
+           final_numlines = final_numlines - 1
+           autofit = 7
+        endif
+
+        ;; Check if we sent any parameters to the graveyard
+        if autofit eq 9 then begin
+           junk = where(parinfo.pfo.status eq !pfo.active and $
+                        parinfo.sso.ttype eq !sso.center and $
+                        parinfo.sso.ptype eq !sso.line, new_nlines)
+           ;; Only save if we have converged on the number of lines we
+           ;; are using for the fit.
+           autofit = 8
+           if new_nlines eq final_fit_nlines then begin
+              autofit = 10
+              answer = 'S'
+           endif
+           final_fit_nlines = new_nlines
+        endif
+
+        ;; Do the fit, recording how many lines we are using
+        if autofit eq 8 and NOT keyword_set(final_fit) then begin
+           answer = 'F'
+           junk = where(parinfo.pfo.status eq !pfo.active and $
+                        parinfo.sso.ttype eq !sso.center and $
+                        parinfo.sso.ptype eq !sso.line, final_fit_nlines)
+
+        endif
+
+        ;; Restore min_ew and set flag for loop
+        if autofit eq 8 and keyword_set(final_fit) then begin
+           min_ew = final_fit_old_min_ew
+           final_fit = 0
+        endif
+
+        ;; Set wavelength range
+        if autofit eq 7 and keyword_set(final_fit) then begin
+           ;; Start the wavelength range over again centered on the object
+           wrange = [cont_poly_ref, cont_poly_ref]
+           obj_idx = where(parinfo.sso.dg eq obj_dg, count)
+           if count gt 0 then begin
+              wrange[0] = min(parinfo[obj_idx].sso.owl, /NAN)
+              wrange[1] = max(parinfo[obj_idx].sso.owl, /NAN)
+           endif ;; have some object
+           wrange = sso_get_wrange(pix_axis, parinfo, $
+                                   final_numlines, wrange, omit=[obj_dg])
+           pix_range = interpol(pix_axis, xaxis, wrange)
+           left_pix = pix_range[0]
+           right_pix = pix_range[1]
+           
+           autofit = 8
+        endif ;; start of final autofit
+
+        ;; Start out by setting a min_ew that lets us select a
+        ;; reasonable wavelength range 
+        if autofit eq 7 and NOT keyword_set(final_fit) then begin
+           final_fit_old_min_ew = min_ew
+           ;; split the difference between small_ew and disp_min_ew
+           min_ew = mean([small_ew, disp_min_ew])
+           final_fit = 1
+        endif ;; start of final autofit
+
 
         if answer eq 'P' then begin
            landscape = fix(modval(landscape, 'Plot in landscape mode? (1=yes, 0=no)'))
@@ -895,6 +840,11 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                  '_spec.ps'
            message, /CONTINUE, 'Writing postscript file ' + pfile
            set_plot,'ps'
+
+           opthick = !P.thick
+           ocharthick = !P.charthick
+           !P.thick = 3
+           !P.charthick = 2
            device, filename=pfile, landscape=landscape
            sso_plot_fit, pix_axis, parinfo, spec, err_spec, $
                          xrange=[left_wval, right_wval], yrange=yrange, $
@@ -903,6 +853,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                          dop_axis_frac=dop_axis_frac
            device, /close
            set_plot, 'x'
+           !P.thick = opthick
+           !P.charthick = ocharthick
         endif ;; Print
 
         if answer eq 'L' then begin
@@ -1142,7 +1094,14 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               save_left_pix = left_pix
               save_right_pix = right_pix
               saved = 0
-           endif ;; keeping the fit
+              if keyword_set(autofit) then begin
+                 autofit = autofit + 1
+              endif
+           endif else begin ;; keeping the fit
+              if keyword_set(autofit) then begin
+                 message,  'ERROR: mpfit failed during an autofit'
+              endif
+           endelse ;; not keeping fit
 
            print, pfo_funct(parinfo=parinfo, idx=f_idx, print=!pfo.pmp)
            print, niter, chisq, dof, $
@@ -1157,19 +1116,27 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         endif
         if answer eq 'Q' then begin
            if did_fit and NOT saved then begin
-              message, 'WARNING: did a fit but parameters not saved', /CONTINUE
-              for ki = 0,1000 do flush_input = get_kbrd(0)
-              repeat begin
-                 message, /CONTINUE, 'Exit without saving? (Y, [N])'
-                 answer = get_kbrd(1)
-                 if byte(answer) eq 10 then answer = 'N'
-                 answer = strupcase(answer)
+              if NOT keyword_set(autofit) then begin
+                 message, 'WARNING: did a fit but parameters not saved', /CONTINUE
                  for ki = 0,1000 do flush_input = get_kbrd(0)
-              endrep until $
-                answer eq 'Y' or $
-                answer eq 'N'
-              if answer eq 'Y' then done = 1
-           endif else begin
+                 repeat begin
+                    message, /CONTINUE, 'Exit without saving? (Y, [N])'
+                    answer = get_kbrd(1)
+                    if byte(answer) eq 10 then answer = 'N'
+                    answer = strupcase(answer)
+                    for ki = 0,1000 do flush_input = get_kbrd(0)
+                 endrep until $
+                   answer eq 'Y' or $
+                   answer eq 'N'
+                 if answer eq 'Y' then done = 1
+              endif else begin
+                 ;; autofit
+                 if keyword_set(infloop) then $
+                   message, 'ERROR: autofit is not saving things properly'
+                 message, 'WARNING: autofit did not save results...trying again'
+                 infloop = 1
+              endelse
+           endif else begin ;; saved fit
               done = 1
            endelse
         endif ;; QUIT
@@ -1185,6 +1152,16 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               message, /CONTINUE, 'WARNING: you moved the plot window after you fit.  Putting it back.  PRESS SAVE AGAIN.  If you really want to hack it, get the command prompt and execute: left_pix = save_left_pix & right_pix = save_right_pix'
               left_pix = save_left_pix
               right_pix = save_right_pix
+              ;; If we are auto fitting, go back a step (potential for
+              ;; infinite loop, but autofit shouldn't be chaning this
+              ;; anyway)
+              if keyword_set(autofit) then begin
+                 if keyword_set(infloop) then $
+                   message, 'ERROR: infinite loop detected trying to fix up wavelength range for save'
+                 message, /CONTINUE, 'WARNING: unexpected wavelength range change in autofit proceedure.'
+                 autofit = autofit - 1
+                 infloop = 1
+              endif
            endif else begin
               ;; Pick a semi-bogus combination of *type flags.  Has to
               ;; be active because of the way ssg_fit2ana picks out
