@@ -1,12 +1,15 @@
 ;+
-; $Id: ssg_fit2ana.pro,v 1.1 2002/12/16 13:35:20 jpmorgen Exp $
+; $Id: ssg_fit2ana.pro,v 1.2 2014/01/31 20:19:11 jpmorgen Exp $
 
 ; ssg_fit2ana.  Takes information from the fit database and stuffs it
 ; into the analysis database
 
 ;-
 
-pro ssg_fit2ana
+pro ssg_fit2ana, nday_start_or_range
+
+
+  init = {ssg_sysvar}
 
 ;  ON_ERROR, 2
   oldpriv=!priv
@@ -20,241 +23,376 @@ pro ssg_fit2ana
      return
   endif
 
-  ;; Make tokens for everything
-  vfid_cont = 1
-  vfid_center = 2
-  vfid_dop = 3
-  vfid_lor = 4
-  vfid_area = 5
-  vfid_first = vfid_center
-  vfid_last = vfid_area
-
-  ssgid_disp = 1
-  ssgid_dop = 2
-  ssgid_cont = 3
-  ssgid_voigt = 4
-
-  id_no_dop = 0
-  id_solar_dop = 1
-  id_Io_dop = 2
-  doppler_names = ['none/atm', 'Solar', 'Io']
-  dopplers = [0d, 0d, 0d]
-  group_names = ['Not a line', 'IO LINE', 'sol cat', 'sol sup', 'atm abs', 'atm emi']
-  vpnames = ['Dlambda', 'DopFWHM', 'LorFWHM', 'Area']
-
-  plus = 1
-  asterisk = 2
-  dot = 3
-  diamond = 4
-  triangle = 5
-  square = 6
-  psym_x = 7
-
-  solid=0
-  dotted=1
-  dashed=2
-  dash_dot=3
-  dash_3dot = 4
-  long_dash=5
+  if NOT keyword_set(nday_start_or_range) then nday_start_or_range=0
 
   c = 299792.458 ;; km/s
 
-  get_date,today
-
-  message, /CONTINUE, 'Select observations from which to extract an Io intensity measurements'
-  ndays=ssg_select(count=count, /multi, title='Select spectra to transfer to analysis database')
+  message, /CONTINUE, 'Select observations from which to extract Io intensity measurements'
+  ndays=ssg_select(nday_start_or_range, count=count, title='Select spectra to transfer to analysis database')
   if count eq 0 then return
-  fdbname = 'oi_6300_fit'
-  adbname = 'io6300_integrated'
+  rdbname = 'ssg_reduce'
+;  fdbname = 'oi_6300_fit'
+;  adbname = 'io6300_integrated'
+  adbname = 'io_oi_analyze'
+
+  ;; Possibly phasing out the fit database in favor of parinfo.sav files
+  dbopen, rdbname
+  entries = where_nday_eq(ndays, count=N_ndays, tolerance=0.005)
+
+  dbext, entries, 'dir, disp_pix, spectrum, spec_err', $
+         dirs, disp_pix, spectra, spec_errors
+
   dbopen, adbname, 0
-  aentries = where_nday_eq(ndays, count=adays)
+  aentries = where_nday_eq(ndays, count=adays, tolerance=0.005)
+  if N_ndays ne adays then $
+    message, 'ERROR: internal database weirdness'
+
    if count ne adays then begin
      message, 'WARNING: fitting and analysis databases are not lining up properly, using the analysis as the master', /CONTINUE
      dbext, aentries, 'nday', ndays
   endif
 
-  dbopen, fdbname, 0
-  fentries = where_nday_eq(ndays, count=N_ndays, tolerance=0.005)
-  if N_ndays ne adays then $
-    message, 'ERROR: internal database weirdness'
+  ;; Collect things we need for our calculations
+  dbext, aentries, 'delta,r,phi,spa,io_dia', delta, r, phi, sol_pha, io_dia
+  ;; Collect arrays for our output results
+  dbext, aentries, $
+         'deldot_m,err_deldot_m, fline,err_fline, fcont,err_fcont, wc,err_wc', $
+         dv, err_dv, fline, err_fline, fcont, err_fcont, wc, err_wc
+
+  dbext, aentries, $
+         'ag_flux,err_ag_flux, redchisq,freeparam,numlines,db_date,disp,refpix, refwave', $
+         ag, ag_err, redchisq, nfree, numlines, today, disp, refpix, refwave
+
+  dbext, aentries, $
+         'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
+         weq, err_weq, alf, err_alf, today, intensity, err_intensity
+
+  dbclose
+
+  ;; Mark all variables with NAN, or the typecast equivalent so we
+  ;; know what gets filled and what doesn't 
+  dv		[*] = !values.d_nan
+  err_dv        [*] = !values.d_nan
+  fline         [*] = !values.d_nan
+  err_fline     [*] = !values.d_nan
+  fcont         [*] = !values.d_nan
+  err_fcont     [*] = !values.d_nan
+  wc            [*] = !values.d_nan
+  err_wc        [*] = !values.d_nan
+  ag            [*] = !values.d_nan
+  ag_err        [*] = !values.d_nan
+  redchisq      [*] = !values.d_nan
+  nfree         [*] = !values.d_nan
+  numlines      [*] = !values.d_nan
+  today         [*] = !values.d_nan
+  disp          [*] = !values.d_nan
+  refpix        [*] = !values.d_nan
+  refwave       [*] = !values.d_nan
+  weq           [*] = !values.d_nan
+  err_weq       [*] = !values.d_nan
+  alf           [*] = !values.d_nan
+  err_alf       [*] = !values.d_nan
+  intensity     [*] = !values.d_nan
+  err_intensity	[*] = !values.d_nan
 
   CATCH,/CANCEL
-  for i = 0, N_ndays-1 do begin
+  
+  ;; This is basically pop_flux and friends.  Use Melanie's variable
+  ;; names, more or less, minus the subscripts and made consistant
+  ;; with the database names
+
+  this_dir = ''
+  for inday = 0, N_ndays-1 do begin
      CATCH, err
      if err ne 0 then begin
         message, /NONAME, !error_state.msg, /CONTINUE
-        message, 'skipping ' + string(ndays[i]), /CONTINUE
+        message, 'skipping ' + string(ndays[inday]), /CONTINUE
      endif else begin
-        dbopen, fdbname, 0
-        dbext, fentries[i], 'value, perror, llimited, rlimited, llimits, rlimits, vfID, ssgID, ssggroupID, ssgrwl, ssgowl, ssgdop', $
-          dvalues, $
-          ddbperrors, $
-          llimited, $
-          rlimited, $
-          llimits, $
-          rlimits, $
-          vfID, $
-          ssgID, $
-          ssggroupID, $
-          ssgrwl, $
-          ssgowl, $
-          ssgdop
-        dbext, fentries[i], 'nfree, chisq, redchisq', nfree, chisq, redchisq
-        dbclose
 
-        values = float(dvalues)
-        dbperrors = float(ddbperrors)
-        cont_idx = where(ssgID eq ssgid_cont, count)
+        ;; Read in a file if we need to
+        if dirs[inday] ne this_dir then begin
+           this_dir = dirs[inday]
+           sparinfo_fname = strtrim(dirs[inday], 2) + '/sparinfo_' + $
+                            strtrim(round(ndays[inday]), 2) + '.sav'
+           restore, sparinfo_fname, /relaxed_structure_assignment
+           if N_elements(sparinfo) eq 0 then $
+             message, 'ERROR: no saved parinfo found for this entire nday'
+           f_idx = where(sparinfo.pfo.status eq !pfo.active, npar)
+           if npar eq 0 then $
+             message, 'ERROR: no active parameters in this sparinfo set'
+        endif ;; Read in a new sparinfo file
+
+        ;; IDL doesn't deal well with the structure in where statements
+        test = sparinfo[f_idx].ssg.nday
+        our_nday_idx = where(abs(ndays[inday] - test) lt 0.0001, $
+                             count)
         if count eq 0 then $
-          message, 'ERROR: no continuum terms found'
-        deldot_idx = where(ssgID eq ssgid_dop and ssgdop eq id_Io_dop, count)
-        if count ne 1 then $
-          message, 'ERROR: ' + count + ' Io doppler shift parmeters found'
-        Io_line_idx = where(ssggroupID eq 1, count)
-        if count ne 4 then $
-          message, 'ERROR: ' + count + ' Io peak parameters found instead of 4'
-        ag = 0.
-        ag_err = 0.
-        ag_idx = where(ssggroupID eq 5 and ssgrwl eq 6300.304d, count)
-        if count eq 1 then begin
-           ag = values[ag_idx[vfid_area-2]]
-           ag_err = dbperrors[ag_idx[vfid_area-2]]
-        endif
-        
-        dbopen, adbname, 1
-        entry = where_nday_eq(ndays[i], $
-                              COUNT=count,SILENT=silent, tolerance=0.005) 
+          message, 'ERROR: no saved parinfo found for this particular nday'
+        ;; unnest
+        our_nday_idx = f_idx[our_nday_idx]
+        fvers = sparinfo[our_nday_idx].ssg.fver
+        ;; --> Assume the best fit is the last one
+        best_fver = max(fvers)
+        idx = where(sparinfo[our_nday_idx].ssg.fver eq best_fver)
+        ;; unnest
+        idx = our_nday_idx[idx]
+        ;; Get our end markers
+        end_idx = where(sparinfo[idx].fixed eq 1 and $
+                        sparinfo[idx].pfo.ftype eq 0 and $
+                        sparinfo[idx].sso.ptype eq !sso.line, count)
+        if count ne 2 then $
+          message, 'ERROR: endpoints were not saved with fit'
+        ;; unnest
+        end_idx = idx[end_idx]
+        left_pix = sparinfo[end_idx[0]].value
+        right_pix = sparinfo[end_idx[1]].value
+
+        ;; Make sure we have dgs assigned consistently
+        sso_dg_assign, sparinfo, idx
+        io_dg = sso_path_dg(sso_path_create([!eph.io, !eph.earth]))
+        ag_dg = sso_path_dg(sso_path_create([!eph.earth, !eph.earth]))
+
+        ;; Run model to get owls and set up to calculate chisq stuff
+        model_spec = pfo_funct(disp_pix, parinfo=sparinfo, $
+                               idx=idx, xaxis=wavelengths)
+        good_pix = where(finite(disp_pix[*,0]) eq 1 and $
+                         finite(wavelengths[*,0]) eq 1 and $
+                         finite(spectra[*,0]) eq 1 and $
+                         finite(spec_errors[*,0]) eq 1, n_pix)
+        if n_pix eq 0 then $
+          message, 'ERROR: no good data found for this particular nday.  Hey!  ssg_fit1spec should have complained'
+
+        temp = disp_pix[*,0]
+        temp[0:left_pix] = !values.f_nan
+        temp[right_pix:N_elements(disp_pix[*,0])-1] = !values.f_nan
+        pix_axis = where(finite(temp) eq 1 and $
+                         finite(wavelengths[*,0]) eq 1 and $
+                         finite(spectra[*,0]) eq 1 and $
+                         finite(spec_errors[*,0]) eq 1, n_pix)
+        if n_pix eq 0 then $
+          message, 'ERROR: no good data found in selected range.  Hey!  ssg_fit1spec should have complained'
+
+        ;; CHISQ
+        spec = spectra[pix_axis, 0]
+        err_spec = spec_errors[pix_axis, 0]
+        model_spec = pfo_funct(pix_axis, parinfo=sparinfo, idx=idx)
+        residual = spec - model_spec
+        chisq = total((residual/err_spec)^2, /NAN)
+        free_idx = where(sparinfo[idx].fixed ne 1 and $
+                         sparinfo[idx].pfo.status eq !pfo.active, count)
+        nfree[inday] = count
+        dof = n_pix - nfree[inday]
+        redchisq[inday] = chisq/(dof - 1)
+
+        ;; NUMLINES
+        lc_idx = where(sparinfo[idx].sso.ttype eq !sso.center and $
+                       sparinfo[idx].sso.ptype eq !sso.line, count)
         if count eq 0 then $
-          message, 'ERROR: no entry for nday ' + string(ndays[i]) + ' in ' + adbname
+          message, 'ERROR: no lines found'
+        numlines[inday] = count
 
-        fline = values[Io_line_idx[vfid_area-2]]
-        err_fline = dbperrors[Io_line_idx[vfid_area-2]]
-        dv = values[deldot_idx]
-        err_dv = dbperrors[deldot_idx]
-        ;; Calculate the continuum value at the observed wavelength of
-        ;; the Io line
-        owl = 6300.304d * ( 1. + dv / c )
-        fcont = float(contspec(owl, values[cont_idx]))
-        ;; --> FIX THIS along with the continuum stuff
-        err_fcont = 0.
+        ;; DATES
+        get_date, temp
+        today[inday] = temp
 
-        dbupdate, entry, 'deldot_m, err_deldot_m, fline, err_fline, fcont, err_fcont, wc, err_wc', $
-          dv, err_dv, fline, err_fline, fcont, err_fcont, $
-          values[Io_line_idx[vfid_dop-2]], dbperrors[Io_line_idx[vfid_dop-2]]
 
-; wd                
-; err_wd            
-; weq               see below
-; err_weq           see below
-; alf               see below
-; err_alf           see below
-        line_idx = where(ssgID ge ssgid_voigt and ssgrwl ne 0, numlines)
-        disp_idx = where(ssgID eq ssgid_disp, count)
-        if count eq 0 then $
+        ;; DISPERSION
+        disp_idx = where(sparinfo[idx].pfo.inaxis eq !pfo.Xin and $
+                         sparinfo[idx].pfo.outaxis eq !pfo.Xaxis, $
+                         disp_order)
+        if disp_order eq 0 then $
           message, 'ERROR: no dispersion terms found'
+        ;; unnest
+        disp_idx = idx[disp_idx]
+        ftypes = sparinfo[disp_idx].pfo.ftype - !pfo.poly
+        prnums = round(ftypes * 100. )
+        pridx = where(0 lt prnums and prnums lt 10, count)
+        if count ne 1 then $ $
+          message, 'ERROR: ' + strtrim(count, 2) + ' reference pixels found.  Old database can only handle 1'
+        refpix[inday] = sparinfo[disp_idx[pridx]].value
+        ;; get 0th and 1st order coefs.
+        cftypes =  ftypes * 1000.
+        rcftypes = round(cftypes)
+        ;; Pick out the 0th order coefficients and get the polynomial
+        ;; numbers from them.
+        c0idx = where(0 lt rcftypes and rcftypes lt 10 and $
+                      round(cftypes * 10.) eq rcftypes * 10, $
+                      npoly)
+        if npoly ne 1 then $
+          message, 'ERROR: '  + strtrim(npoly, 2) + ' dispersion polynomials found.  Analysis database can only handle 1'
+        ;; unnest
+        c0idx = disp_idx[c0idx]
+        refwave[inday] = sparinfo[c0idx].value
+        c1idx = where(0 lt rcftypes and rcftypes lt 10 and $
+                      round(cftypes * 10.) eq rcftypes * 10 + 1, $
+                      count)
+        if count ne 1 then $
+          message, 'ERROR: '  + strtrim(count, 2) + ' 1st order dispersion coefs found.  Analysis database can only handle 1'
+        ;; unnest
+        c1idx = disp_idx[c1idx]
+        disp[inday] = sparinfo[c1idx].value / !sso.dwcvt
 
+        ;; IO LINE
+        io_idx = where(sparinfo[idx].sso.dg eq io_dg, nio)
+        if nio eq 0 then $
+          message, 'ERROR: no Io parameters found'
+        ;; unnest
+        io_idx = idx[io_idx]
 
-        dbupdate, entry, 'ag_flux, err_ag_flux, redchisq, freeparam, numlines, db_date, disp, refpix, refwave', $
-          ag, ag_err, float(redchisq), nfree, fix(numlines), today, $
-          values[disp_idx[1]], 400., values[disp_idx[0]]
+        ;; IO EQUIVALENT WIDTH
+        ew_idx = where(sparinfo[io_idx].sso.ttype eq !sso.ew, count)
+        if count ne 1 then $
+          message, 'ERROR: ' + string(count) + ' Io equivalent width parmeters found'
+        ;; unnest
+        ew_idx = io_idx[ew_idx]
+        weq[inday] = sparinfo[ew_idx].value
+        err_weq[inday] = sparinfo[ew_idx].error
 
-;comp_min          
-;comp_max          
-;vers              
-;db_date           
+        ;; CONTINUUM
+        cont_idx = where(sparinfo[idx].sso.ptype eq !sso.cont, N_continuum)
+        if N_continuum eq 0 then $
+          message, 'ERROR: no continuum terms found'
+        ;; unnest
+        cont_idx = idx[cont_idx]
+        fcont[inday] = pfo_funct([sparinfo[ew_idx].sso.owl], $
+                                 parinfo=sparinfo, idx=[disp_idx, cont_idx])
+        if N_continuum eq 1 then begin
+           err_fcont[inday] = sparinfo[cont_idx].error
+        endif else begin
+           ;; --> fix this, maybe by calculating a bunch of models
+           ;; within the error bars + taking the max or something like
+           ;; that.
+           err_fcont[inday] = 0.
+           message, /CONTINUE, 'WARNING: continuum is complicated.  I am arbitrarily setting err_fcont = ' + strtrim(err_fcont[inday], 2) + '.  Please fix this'
+        endelse
+        fline[inday] = weq[inday] * disp[inday] * !sso.dwcvt * fcont[inday]
+        err_fline[inday] = ((err_weq[inday]/weq[inday])^2 + $
+                            (err_fcont[inday]/fcont[inday])^2)^(0.5) $
+                           * fline[inday]
 
-        ;; --> For lack of a better place, I am going to put these
-        ;; things here.  This is basically pop_flux and friends.  Use
-        ;; Melanie's variable names, more or less, minus the
-        ;; subscripts an made consistant with the database names
+        ;; IO CONVOLVED LINE WIDTH, wc
+        lw_idx = where(sparinfo[io_idx].sso.ttype eq !sso.width, count)
+        if count eq 0 then $
+          message, 'ERROR: no convolved Io linewidth found'
+        ;; unnest
+        lw_idx = io_idx[lw_idx]
+        for ilw=0, count-1 do begin
+           if sparinfo[lw_idx[ilw]].value gt 0 then begin
+              if finite(wc[inday]) then begin
+                message, /CONTINUE,  'WARNING: too many width parameters for Io line.  Fit should have been done with Lorentzian term fixed at 0'
+             endif else begin
+                wc[inday] = sparinfo[lw_idx[ilw]].value
+                err_wc[inday] = sparinfo[lw_idx[ilw]].error
+             endelse ;; Gaussian width
+           endif ;; non-zero width
+        endfor
 
-        weq = fline/fcont
-        err_weq = (((err_fline/fline)^2 + $
-                   (err_fcont/fcont)^2)^(0.5)) * weq
+        ;; IO DOPPLER SHIFT
+        deldot_idx = where(sparinfo[io_idx].sso.ptype eq !sso.dop, count)
+        if count ne 1 then $
+          message, 'ERROR: ' + strtrim(count, 2) + ' Io Doppler shift parmeters found'
+        ;; unnest
+        deldot_idx = io_idx[deldot_idx]
+        dv[inday] = sparinfo[deldot_idx].value
+        err_dv[inday] = sparinfo[deldot_idx].error
 
-        ;; --> let's hope these are there!
-        dbext, entry, 'delta,r,phi,spa,io_dia', $
-          delta, r, aphi, sol_pha, io_dia
-;          adelta, ar, aphi, asol_pha, aio_dia
-
-;          delta   = adelta  [0]
-;          r       = ar      [0]
-          phi     = aphi    [0]
-;          sol_pha = asol_pha[0]
-;          io_dia  = aio_dia [0]
+        ;; AIRGLOW
+        ;; Start assuming no airglow was fit.
+        ag[inday] = 0.
+        ag_err[inday] = 0.
+        ag_idx = where(sparinfo[idx].sso.dg eq ag_dg and $
+                       sparinfo[idx].sso.ttype eq !sso.ew and $
+                       sparinfo[idx].value gt 0, count)
+        if count gt 1 then $
+          message, 'ERROR: ' + strtrim(count, 2) + ' airglow equivalent width paramemters found.  This database can only handle 1'
+        if count eq 1 then begin
+           ;; unnest
+           ag_idx = idx[ag_idx]
+           ag[inday] = sparinfo[ag_idx].value
+           ag_err[inday] = sparinfo[ag_idx].error
+        endif
 
         ;; I think this is the change in V-magnitude starting from the
         ;; sun, bouncing off of Io and ending up at the Earth
-        dist_mag = 5*alog10(r*delta)
+        dist_mag = 5*alog10(r[inday]*delta[inday])
 
         case 1 of
-           (phi ge 355) and (phi lt 5) : phi_cor =.04
-           (phi ge 5) and (phi lt 15) : phi_cor =.03
-           (phi ge 15) and (phi lt 25) : phi_cor =  .016
-           (phi ge 25) and (phi lt 35) : phi_cor =.002
-           (phi ge 35) and (phi lt 45) : phi_cor =-.012
-           (phi ge 45) and (phi lt 55) : phi_cor =-.03
-           (phi ge 55) and (phi lt 65) : phi_cor =-.044
-           (phi ge 65) and (phi lt 75) : phi_cor =-.062
-           (phi ge 75) and (phi lt 85) : phi_cor =-.072
-           (phi ge 85) and (phi lt 95) : phi_cor =-.080
-           (phi ge 95) and (phi lt 105) : phi_cor =-.074
-           (phi ge 105) and (phi lt 115) : phi_cor =-.060
-           (phi ge 115) and (phi lt 125) : phi_cor =-.056
-           (phi ge 125) and (phi lt 135) : phi_cor =-.048
-           (phi ge 135) and (phi lt 145) : phi_cor =-.034
-           (phi ge 145) and (phi lt 155) : phi_cor =-.03
-           (phi ge 155) and (phi lt 165) : phi_cor =-.028
-           (phi ge 165) and (phi lt 175) : phi_cor =-.026
-           (phi ge 175) and (phi lt 185) : phi_cor =-.022
-           (phi ge 185) and (phi lt 195) : phi_cor =-.020
-           (phi ge 195) and (phi lt 205) : phi_cor =-.016
-           (phi ge 205) and (phi lt 215) : phi_cor =-.012
-           (phi ge 215) and (phi lt 225) : phi_cor =-.01
-           (phi ge 225) and (phi lt 235) : phi_cor =-.006
-           (phi ge 235) and (phi lt 245) : phi_cor =-.002
-           (phi ge 245) and (phi lt 255) : phi_cor =.008
-           (phi ge 255) and (phi lt 265) : phi_cor =.018
-           (phi ge 265) and (phi lt 275) : phi_cor =.03
-           (phi ge 275) and (phi lt 285) : phi_cor =.044
-           (phi ge 285) and (phi lt 295) : phi_cor =.06
-           (phi ge 295) and (phi lt 305) : phi_cor =.07
-           (phi ge 305) and (phi lt 315) : phi_cor =.08
-           (phi ge 315) and (phi lt 325) : phi_cor =.086
-           (phi ge 325) and (phi lt 335) : phi_cor =.084
-           (phi ge 335) and (phi lt 345) : phi_cor =.074
-           (phi ge 345) and (phi lt 355) : phi_cor =.056
+           (phi[inday] ge 355) and (phi[inday] lt 5)   : phi_cor =.04
+           (phi[inday] ge 5)   and (phi[inday] lt 15)  : phi_cor =.03
+           (phi[inday] ge 15)  and (phi[inday] lt 25)  : phi_cor =  .016
+           (phi[inday] ge 25)  and (phi[inday] lt 35)  : phi_cor =.002
+           (phi[inday] ge 35)  and (phi[inday] lt 45)  : phi_cor =-.012
+           (phi[inday] ge 45)  and (phi[inday] lt 55)  : phi_cor =-.03
+           (phi[inday] ge 55)  and (phi[inday] lt 65)  : phi_cor =-.044
+           (phi[inday] ge 65)  and (phi[inday] lt 75)  : phi_cor =-.062
+           (phi[inday] ge 75)  and (phi[inday] lt 85)  : phi_cor =-.072
+           (phi[inday] ge 85)  and (phi[inday] lt 95)  : phi_cor =-.080
+           (phi[inday] ge 95)  and (phi[inday] lt 105) : phi_cor =-.074
+           (phi[inday] ge 105) and (phi[inday] lt 115) : phi_cor =-.060
+           (phi[inday] ge 115) and (phi[inday] lt 125) : phi_cor =-.056
+           (phi[inday] ge 125) and (phi[inday] lt 135) : phi_cor =-.048
+           (phi[inday] ge 135) and (phi[inday] lt 145) : phi_cor =-.034
+           (phi[inday] ge 145) and (phi[inday] lt 155) : phi_cor =-.03
+           (phi[inday] ge 155) and (phi[inday] lt 165) : phi_cor =-.028
+           (phi[inday] ge 165) and (phi[inday] lt 175) : phi_cor =-.026
+           (phi[inday] ge 175) and (phi[inday] lt 185) : phi_cor =-.022
+           (phi[inday] ge 185) and (phi[inday] lt 195) : phi_cor =-.020
+           (phi[inday] ge 195) and (phi[inday] lt 205) : phi_cor =-.016
+           (phi[inday] ge 205) and (phi[inday] lt 215) : phi_cor =-.012
+           (phi[inday] ge 215) and (phi[inday] lt 225) : phi_cor =-.01
+           (phi[inday] ge 225) and (phi[inday] lt 235) : phi_cor =-.006
+           (phi[inday] ge 235) and (phi[inday] lt 245) : phi_cor =-.002
+           (phi[inday] ge 245) and (phi[inday] lt 255) : phi_cor =.008
+           (phi[inday] ge 255) and (phi[inday] lt 265) : phi_cor =.018
+           (phi[inday] ge 265) and (phi[inday] lt 275) : phi_cor =.03
+           (phi[inday] ge 275) and (phi[inday] lt 285) : phi_cor =.044
+           (phi[inday] ge 285) and (phi[inday] lt 295) : phi_cor =.06
+           (phi[inday] ge 295) and (phi[inday] lt 305) : phi_cor =.07
+           (phi[inday] ge 305) and (phi[inday] lt 315) : phi_cor =.08
+           (phi[inday] ge 315) and (phi[inday] lt 325) : phi_cor =.086
+           (phi[inday] ge 325) and (phi[inday] lt 335) : phi_cor =.084
+           (phi[inday] ge 335) and (phi[inday] lt 345) : phi_cor =.074
+           (phi[inday] ge 345) and (phi[inday] lt 355) : phi_cor =.056
            else: print,'phi has an illegal value'
         endcase  
-        if sol_pha ge 6 then $
-          V_cor = -1.55 + DIST_MAG + 0.021*sol_pha + phi_cor
-        if sol_pha lt 6 then $
+        if sol_pha[inday] ge 6 then $
+          V_cor = -1.55 + DIST_MAG + 0.021*sol_pha[inday] + phi_cor
+        if sol_pha[inday] lt 6 then $
           V_cor = -1.7233 +  DIST_MAG + $
-          0.078*sol_pha - 0.0047*(sol_pha)^2 + phi_cor
+          0.078*sol_pha[inday] - 0.0047*(sol_pha[inday])^2 + phi_cor
 
         exp1= 26 - (20 + 0.4*V_cor)
         nlam= float((1.509 * 3.694 * 10^(exp1))/6300.304 )
         ;; absolute line flux
-        alf = weq * nlam
-        err_alf = err_weq * nlam
+        alf[inday] = weq[inday] * !sso.ewcvt * nlam
+        err_alf[inday] = err_weq[inday] * !sso.ewcvt * nlam
 
-        intensity=((alf*(206265.^2.)*4.)/((1e6)*((io_dia/2.)^2.)))/1000.
-        err_intensity=(err_alf*intensity)/alf
+        intensity[inday] = ((alf[inday]*(206265.^2.)*4.)/ $
+                            ((1e6)*((io_dia[inday]/2.)^2.)))/1000.
+        err_intensity[inday] = (err_alf[inday]*intensity[inday])/alf[inday]
 
         
-
-        ;; OK, lets collect all the later calculational writes
-        ;; together
-        dbupdate, entry, 'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
-          weq, err_weq, alf, err_alf, today, intensity, err_intensity
-
-        dbclose
-
      endelse ;; Catching errors
-     dbclose
 
   endfor ;; For each file
   CATCH, /CANCEL
+
+  message, /INFORMATIONAL, 'NOTE: updating analysis database'
+  dbopen, adbname, 1
+  dbupdate, aentries, $
+            'deldot_m,err_deldot_m, fline,err_fline, fcont,err_fcont, wc,err_wc', $
+            dv, err_dv, fline, err_fline, fcont, err_fcont, wc, err_wc
+  
+  dbupdate, aentries, $
+            'ag_flux,err_ag_flux, redchisq,freeparam,numlines,db_date,disp,refpix, refwave', $
+            ag, ag_err, redchisq, nfree, numlines, today, disp, refpix, refwave
+  
+  dbupdate, aentries, $
+            'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
+            weq, err_weq, alf, err_alf, today, intensity, err_intensity
+  
+  dbclose
+  !priv = oldpriv
 
 end
 
