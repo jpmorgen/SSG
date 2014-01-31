@@ -1,14 +1,15 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.6 2008/06/13 09:35:41 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.7 2014/01/31 02:19:35 jpmorgen Exp $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
-; pattern at the center in the image in the dispersion direction
+; pattern and the center in the image in the dispersion direction
 
 ;-
 
-pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoom, pos=pos, write=write, noninteractive=noninteractive, review=review, window=winnum, rwindow=rwinnum, plot=plot, limits=in_limits
+pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoom, pos=pos, write=write, noninteractive=noninteractive, review=review, window=winnum, rwindow=rwinnum, plot=plot, limits=in_limits, nflat_steps=nflat_steps, ndata_steps=ndata_steps, wait=wait, bad_flat_threshold=bad_flat_threshold
 
 ;  ON_ERROR, 2
+  init = {ssg_sysvar}
   cd, indir
 
   silent = 1
@@ -16,6 +17,8 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
   if keyword_set(verbose) then silent = 0
   if NOT keyword_set(winnum) then  winnum=6
   if NOT keyword_set(rwinnum) then rwinnum=7
+  if N_elements(wait) eq 0 then $
+    wait = 0
 
   plus = 1
   asterisk = 2
@@ -42,8 +45,6 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
   dbext, entries, "fname, nday, date, typecode, bad, m_sli_bot, e_sli_bot, m_sli_top, e_sli_top, sli_cent, e_sli_cent", $
          files, ndays, dates, typecodes, badarray, m_sli_bots, e_sli_bots, m_sli_tops, e_sli_tops, sli_cents, e_sli_cents
 
-dbclose
-
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
@@ -67,48 +68,107 @@ dbclose
 
      if keyword_set(showplots) then window,winnum
 
+     ;; Read in all files so they can be marked properly in the
+     ;; database.  Exclude bias and dark images.
      good_idx = where(typecodes ge 2, nf)
+     flat_idx = where(typecodes[good_idx] eq 3, nflats)
+     message, 'Reading all files except darks and flats', /INFORMATIONAL
      ;; Read in a file to get the size of the cross-dispersion array
      im = ssgread(files[0], hdr, eim, ehdr, /DATA, /TRIM)
      asize = size(im) & nx = asize(1) & ny = asize(2)
      xdisps_d2 = fltarr(ny, nf)
      for ifile=0,nf-1 do begin
         im = ssgread(files[good_idx[ifile]], hdr, eim, ehdr, /DATA, /TRIM)
-        ssg_spec_extract, im, hdr, spec, xdisp, med_xdisp=y, /total        
+        ssg_spec_extract, im, hdr, spec, xdisp, med_xdisp=y, /total 
         ;; For comps, use the total x-disp spectrum, though the second
         ;; derivative amplitude turns out to be significantly less
         if typecodes[ifile] eq 2 then begin
            y = xdisp
         endif
-        dy = deriv(y)
+        tny = N_elements(y)
+        if tny ne ny then begin
+           message, /CONTINUE, 'WARNING: mismatch between first file cross-dipersion size: ' + strtrim(ny, 2) + ' and current cross-dipersion size: ' + strtrim(tny, 2) + ' adjusting current size'
+           new_y = fltarr(ny)
+           new_y = y[0:min([ny, tny])-1]
+           y = new_y
+        endif
+
+        dy = deriv(y[0:ny-1])
         d2y = deriv(dy)
         if keyword_set(showplots) then begin
            plot, d2y
+           wait, wait
         endif
         xdisps_d2[*,ifile] = d2y
      endfor
      ;; histeq scaling works nicely.
      ;;atv, xdisps_d2
-     display, xdisps_d2, zoom=4, /reuse
+     ;; Make the second derivative  display always 512 pixels high
+     if keyword_set(TV) then $
+       display, xdisps_d2, zoom=[4,512/nf], /reuse, title='Cross dispersion second derivatives'
 
-     ;; We have a 10 slicer
-     correlates = fltarr(ny/10., nf, nf)
-     xdisp_correlate = fltarr(ny/10.)
-     xdisp_peaks = fltarr(nf, nf)
-     for ifiles_shift=0,nf-1 do begin
-        for ixdisp_shift=0, ny/10.-1 do begin
+
+     if nflats le 1 then $
+       message, 'ERROR: there must be at least 2 flats for this algorithm to work properly.  There is unlikely to be useful data in this directory.'
+
+     message, 'Computing correlations between flats', /INFORMATIONAL
+     ;; The idea is to shift our second derivatives relative to each
+     ;; other is cross dispersion space to see where they correlate
+     ;; the best.  Lets make the number of steps we take general so we
+     ;; can play with how far we need to go in each direction.  Right
+     ;; now I just use shift, so we go in 1 pixel increments.
+
+     ;; We work with the flats first in order to make an ueber flat
+     ;; that we then run back through all of the data.  The flats have
+     ;; high, narrow peaks in their second derivatives at the edges.
+     ;; That means we should catch the peak correlation between flats
+     ;; even if we check over a broad range (e.g. more than two
+     ;; slices).  Our 10 slices fit inside of ny pixels, with some
+     ;; margin.  Let the user input the nflat_steps parameter and also
+     ;; nuke flats that slide over to the next slice with the
+     ;; bad_flat_threshold logic below.  An extreme case is
+     ;; reddir='/home/jpmorgen/data/ssg/reduced/2008/08jun10', which
+     ;; benefits from ny/8. or nflat_steps = 25 or so.  Unfortunately,
+     ;; the algorithm doesn't really work well for
+     ;; cross-correlating between flats of such drastically different
+     ;; illumination.  It is clear that secondary peaks in the
+     ;; correlation are dominating
+     nsteps = ny/10.
+     if keyword_set(nflat_steps) then $
+       nsteps = nflat_steps
+     ;; When the CCD is binned, sometimes there are only 3 steps,
+     ;; which is not enough for the algorithm to work well.  Try
+     ;; making sure there are at least 5 steps.
+     nsteps = nsteps > 5
+
+     ;; Do the correlates only for the flats at first.
+     correlates = fltarr(nsteps, nflats, nflats)
+     xdisp_correlate = fltarr(nsteps)
+     xdisp_peaks = fltarr(nflats, nflats)
+     for ifiles_shift=0,nflats-1 do begin
+        for ixdisp_shift=0, nsteps-1 do begin
            ;; A little confusing with the -ifiles shift.  Use two
            ;; computer keyboards to illustrate why you want it this way.
-           shift_d2 = shift(xdisps_d2, ixdisp_shift-ny/20., -ifiles_shift)
-           for ifile=0, nf-1 do begin
+           shift_d2 = shift(xdisps_d2, ixdisp_shift-nsteps/2., -ifiles_shift)
+           ;; This caused more problems than it solved
+           ;;;; Shift wraps xdisps_d2, which is why it is fast,
+           ;;;; but we don't want the signal from the wraps
+           ;;if round(ixdisp_shift-nsteps/2.) lt 0 then $
+           ;;  shift_d2[nsteps+round(ixdisp_shift-nsteps/2.):nsteps-1,*] = 0
+           ;;if round(ixdisp_shift-nsteps/2.) gt 0 then $
+           ;;  shift_d2[0:round(ixdisp_shift-nsteps/2.)-1,*] = 0
+           for ifile=0, nflats-1 do begin
               correlates[ixdisp_shift,ifiles_shift,ifile] = $
-                total(xdisps_d2[*,ifile] * shift_d2[*,ifile])
+                total(xdisps_d2[*,ifile] * shift_d2[*,ifile], /NAN)
            endfor
         endfor
      endfor
 
-     for ifiles_shift=0,nf-1 do begin
-        for ifile=0,nf-1 do begin
+     message, 'Finding peaks in correlations between flats', /INFORMATIONAL
+     if keyword_set(showplots) then $
+       window, 2
+     for ifiles_shift=0,nflats-1 do begin
+        for ifile=0,nflats-1 do begin
            ;; Find peak in cross dispersion correlation.  Data seems
            ;; to have a good peak + climb back up towards secondary
            ;; peaks.  Start at the good peak and find the fist valley
@@ -116,63 +176,131 @@ dbclose
            xdisp_correlate = reform(correlates[*, ifiles_shift, ifile])
            junk = max(xdisp_correlate, peak_idx)
            right = peak_idx + $
-                   first_peak_find(-xdisp_correlate[peak_idx:ny/10.-1], $
+                   first_peak_find(-xdisp_correlate[peak_idx:nsteps-1], $
                                    'left', /poly, /quiet)
-           left = first_peak_find(-xdisp_correlate[0:peak_idx-1], $
+           left = first_peak_find(-xdisp_correlate[0:max([0,peak_idx-1])], $
                                   'right', /poly, /quiet)
            xdisp_peaks[ifiles_shift, ifile] = $
-             peak_find(xdisp_correlate[left:right], /poly) + left - ny/20.
-        endfor
-        message, /INFO, 'Finished with shift:' + strtrim(ifiles_shift, 2)
+             peak_find(xdisp_correlate[left:right], XTOL=1E5, FTOL=1E5) $
+             + left - nsteps/2.
+           if keyword_set(showplots) then begin
+              plot, xdisp_correlate, title=string('xdisp_correlate comparing flats ', ifile, ifiles_shift)
+              plots, replicate(xdisp_peaks[ifiles_shift, ifile] + nsteps/2., 2), !y.crange
+              plots, replicate(left,2), !y.crange, linestyle=dashed
+              plots, replicate(right,2), !y.crange, linestyle=dashed
+              wait, wait
+           endif ;; Plotting
+
+        endfor 
      endfor
 
      ;;atv, xdisp_peaks
      ;;stop
-     display, xdisp_peaks, zoom=4, /reuse
+     if keyword_set(TV) then $
+       display, xdisp_peaks, zoom=10, /reuse, title='xdisp_peak matrix (flats)'
 
-     peak_meds = fltarr(nf)
-     peak_means = fltarr(nf)
-     ;;peak_flat_meds = fltarr(nf)
-     ;;peak_flat_means = fltarr(nf)
-     for ifile=0, nf-1 do begin
+     peak_meds = fltarr(nflats)
+     peak_means = fltarr(nflats)
+     for ifile=0, nflats-1 do begin
         peak_meds[ifile] = median(xdisp_peaks[*, ifile])
         peak_means[ifile] = mean(xdisp_peaks[*, ifile])
         ;; Get median and mean offsets of each file from the flats
      endfor
-     ;;window,0
-     ;;plot, peak_meds, yrange=[-ny/20., ny/20]
-     ;;oplot, peak_means, linestyle=dashed
+
+     ;; Find flats that are outside of our threshold so we don't
+     ;; include them in our ueber flat 
+     if NOT keyword_set(bad_flat_threshold) then $
+       bad_flat_threshold = 2
+     bad_flat_idx = where(abs(peak_meds) gt bad_flat_threshold, count, $
+                          Ncomplement=ngood_flats, complement=good_flat_idx)
+     if ngood_flats eq 0 then $
+       message, 'ERROR: cross-correlations between flats results in no flats being closer than ' + strtrim(bad_flat_threshold, 2) + ' pixels.  Consider running ssg_get_sliloc with the /PLOT option to see what is going on'
+
+     if keyword_set(plot) then begin
+        window,0, xs=640,ys=512
+        plot, peak_meds, yrange=[-nsteps/2., nsteps/2.], title='Median (Mean) Peak translations (flats only, X > bad_flat_threshold)'
+        oplot, peak_means, linestyle=dashed
+        if count gt 0 then $
+          oplot, bad_flat_idx, peak_meds[bad_flat_idx], psym=psym_x
+     endif
+
+     message, 'Creating ueberflat from ' + strtrim(ngood_flats ,2) + ' of ' + strtrim(nflats, 2) + ' flats.  Use /PLOT option to see what is going on and bad_flat_threshold keyword to tweak.', /INFORMATIONAL
 
      ;; Make an "ueber flat"
-     flat_idx = where(typecodes[good_idx] eq 3, nflats)
      xdisp_axis = indgen(ny)
 
-     shifted_flats = fltarr(ny, nflats)
-     for iflat=0, nflats-1 do begin
-        shifted_flats[*, iflat] = interpol(xdisps_d2[*, flat_idx[iflat]], xdisp_axis, $
-                                           xdisp_axis + peak_meds[flat_idx[iflat]])
+     ;; Here is where we line all our flats up with each other.
+     shifted_flats = fltarr(ny, ngood_flats)
+     for iflat=0, ngood_flats-1 do begin
+        ;; Slicers with large shifts don't appear to be lining
+        ;; up well.  See e.g.:
+        ;; reddir='/home/jpmorgen/data/ssg/reduced/2008/08jun10'
+        ;; Check to see if the problem is with interpol or
+        ;; the quality of the correlation.  Hmm.  The problem seems to
+        ;; be with the quality of the correlation.  I guess it is a
+        ;; slicer illumination effect.
+        this_xdisp_d2 = xdisps_d2[*, flat_idx[good_flat_idx[iflat]]]
+        ;; Peak_meds applies only to flats.  Don't forget to unwrap!
+        to_shift = peak_meds[good_flat_idx[iflat]]
+        if abs(to_shift) gt 1 then begin
+           this_xdisp_d2 = shift(this_xdisp_d2, -to_shift)
+           to_shift = to_shift - fix(to_shift)
+        endif
+        
+        shifted_flats[*, iflat] = $
+        interpol(this_xdisp_d2, xdisp_axis, $
+                 xdisp_axis + to_shift)
      endfor
 
-     display, shifted_flats, zoom=4
+     if keyword_set(TV) then $
+       display, shifted_flats, zoom=4, title='Shifted flats'
 
      best_flat_d2 = fltarr(ny)
      for ixdisp=0, ny-1 do begin
         best_flat_d2[ixdisp] = median(shifted_flats[ixdisp, *])
      endfor
 
-     window,0
-     plot, best_flat_d2
+     if keyword_set(plot) then begin
+        window, 1, xs=640,ys=512
+        plot, best_flat_d2, title='Best flat second derivative'
+     endif
 
-     best_flat_correlates = fltarr(ny/10., nf)
-     for ixdisp_shift=0, ny/10.-1 do begin
-        shift_d2 = shift(xdisps_d2, ixdisp_shift-ny/20., 0)
+
+     message, 'Computing correlation between ueberflat and all files (including individual flats)', /INFORMATIONAL
+     ;; Now find best peaks for all files.  Start over with our steps
+     ;; parameter in case the user wants to specify that differently
+     ;; between flats and data.  The most likely problem with slicer
+     ;; position is a shift through the night.  Usually this is
+     ;; gradual, sometimes it is sudden.  In either case, the flats
+     ;; will typically catch both extremes and the ueber flat will be
+     ;; in the middle somewhere.  The search for the best peak in the
+     ;; correlation of the Io data should therefore not need to cover
+     ;; as much ground.  Furthermore, since they don't have the nice
+     ;; peaks o nthe edgets, covering too much ground can cause
+     ;; spurious side peaks.  But just in case, put a command line
+     ;; parameter in.
+     nsteps = ny/10.
+     if keyword_set(ndata_steps) then $
+       nsteps = ndata_steps
+     ;; When the CCD is binned, sometimes there are only 3 steps,
+     ;; which is not enough for the algorithm to work well.  Try
+     ;; making sure there are at least 5 steps.
+     nsteps = nsteps > 5
+
+     best_flat_correlates = fltarr(nsteps, nf)
+     for ixdisp_shift=0, nsteps-1 do begin
+        shift_d2 = shift(xdisps_d2, ixdisp_shift-nsteps/2., 0)
         for ifile=0, nf-1 do begin
            best_flat_correlates[ixdisp_shift, ifile] = $
-             total(best_flat_d2 * shift_d2[*,ifile])
+             total(best_flat_d2 * shift_d2[*,ifile], /NAN)
         endfor
      endfor
      
-     display, best_flat_correlates, zoom=4
+     if keyword_set(TV) then $
+       display, best_flat_correlates, zoom=[256/nsteps, 512/nf], $
+                /reuse, title='Best flat correlations to files (X=steps, Y=files)'
+
+     message, 'Finding peaks in correlations between ueberflat and each file', /INFORMATIONAL
 
      best_xdisp_peaks = fltarr(nf)
      best_xdisp_peaks_errors = fltarr(nf)
@@ -184,28 +312,40 @@ dbclose
         xdisp_correlate = reform(best_flat_correlates[*, ifile])
         junk = max(xdisp_correlate, peak_idx)
         right = peak_idx + $
-                first_peak_find(-xdisp_correlate[peak_idx:ny/10.-1], $
+                first_peak_find(-xdisp_correlate[peak_idx:nsteps-1], $
                                 'left', /poly, /quiet)
-        left = first_peak_find(-xdisp_correlate[0:peak_idx-1], $
+        left = first_peak_find(-xdisp_correlate[0:max([0,peak_idx-1])], $
                                'right', /poly, /quiet)
         best_xdisp_peaks[ifile] = $
-          peak_find(xdisp_correlate[left:right], /poly, $
-                    error=error) + left - ny/20.
+          peak_find(xdisp_correlate[left:right], N_continuum=1, $
+                    XTOL=1E5, FTOL=1E5, error=error) + left - nsteps/2.
         best_xdisp_peaks_errors[ifile] = error
      endfor
 
-     wset, 0
-     ploterr, best_xdisp_peaks, best_xdisp_peaks_errors
+     if keyword_set(plot) then begin
+        window, 4, xs=640,ys=512
+        ploterr, best_xdisp_peaks, best_xdisp_peaks_errors
+     endif
      
-     best_flat_left  = first_peak_find(best_flat_d2, 'left')
-     best_flat_right = first_peak_find(best_flat_d2, 'right')
 
-     m_sli_bots  = best_flat_left + best_xdisp_peaks
-     e_sli_bots  = best_xdisp_peaks_errors
-     m_sli_tops  = best_flat_right + best_xdisp_peaks
-     e_sli_tops  = best_xdisp_peaks_errors
-     sli_cents   = (best_flat_left + best_flat_right)/2. + best_xdisp_peaks
-     e_sli_cents = best_xdisp_peaks_errors
+     message, 'Finding left and right sides of the ueberflat', /INFORMATIONAL
+     ;; The first_peak_find default threshold and contrast is based on
+     ;; the the maximum in the whole array.  In some cases,
+     ;; e.g. reddir='/home/jpmorgen/data/ssg/reduced/2002/02jan26' 
+     ;; the best flat second derivative is asymmetric enough to cause
+     ;; first_peak_find to look at the entire flat execpt the left
+     ;; peak as noise.  The signal on the flats tends to be very good
+     best_flat_left  = first_peak_find(best_flat_d2, 'left', threshold=0.1, contrast=0.03)
+     best_flat_right = first_peak_find(best_flat_d2, 'right', threshold=0.1, contrast=0.03)
+     if best_flat_right - best_flat_left lt ny/10 then $
+       message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)
+
+     m_sli_bots[good_idx]  = best_flat_left + best_xdisp_peaks
+     e_sli_bots[good_idx]  = best_xdisp_peaks_errors
+     m_sli_tops[good_idx]  = best_flat_right + best_xdisp_peaks
+     e_sli_tops[good_idx]  = best_xdisp_peaks_errors
+     sli_cents [good_idx]  = (best_flat_left + best_flat_right)/2. + best_xdisp_peaks
+     e_sli_cents[good_idx] = best_xdisp_peaks_errors
 
   endif ;; not reviewing
 
