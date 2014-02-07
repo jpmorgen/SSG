@@ -1,9 +1,9 @@
 ;+
-; $Id: ssg_fix_head.pro,v 1.5 2003/06/13 03:51:46 jpmorgen Exp $
+; $Id: ssg_fix_head.pro,v 1.6 2014/02/07 14:23:53 jpmorgen Exp $
 
-; ssg_fix_head.  Fix up Y2K problems with the FITS headers ON THE RAW
-; FILES.  Saves a copy of all the files in the directory just in case
-; there is some catastrophic error in this process.
+; ssg_fix_head.  Fix up Y2K and other header problems with the FITS
+; headers ON THE RAW FILES.  Saves a copy of all the affected files in
+; case there is some catastrophic error in this process.
 
 ;-
 
@@ -11,14 +11,6 @@ pro ssg_fix_head, indir, outdir
   
 ;  ON_ERROR, 2
   cd, indir
-
-  ;; See if there are any files listed in the directory
-  files = findfile(string(indir, '/*')) ; Doesn't matter if <dir>//*
-  files = strtrim(files)
-  if N_elements(files) eq 1 then begin
-     if strcmp(files, '') eq 1 then $
-       message, 'No files found in '+indir 
-  endif
 
   if NOT keyword_set(outdir) then $
     outdir = indir
@@ -35,7 +27,21 @@ pro ssg_fix_head, indir, outdir
   endelse
   CATCH, /CANCEL
 
-  ;; Get ready to create a tar file to which the 
+  ;; Clean up
+  cd, outdir
+  spawn, 'rm -f ' + testname
+  cd, indir
+
+  ;; See if there are any files listed in the directory
+  files = findfile(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = strtrim(files)
+  if N_elements(files) eq 1 then begin
+     if strcmp(files, '') eq 1 then $
+       message, 'No files found in '+indir 
+  endif
+
+  ;; Get ready to create a tar file to which the original files are
+  ;; written
   outname = indir
   outarr=strsplit(outname,'/', /extract)
   outname = 'ORIG_'
@@ -44,21 +50,22 @@ pro ssg_fix_head, indir, outdir
   endfor
   outname = outdir + '/' + outname + '.tar'
   test = findfile(outname+'.gz', count=count)
-  if count eq 1 then $
-    message, 'ERROR: If you really want to run this again, move '+ outname+ '.gz to a safe place'
+  if count eq 1 then begin
+     message, 'WARNING: Previous run of ssg_fix_head detected.  If you really want to run this again, move '+ outname+ '.gz to a safe place.', /CONTINUE
+     message, 'WARNING: EXITING WITHOUT CHECKING HEADERS!', /CONTINUE
+     return
+  endif
   test = findfile(outname, count=count)
   if count eq 1 then $
     message, 'ERROR: Program did not terminate properly.  I suggest you start over with a tar xvf '+ outname + ' and move that file to a different name'
 
-  cd, outdir
-  spawn, 'tar cvf ' + outname + ' test_ssg_fix_head_writable'
-  cd, indir
-
   ;; Now fix the headers.  Only bad files are rewritten
   nf = N_elements(files)
+  num_bad = 0
   for i=0,nf-1 do begin
+     bad_file = 0
      shortinfile = strmid(files[i], $
-                       strpos(files[i], '/', /REVERSE_SEARCH) + 1)
+                          strpos(files[i], '/', /REVERSE_SEARCH) + 1)
      outfile = shortinfile
      CATCH, err
      if err ne 0 then begin
@@ -67,7 +74,8 @@ pro ssg_fix_head, indir, outdir
      endif else begin
         message,'Checking file '+ shortinfile, /INFORMATIONAL
         if strpos(shortinfile, 'ORIG_') ne -1 or $
-          strpos(shortinfile, '.tar') ne -1 then $
+          strpos(shortinfile, '.tar') ne -1 or $
+          strpos(shortinfile, '.tgz') ne -1 then $
           message, 'Oops, hit a tar archive'
         
         ;; Any errors generated here bump us to the next file in the loop
@@ -91,7 +99,7 @@ pro ssg_fix_head, indir, outdir
         if strtrim(observat) ne 'NSO' then $
           message, 'OBSERVAT keyword is ' + string(observat) + ' not NSO'
 
-        months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'auig', 'sep', 'oct', 'nov', 'dec']
+        months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
         ;; OK, now we get down to the serious business.  I have found
         ;; two Y2K-related bugs in the FITS header system.  One has
         ;; the year off by one (Claude & Co forgot to change the
@@ -186,12 +194,49 @@ pro ssg_fix_head, indir, outdir
 ;           message, /CONTINUE, 'WARNING: the DATE suggests the FITS file was written ' + string(date) + ', but you are working in the ' + string(day_dir) + ' directory'
 ;        endif
 
-        date_obs = sxpar(hdr, 'DATE-OBS', count=count)
-        if count eq 0 then begin
+        date_obs = sxpar(hdr, 'DATE-OBS', count=date_count)
+        if strtrim(date_obs, 2) eq '17/10/31' then begin
+           message, /CONTINUE, 'WARNING: bogus date ' + strtrim(date_obs,2) + '.  Using DATE keyword instead'
+           sxaddhist, string('(ssg_fix_head.pro) DATE-OBS keyword was bogus (see ODATEOBS)'), hdr
+           sxaddhist, string('(ssg_fix_head.pro) replacing with DATE'), hdr
+           sxaddpar, hdr, 'ODATEOBS', date_obs, 'Old, likely bogus DATE-OBS'
+           
+           date_obs = sxpar(hdr, 'DATE', count=count)
+           ;; Change from - to / separators for code below
+           datearr=strsplit(date_obs,'-',/extract)
+           date_obs = datearr[0]+'/'+datearr[1]+'/'+datearr[2]
+           sxaddpar, hdr, 'DATE-OBS', date_obs, 'Corrected DATE-OBS = DATE'
+           if strtrim(ut, 2) eq '19:40:16.0' then begin
+              message, /CONTINUE, 'WARNING: found a 960708 bias file.  Making up a unique UT'
+              sxaddhist, string('(ssg_fix_head.pro) UT keyword is likely not unique (see OLD_UT)'), hdr
+              sxaddhist, string('(ssg_fix_head.pro) ESTIMATED UT'), hdr
+              sxaddpar, hdr, 'OLD_UT', ut, 'Old, non-unique UT'
+              filenum = strmid(shortinfile, 3, 2)
+              ut = '04:' + filenum + ':00.99'
+              sxaddpar, hdr, 'UT', ut, 'ESTIMATED UT'
+           endif
+           bad_file = 1
+        endif ;; Bogus DATE-OBS = 17/10/31
+        ;; Telescope clock stuck
+        if strtrim(date_obs, 2) eq '27/06/98' and $
+          strtrim(ut, 2) eq '7:15:14.0' then begin
+           message, /CONTINUE, 'WARNING: Estimating UT for ' + shortinfile + ' because telescope clock got stuck'
+           sxaddhist, string('(ssg_fix_head.pro) UT keyword is likely not unique (see OLD_UT)'), hdr
+           sxaddhist, string('(ssg_fix_head.pro) ESTIMATED UT'), hdr
+           sxaddpar, hdr, 'OLD_UT', ut, 'Old, non-unique UT'
+           filenum = strmid(shortinfile, 8, 2)
+           timearr=strsplit(ut,':',/extract)
+           ut = '07:' + strtrim(string(fix(timearr[1]) + $
+                                       fix(filenum)-9), 2) + $
+                ':00.99'
+           sxaddpar, hdr, 'UT', ut, 'ESTIMATED UT'
+           bad_file = 1
+        endif
+        if date_count eq 0 then begin
            message, 'WARNING: This seems to be an SSG file but it has no DATE-OBS keyword.  I will try to reconstruct one.', /CONTINUE
            date_obs = '00/00/00'
            sxaddhist, string('(ssg_fix_head.pro) DATE-OBS keyword was missing'), hdr
-        endif
+        endif ;; Telescope clock stuck
 
         datearr=strsplit(date_obs,'-T:',/extract)
         timearr=strsplit(ut,':',/extract)
@@ -232,42 +277,60 @@ pro ssg_fix_head, indir, outdir
         constructed_date_obs = year + '-' + month + '-' + day + 'T' + ut
         constructed_date_obs = strtrim(constructed_date_obs,2)
 
+        ;; There is at least one pathological case where there is no
+        ;; DATE-OBS, but the biases were taken the day before (in UT
+        ;; time).  
+        if constructed_date_obs ne date_obs and fix(timearr[0]) gt 18 $
+          and fix(day)-fix(day_fits) ne 1 then begin
+           message, /CONTINUE, 'WARNING: I _think_ I found a bias with a bad DATE-OBS keyword that was taken in the previous UT.'
+           if date_count ne 0 then begin
+              sxaddhist, string('(ssg_fix_head.pro) DATE-OBS keyword modified, see ODATEOBS'), hdr
+              sxaddpar, hdr, 'ODATEOBS', date_obs, 'Old DATE-OBS, either Y2K bugged or seconds rounded'
+           endif
+           sxaddpar, hdr, 'DATE-OBS', constructed_date_obs, 'Y2K compliant (yyyy-mm-ddThh:mm:ss)'
+           bad_file = 1           
+        endif ;; Bad date_obs on files taken in the previous UT day
+
+
         ;; Don't fix data that were taken in the previous UT day (UT
         ;; time > 18 or so), since that corresponds to mid-afternoon
         ;; biases, which were occationally taken
         if constructed_date_obs ne date_obs and fix(day)-fix(day_fits) ne 1 $
           and fix(timearr[0]) lt 18 then begin
            message, /CONTINUE, 'Construction of DATE-OBS keyword from directory and filename information yielded ' + string(constructed_date_obs) + ' which is different from FITS header value of ' + string(date_obs)
-           message, /CONTINUE, 'Saving file ' + string(shortinfile) + ' in tar file ' + string(outname)
-           spawn, 'tar rvf ' + outname + ' ' + shortinfile
 
-           if count ne 0 then begin
+           if date_count ne 0 then begin
               sxaddhist, string('(ssg_fix_head.pro) DATE-OBS keyword modified, see ODATEOBS'), hdr
-              sxaddpar, hdr, 'ODATEOBS', date_obs, 'Old DATE-OBS, likely corrupted by Y2K bug'
+              sxaddpar, hdr, 'ODATEOBS', date_obs, 'Old DATE-OBS, either Y2K bugged or seconds rounded'
            endif
            sxaddpar, hdr, 'DATE-OBS', constructed_date_obs, 'Y2K compliant (yyyy-mm-ddThh:mm:ss)'
+           bad_file = 1
 
+        endif ;; Bad date_obs
+
+        if keyword_set(bad_file) then begin
+           message, /CONTINUE, 'Saving file ' + string(shortinfile) + ' in tar file ' + string(outname)
+           create_or_append = 'r' ; --> I think this is SUN tar specific
+           if num_bad eq 0 then create_or_append = 'c'
+           spawn, 'tar '+create_or_append+'vf ' + outname + ' ' + shortinfile
+           num_bad = num_bad + 1
            message, /INFORMATIONAL, 'Writing ' + outfile
 ;        ;; Code from writefits so that I have control over verbosity
 ;        ;; (no silent keyword for writefits)
 ;        check_fits, im, hdr, /UPDATE, /FITS, SILENT=silent
            writefits, outfile, im, hdr
-           bad_file = 1
-        endif ;; Bad date_obs
+        endif
 
      endelse ;; CATCH if err
   endfor ;; all files in directory
   CATCH, /CANCEL
-  if keyword_set(bad_file) then begin
+
+  if keyword_set(num_bad) then begin
      message, /INFORMATIONAL, 'Compressing ' + string(outname)
      spawn, 'gzip ' + outname
   endif else begin
      message, /INFORMATIONAL, 'No bad SSG headers found.  No files in ' + indir + ' need to be modified'
-     spawn, 'rm ' + outname
   endelse
-
-  if outdir ne '/tmp' then $
-    spawn, 'rm -f ' + testname
 
   return
 end
