@@ -1,20 +1,18 @@
 ;+
-; $Id: ssg_select.pro,v 1.2 2008/07/10 15:31:10 jpmorgen Exp $
+; $Id: ssg_select.pro,v 1.3 2014/02/19 17:37:32 jpmorgen Exp $
 
 ; ssg_select.  Displays relevant information from the databases to try
 ; to help a user select one or more spectra to fit, grab parameters
 ; from, etc.
 
-;; --> I'll want to make this left and right mouse like the spectral
-;; stuff, I think.  At least for an option, since otherwise I don't
-;; think there is any way to get to another region
-
 ;-
 
 
-function ssg_select, nday_start_or_range, count=count, multi=multi, title=title
+function ssg_select, nday_start_or_range, count=count, title=title
 
 ;  ON_ERROR, 2
+
+  init = {tok_sysvar}
 
   if NOT keyword_set(title) then title='SSG select'
   if NOT keyword_set(nday_start_or_range) then $
@@ -53,60 +51,61 @@ function ssg_select, nday_start_or_range, count=count, multi=multi, title=title
 
   window, 7
 
-  ;; Select spectrum to fit
+  ;; Extract list of valid ndays from the fitting database 
+  dbclose                       ; Just in case
+  dbopen, fdbname, 0
+  fentries = where_nday_eq(mean(nday_range), $
+                           tolerance=abs(nday_range[1]-nday_range[0])/2., $
+                           count=fcount, silent=silent)
+  if fcount eq 0 then begin
+     message, /CONTINUE, 'WARNING: no entries in fitting database between ' + string(nday_range[0]) + ' and ' + string(nday_range[1]) + ' returning nday = -1.  Did you run ssg_extract first?'
+     count = 0
+     return, -1
+  endif
 
-  first=1
-  done=0
+  dbext, fentries, 'nday, new_spec, fit_vers, bad, nfree, chisq, redchisq', ndays, new_specs, fit_vers, fbaddarray, nfrees, chisqs, redchisqs
+
+  ;; Extract these entries from the reduction database
+
+  dbopen, rdbname, 0
+  rentries = where_nday_eq(ndays, count=rcount, silent=silent)
+  if rcount ne fcount then begin
+     ;;message,  'ERROR: entires in fitting database do not have corresponding entries in reduction database.  This is a bad thing.  Rerunning ssg_extract might fix this'
+     message, /CONTINUE, 'WARNING: entires in fitting database do not have corresponding entries in reduction database.  Average/median values might not line up properly with fitting information.  Rerunning ssg_extract on the offending day might fix this'
+
+  endif
+
+  dbext, rentries, "fname, date, typecode, bad, nbad, ncr", files, dates, typecodes, badarray, nbads, ncrs
+
+  dbext, rentries, "med_spec, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross", med_specs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps
+  dbclose
+
+  ;; Prepare nday range.  IDL handles UT for plotting better, so
+  ;; keep a parallel variable around
+  nday_range = [min(ndays), max(ndays)]
+  uts = ndays + (julday(1,1,1990,0))
+  ut_range = nday_range + (julday(1,1,1990,0))
+
+  ;; Select spectr[uma] to fit
+  done = 0
   repeat begin
      wset,7
-
-     ;; Extract list of valid ndays from the fitting database 
-     dbclose                    ; Just in case
-     dbopen, fdbname, 0
-     fentries = where_nday_eq(mean(nday_range), $
-                              tolerance=abs(nday_range[1]-nday_range[0])/2., $
-                              count=fcount, silent=silent)
-     if fcount eq 0 then begin
-        message, /CONTINUE, 'WARNING: no entries in fitting database between ' + string(nday_range[0]) + ' and ' + string(nday_range[1]) + ' returning nday = -1.  Did you run ssg_extract first?'
-        count = 0
-        return, -1
+     yrange = [0, max([med_specs,av_specs,fit_vers*10])]
+     good_idx = where(ut_range[0] le uts and uts le ut_range[1], count)
+     if count gt 0 then begin
+        yrange = [0, max([med_specs[good_idx],av_specs[good_idx], $
+                          fit_vers[good_idx]*10])]
      endif
-print, 'hello world'
-     dbext, fentries, 'nday, new_spec, fit_vers, bad, nfree, chisq, redchisq', ndays, new_specs, fit_vers, fbaddarray, nfrees, chisqs, redchisqs
-
-     ;; Extract these entries from the reduction database
-
-     dbopen, rdbname, 0
-     rentries = where_nday_eq(ndays, count=rcount, silent=silent)
-     if rcount ne fcount then begin
-        message,  'ERROR: entires in fitting database do not have corresponding entries in reduction database.  This is a bad thing'
-     endif
-
-     dbext, rentries, "fname, date, typecode, bad, nbad, ncr", files, dates, typecodes, badarray, nbads, ncrs
-
-     dbext, rentries, "med_spec, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross", med_specs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps
-     ;; Close the reduced database, since occationally its
-     ;; numbers don't match the fit database numbers.
-     dbclose
-
-     ;; Prepare plot X axis.  Don't show 100 years on the first time
-     ;; around unless there is really that much data :-)
-     if keyword_set(first) then begin
-        nday_range = [min(ndays), max(ndays)]
-        first = 0
-     endif
-     uts = ndays + (julday(1,1,1990,0))
-     ut_range = nday_range + (julday(1,1,1990,0))
-
      plot, uts, med_specs, $
            title=title, $
            xrange=ut_range, $
-           yrange=[0, max([med_specs,av_specs,fit_vers*10])], $
+           yrange=yrange, $
            xtickunits = ['hours', 'Days', 'Months', 'Years'], $
            xtitle='UT date (Year, Month, Day, Hour)', $
            ytitle='Spectral value (electrons/s)', $
            ymargin=[15,2], $
-           psym=plus
+           psym=plus, $ 
+           xstyle=!tok.exact+!tok.extend
      oplot, uts, av_specs, psym=asterisk
      oplot, uts, new_specs*10, psym=diamond
      oplot, uts, fit_vers*10, psym=triangle
@@ -123,113 +122,169 @@ print, 'hello world'
      nplots=4
 
      ;; User selects points
-     if keyword_set(multi) then begin
-        message, /CONTINUE, 'Use left button to select a single point and exit.  Drag left button for zoom.  Sorry no box will guide your zoom.  Middle button unzooms, right button exits selecting all points currently on the screen'
-     endif else begin
-        message, /CONTINUE, 'Use left button to select a single point and exit.  Drag left button for zoom.  Sorry no box will guide your zoom.  Middle button unzooms, right button exits with no selection'
-     endelse
-     cursor, x1, y1, /DOWN, /DATA
-     cursor, x2, y2, /UP, /DATA
-     ;; Get the corners straight
-     if x1 gt x2 then begin
-        temp = x1 & x1 = x2 & x2 = temp
-     endif
-     if y1 gt y2 then begin
-        temp = y1 & y1 = y2 & y2 = temp
-     endif
-     ;; Convert from JD, which I am using for convenient plotting to nday
-     x1 = x1 - (julday(1,1,1990,0))
-     x2 = x2 - (julday(1,1,1990,0))
+     message, /CONTINUE, 'Use left and right buttons to zoom in on (bracket) area of interest. Middle button will bring up a menu.'
+
+     cursor, ut, y, /DOWN, /DATA
+
+     ;; Left mouse
      if !MOUSE.button eq 1 then begin
-        ;; The drag group gets a little complicated with IDL's
-        ;; sophisicated array handling, so lets do it the old
-        ;; fashioned way
-        nmarked = 0
-        for xidx = 0, N_elements(x) - 1 do begin
-           for pidx = 0,nplots-1 do begin
-              if x1 lt x[xidx] and x[xidx] lt x2 then begin ;; and $
-;;                y1 lt y[xidx,pidx] and y[xidx,pidx] lt y2 then begin
-                 ;; Check initialization of marked_idx
-                 if nmarked eq 0 then begin
-                    marked_idx = [xidx] 
-                 endif else begin
-                    ;; Add this entry in if it is not already there
-                    junk = where(marked_idx eq xidx, count)
-                    if count eq 0 then $
-                      marked_idx = [marked_idx, xidx]
-                 endelse
-                 nmarked = N_elements(marked_idx)
-              endif
-           endfor
-        endfor
-        ;; We didn't find any points in our region
-        if nmarked eq 0 then begin
-           dxs = x - x1
-; This was causing unexpected results.  Just go with which x you are
-; closest to.
-;            dys = fltarr(N_elements(x), nplots)
-;            for pi = 0, nplots-1 do begin
-;               dys[*,pi] = py[*,pi] - y1
-;            endfor
-;            dists = fltarr(N_elements(x), nplots)
-;            for pi = 0, nplots-1 do begin
-;               dists[*,pi] = dxs^2 + dys[*,pi]^2
-;            endfor
-;            junk = min(dists, min_idx, /NAN)
-;            ;; Unwrap index
-;            marked_idx = min_idx mod N_elements(x)
-;            nmarked = N_elements(marked_idx)
-           dists = abs(dxs)
-           junk = min(dists, min_idx, /NAN)
-           marked_idx = min_idx 
-           nmarked = N_elements(marked_idx)
-        endif
-        message, /info, 'X value(s) at selection'
-        print, x[marked_idx]
-;        message, /info, 'Y value(s) at selection'
-;        print, py[marked_idx,*]
-        
-        ;; Open the fit database again, since that is where we got the
-        ;; x list from
-        dbopen, fdbname, 0
-        entries = where_nday_eq(x[marked_idx], count=count, silent=silent)
-        if count eq 0 then begin
-           message, /CONTINUE, 'ERROR: no match found for you selection.  Is your database still open?  Were you plotting against nday?'
-        endif else begin
-           dbext, entries, "nday", marked_ndays
-           if N_elements(marked_ndays) ne nmarked then begin
-              message, 'ERROR: there was some problem with the database?'
-           endif
-           if nmarked eq 1 then begin
-              dbclose
-              return, marked_ndays
-           endif 
-           if nmarked gt 1 then begin
-              message, /CONTINUE, 'Zooming on ' + string(nmarked) + ' points.'
-              nday_range = [min(marked_ndays), max(marked_ndays)]
-           endif
-        endelse
-        
-     endif ;; leftmost mouse button
-
-     if !MOUSE.button eq 2 then begin
-        nday_range = [0,36500]
+        ut_range[0] = ut
      endif
-
+     ;; Right mouse
      if !MOUSE.button eq 4 then begin
-        message, /CONTINUE, 'DONE'
-        if NOT keyword_set(multi) then begin
-           ndays = -1
-        endif
-        done = 1
+        ut_range[1] = ut
      endif
+     nday = ut - (julday(1,1,1990,0))
+     nday_range = ut_range - (julday(1,1,1990,0))
+     ;; Middle mouse
+     if !MOUSE.button eq 2 then begin
+        message, /CONTINUE, 'Menu:'
+        print, 'exit with selected Range'
+        print, 'exit with selected Point'
+        print, 'Quit/exit with no selection'
+        print, 'unZoom'
+        print, 'do Nothing'
+        answer = ''
+        for ki = 0,1000 do flush_input = get_kbrd(0)
+        repeat begin
+           message, /CONTINUE, 'R, P, Q, Z, N'
+           answer = get_kbrd(1)
+           if byte(answer) eq 10 then answer = 'F'
+           for ki = 0,1000 do flush_input = get_kbrd(0)
+           answer = strupcase(answer)
+        endrep until $
+          answer eq 'R' or $
+          answer eq 'P' or $
+          answer eq 'Q' or $
+          answer eq 'Z' or $
+          answer eq 'N'
+
+        ;; Return all ndays within plot range
+        if answer eq 'R' then begin
+           r_idx = where(nday_range[0] le ndays and ndays le nday_range[1], $
+                         count)
+           return, ndays[r_idx]
+        endif
+
+        ;; Return nday closest to where middle mouse was clicked
+        if answer eq 'P' then begin
+           dists = abs(ndays - nday)
+           junk = min(dists, min_idx, /NAN)
+           count = N_elements(min_idx)
+           return, ndays[min_idx]
+        endif
+
+        ;; Return -1, setting count=0
+        if answer eq 'Q' then begin
+           count = 0
+           return, -1
+        endif
+
+        ;; unZoom
+        if answer eq 'Z' then begin
+           nday_range = [min(ndays), max(ndays)]
+           ut_range = nday_range + (julday(1,1,1990,0))
+        endif
+
+     endif ;; Middle mouse
+
+
+;;     ;;cursor, x2, y2, /UP, /DATA
+;;     ;; Get the corners straight
+;;     if x1 gt x2 then begin
+;;        temp = x1 & x1 = x2 & x2 = temp
+;;     endif
+;;     if y1 gt y2 then begin
+;;        temp = y1 & y1 = y2 & y2 = temp
+;;     endif
+;;     ;; Convert from JD, which I am using for convenient plotting to nday
+;;     x1 = x1 - (julday(1,1,1990,0))
+;;     x2 = x2 - (julday(1,1,1990,0))
+;;     if !MOUSE.button eq 1 then begin
+;;        ;; The drag group gets a little complicated with IDL's
+;;        ;; sophisicated array handling, so lets do it the old
+;;        ;; fashioned way
+;;        nmarked = 0
+;;        for xidx = 0, N_elements(x) - 1 do begin
+;;           for pidx = 0,nplots-1 do begin
+;;              if x1 lt x[xidx] and x[xidx] lt x2 then begin ;; and $
+;;;;                y1 lt y[xidx,pidx] and y[xidx,pidx] lt y2 then begin
+;;                 ;; Check initialization of marked_idx
+;;                 if nmarked eq 0 then begin
+;;                    marked_idx = [xidx] 
+;;                 endif else begin
+;;                    ;; Add this entry in if it is not already there
+;;                    junk = where(marked_idx eq xidx, count)
+;;                    if count eq 0 then $
+;;                      marked_idx = [marked_idx, xidx]
+;;                 endelse
+;;                 nmarked = N_elements(marked_idx)
+;;              endif
+;;           endfor
+;;        endfor
+;;        ;; We didn't find any points in our region
+;;        if nmarked eq 0 then begin
+;;           dxs = x - x1
+;;; This was causing unexpected results.  Just go with which x you are
+;;; closest to.
+;;;            dys = fltarr(N_elements(x), nplots)
+;;;            for pi = 0, nplots-1 do begin
+;;;               dys[*,pi] = py[*,pi] - y1
+;;;            endfor
+;;;            dists = fltarr(N_elements(x), nplots)
+;;;            for pi = 0, nplots-1 do begin
+;;;               dists[*,pi] = dxs^2 + dys[*,pi]^2
+;;;            endfor
+;;;            junk = min(dists, min_idx, /NAN)
+;;;            ;; Unwrap index
+;;;            marked_idx = min_idx mod N_elements(x)
+;;;            nmarked = N_elements(marked_idx)
+;;           dists = abs(dxs)
+;;           junk = min(dists, min_idx, /NAN)
+;;           marked_idx = min_idx 
+;;           nmarked = N_elements(marked_idx)
+;;        endif
+;;        message, /info, 'X value(s) at selection'
+;;        print, x[marked_idx]
+;;;        message, /info, 'Y value(s) at selection'
+;;;        print, py[marked_idx,*]
+;;        
+;;        ;; Open the fit database again, since that is where we got the
+;;        ;; x list from
+;;        dbopen, fdbname, 0
+;;        entries = where_nday_eq(x[marked_idx], count=count, silent=silent)
+;;        if count eq 0 then begin
+;;           message, /CONTINUE, 'ERROR: no match found for you selection.  Is your database still open?  Were you plotting against nday?'
+;;        endif else begin
+;;           dbext, entries, "nday", marked_ndays
+;;           if N_elements(marked_ndays) ne nmarked then begin
+;;              message, 'ERROR: there was some problem with the database?'
+;;           endif
+;;           if nmarked eq 1 then begin
+;;              dbclose
+;;              return, marked_ndays
+;;           endif 
+;;           if nmarked gt 1 then begin
+;;              message, /CONTINUE, 'Zooming on ' + string(nmarked) + ' points.'
+;;              nday_range = [min(marked_ndays), max(marked_ndays)]
+;;           endif
+;;        endelse
+;;        
+;;     endif ;; leftmost mouse button
+;;
+;;     if !MOUSE.button eq 2 then begin
+;;        nday_range = [0,36500]
+;;     endif
+;;
+;;     if !MOUSE.button eq 4 then begin
+;;        message, /CONTINUE, 'DONE'
+;;        if NOT keyword_set(multi) then begin
+;;           ndays = -1
+;;        endif
+;;        done = 1
+;;     endif
 
   endrep until done
-
-  ;; Be polite
-  dbclose
-  count = N_elements(ndays)
-  return, ndays
 
 end
 
