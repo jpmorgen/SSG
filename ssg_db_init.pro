@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.7 2003/06/11 21:50:21 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.8 2014/03/05 03:21:31 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -23,6 +23,7 @@
 pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=verbose
 
 
+  init={ssg_sysvar}
   ;; Avoid errors from db stuff about not being able to write in a
   ;; write-protected data directory
   cd, '/tmp'
@@ -42,7 +43,6 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
   ;; This ends up being an excercise in text editing, so make it easy
   ;; for future changes...
   ngood = 1000
-  delete_list	=	intarr(ngood)
   raw_dir	= 	strarr(ngood)
   raw_fname	= 	strarr(ngood)
   dir		= 	strarr(ngood)
@@ -67,8 +67,11 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
   
   err=0
   ngood = 0
-  ndelete = 0
   redflag=0
+
+  ;; Prepare to skip files that we know raise frequent errors
+  skip_files = make_array(N_elements(!ssg.non_fits), value=0)
+
   ;; Open database for inspection only.  
   dbopen, dbname, 0
   for i=0,N_elements(files)-1 do begin
@@ -81,6 +84,16 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
         message, 'skipping ' + shortfile+ ' which does not appear to be a proper raw SSG FITS file',/CONTINUE
      endif else begin
         message,'Checking '+ shortfile, /INFORMATIONAL
+
+        ;; Quietly skip known non-fits files
+        for inf=0,N_elements(!ssg.non_fits)-1 do begin
+           skip_files[inf] = strmatch(shortfile, !ssg.non_fits[inf])
+        endfor
+        if total(skip_files) ne 0 then begin
+           message, /INFORMATIONAL, 'NOTE: ' + shortfile + ' is probably not a FITS file, skipping'
+           CONTINUE
+        endif
+
         im=ssgread(files[i], hdr) ; This will raise an error if not FITS
         test = sxpar(hdr, 'BIASSEC', count=count)
         if count eq 0 then $
@@ -101,7 +114,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
         ;; in the raw directory.  The raw FITS headers will be the
         ;; same, but the filenames will be suspicious.  The only worry
         ;; is: which comes first--the real data or the processed data?
-        dup_idx = where(abs(nday_arr - nday) le 1E-5, count) 
+        dup_idx = where(abs(nday_arr - nday) le !ssg.tolerance, count) 
         if count ne 0 then begin
            message, 'WARNING: duplicate nday '+ formatted_nday + ' in ' + indir + ' Checking against known post processing file names' , /CONTINUE
 
@@ -143,13 +156,17 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
 
         message, shortfile + ' seems to be worth adding to ' + dbname, /INFORMATIONAL
         re_init = where_nday_eq(nday, COUNT=count,SILENT=silent)
-        if count eq 1 then begin
-           message, /CONTINUE, 'WARNING: entry for nday = ' + formatted_nday + ' needs to be deleted from the ' + dbname + ' database to reinitialize ' + shortfile
-           delete_list(ndelete) = re_init
-           ndelete = ndelete + 1
-        endif 
-        if count gt 1 then $
-          message, 'ERROR: duplicate nday '+ formatted_nday + ' found in database ' + dbname + ' this should never happen'
+        if count ge 1 then begin
+           if count gt 1 then begin
+              message, /CONTINUE, 'WARNING: multiple nday '+ formatted_nday + ' found in database ' + dbname + ' need to delete both to reinitialize'
+           endif else $
+             message, /CONTINUE, 'WARNING: entry for nday = ' + formatted_nday + ' needs to be deleted from the ' + dbname + ' database to reinitialize ' + shortfile
+           if N_elements(delete_list) eq 0 then begin
+              delete_list = re_init
+           endif else begin
+              delete_list = [delete_list, re_init]
+           endelse
+        endif
         temp=where(nday_arr eq nday, count) 
         if count gt 0 then $
           message, 'ERROR: duplicate nday '+ formatted_nday + ' found in this directory.  You may have to tweak things with the ssg_exceptions.pro'
@@ -250,16 +267,23 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
   endif
 
   ;; DO DATABASE DELETES
-  if ndelete gt 0 then begin
+  if N_elements(delete_list) gt 0 then begin
      if !priv ge 3 then begin
         message, /CONTINUE, 'WARNING, !priv set to ' + string(!priv) + ', continuing automatically with database deletes'
      endif 
      if keyword_set(delete) then !priv = 3
      if !priv lt 3 then message, 'ERROR: deletions from the database need to be made, so !priv needs to be at least 3.  Alternately (and preferred), you can specify the /DELETE option to this procedure.  Hint, you will probably want /APPEND too'
-     dbdelete, delete_list[0:ndelete-1], dbname
-     message, /INFORMATIONAL, 'deleted items marked'
-     dbcompress, dbname
-     message, /INFORMATIONAL, 'deleted items removed'
+     dbdelete, delete_list, dbname
+     ;; Thu Jan 27 13:42:24 2011  jpmorgen
+     ;;message, /INFORMATIONAL, 'deleted items marked'
+     ;; Latest version of dbdelete does not need dbcompress
+     ;;dbcompress, dbname
+     ;; Quietly change the mode and group of the file to be group lyra
+     ;; writable so other people can work on this
+     dbfname = find_with_def(dbname + '.dbf','ZDBASE')
+     spawn, string('chmod g+w ', dbfname), txtout, errout
+     spawn, string('chgrp lyra ', dbfname), txtout, errout
+     message, /INFORMATIONAL, 'items deleted removed, database group lyra writable'
      dbclose
      message, /INFORMATIONAL, 'database closed'
   endif
