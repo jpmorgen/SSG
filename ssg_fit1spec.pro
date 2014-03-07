@@ -1,6 +1,6 @@
 ;+
 
-; $Id: ssg_fit1spec.pro,v 1.8 2014/01/28 20:40:00 jpmorgen Exp $
+; $Id: ssg_fit1spec.pro,v 1.9 2014/03/07 19:26:04 jpmorgen Exp $
 
 ; ssg_fit1spec.pro
 
@@ -97,7 +97,6 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      message, 'NOTE: encountered nday = -1 flag, terminating', /INFORMATIONAL
      return
   endif
-  if N_elements(obj) eq 0 then obj = !eph.io
   if N_elements(nprint) eq 0 then nprint=10
   if N_elements(maxiter) eq 0 then maxiter = 150
   if N_elements(grave_report) eq 0 then grave_report = 10
@@ -126,11 +125,23 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if count eq 0 then message, $
     'ERROR: nday ' + strtrim(nday,2) + ' not found in ' + rdbname
 
-  dbext, rentry, 'nday, dir, fname, object, date, time, bad, slice', ndays, dirs, files, objects, dates, times, badarray, slices
+  dbext, rentry, 'nday, obj_code, dir, fname, object, date, time, bad, slice', ndays, obj_codes, dirs, files, objects, dates, times, badarray, slices
 
   dbext, rentry, 'wavelen, spectrum, spec_err, cross_disp, cross_err, disp_pix, dispers', wavelengths, spectra, spec_errors, cross_disps, cross_errors, disp_pix, orig_dispers
 
   dbclose
+
+  ;; Take default obj from database obj_code
+  if N_elements(obj) eq 0 then begin
+     case obj_codes[0] of
+        1 : obj = !eph.io
+        2 : obj = !eph.europa
+        3 : obj = !eph.ganymede
+        4 : obj = !eph.callisto
+        else : message, 'ERROR: I don''t know how to translate ssg_reduce database obj_code of "' + strtrim(obj_codes[0], 2) + '" to a NAIF object code (e.g. io=501, Europa=502, etc.)'
+     endcase
+  endif ;; default ephemeris obj
+
 
   ;; --> temporary code to get around bad slice values
   if abs(slices[0,0]) gt 0.008 then $
