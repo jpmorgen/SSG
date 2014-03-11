@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.7 2003/06/13 03:51:32 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.8 2014/03/11 17:04:25 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
@@ -20,7 +20,10 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
   dbopen, dbname, 0
   entries = dbfind("typecode=0", $
                    dbfind("bad<16383", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir))), count=count)
+  if count eq 0 then $
+     message, 'ERROR: no biases found in ' + indir
+  
   dbext, entries, "fname, med_bias, av_bias, stdev_bias, bad", files, med_biases, av_biases, stdev_biases, badarray
   dbclose
 
@@ -172,7 +175,9 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
         ;; Average: exclude bad pixels from average calculation by
         ;; setting them to 0 before adding AND keeping track of how
         ;; many good pixels were collected at each location
+;;--> mask_im is reading 1,2,3, not NAN!
         badidx = where(finite(mask_im) eq 0, count)
+;;        badidx = where(mask_im gt 1, count)
 ;        if count gt badpix then $
 ;          message, 'ERROR: too many bad pixels: ' + string(count)
         count_im = count_im + 1
@@ -188,7 +193,7 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
         stack_im[i,*,*] = im[*,*]*mask_im
         
      endelse
-  endfor
+  endfor ;; each bias file
   CATCH, /CANCEL
 
   if total(count_im) eq 0 then message, 'ERROR: no good bias frames found in ' + indir + ' file ' + outname + ' not written, database ' + dbname + ' not modified.  Did you run ssg_get_overclock?'
