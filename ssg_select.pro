@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_select.pro,v 1.3 2014/02/19 17:37:32 jpmorgen Exp $
+; $Id: ssg_select.pro,v 1.4 2014/03/24 15:43:51 jpmorgen Exp $
 
 ; ssg_select.  Displays relevant information from the databases to try
 ; to help a user select one or more spectra to fit, grab parameters
@@ -8,7 +8,7 @@
 ;-
 
 
-function ssg_select, nday_start_or_range, count=count, title=title
+function ssg_select, nday_start_or_range, count=count, title=title, _EXTRA=extra
 
 ;  ON_ERROR, 2
 
@@ -105,7 +105,8 @@ function ssg_select, nday_start_or_range, count=count, title=title
            ytitle='Spectral value (electrons/s)', $
            ymargin=[15,2], $
            psym=plus, $ 
-           xstyle=!tok.exact+!tok.extend
+           xstyle=!tok.exact+!tok.extend, $
+           _EXTRA=extra
      oplot, uts, av_specs, psym=asterisk
      oplot, uts, new_specs*10, psym=diamond
      oplot, uts, fit_vers*10, psym=triangle
