@@ -1,8 +1,51 @@
-FUNCTION SLICER_BOTTOM_FIND, data, Xdata=xdata, LowEnd=lowEnd, HighEnd=highEnd, Narrow=narrow, All=all
+;+
+; NAME:
+;
+; PURPOSE: This script will take an array of data points and return the points
+; that are closest to the acceptable deviation. The default is 1 and 10% of max.
+; it will return an array of (1%, 10%)
+;
+; CATEGORY:
+;
+; CALLING SEQUENCE:
+;
+; DESCRIPTION:
+;
+; INPUTS:
+;
+; OPTIONAL INPUTS:
+;
+; KEYWORD PARAMETERS:
+;
+; OUTPUTS:
+;
+; OPTIONAL OUTPUTS:
+;
+; COMMON BLOCKS:  
+;   Common blocks are ugly.  Consider using package-specific system
+;   variables.
+;
+; SIDE EFFECTS:
+;
+; RESTRICTIONS:
+;
+; PROCEDURE:
+;
+; EXAMPLE:
+;
+; MODIFICATION HISTORY:
+;
+; $Id: slicer_bottom_find.pro,v 1.2 2014/06/26 15:44:24 jpmorgen Exp $
+;
+; $Log: slicer_bottom_find.pro,v $
+; Revision 1.2  2014/06/26 15:44:24  jpmorgen
+; Received updated version
+;
+;-
+FUNCTION SLICER_BOTTOM_FIND, data_in, Xdata=xdata, LowEnd=lowEnd, HighEnd=highEnd, Narrow=narrow, All=all
 
-;This script will take an array of data points and return the points
-;that are closest to the acceptable deviation. The default is 1 and 10% of max.
-;it will return an array of (1%, 10%)
+;; Protect data_in
+data = data_in
 
 If KEYWORD_SET(lowEnd) EQ 0 THEN lowEnd = .01
 If KEYWORD_SET(highEnd) EQ 0 THEN highEnd = .1
@@ -41,6 +84,7 @@ xOne = 0
 ;find the first x coordinate that corresponds with the high end guess
 WHILE data(xTen) LE high DO BEGIN
 	xTen = xTen+1
+        ;; If we happen to hit on low, set our xOne here 
 	IF data(xTen) EQ low THEN xOne = xTen
 ENDWHILE
 
@@ -72,6 +116,7 @@ ENDWHILE
 
 ;This search is basically looking for the first overly drastic change.
 ;In the first derivative the initial turn on point should be a huge leap.
+; --> Should this be dData?  Not sure if I understand exactly how this works
 WHILE d2data(d2x2 + 1) LE d2data(d2x2)*2 DO BEGIN
 	d2x2 = d2x2+1
 ENDWHILE
