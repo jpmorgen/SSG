@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.7 2014/01/31 02:19:35 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.8 2014/07/02 14:46:56 jpmorgen Exp $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
 ; pattern and the center in the image in the dispersion direction
@@ -113,7 +113,7 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
 
      message, 'Computing correlations between flats', /INFORMATIONAL
      ;; The idea is to shift our second derivatives relative to each
-     ;; other is cross dispersion space to see where they correlate
+     ;; other in cross dispersion space to see where they correlate
      ;; the best.  Lets make the number of steps we take general so we
      ;; can play with how far we need to go in each direction.  Right
      ;; now I just use shift, so we go in 1 pixel increments.
@@ -253,7 +253,7 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      endfor
 
      if keyword_set(TV) then $
-       display, shifted_flats, zoom=4, title='Shifted flats'
+       display, shifted_flats, zoom=4, title='Shifted flats 2nd derivative'
 
      best_flat_d2 = fltarr(ny)
      for ixdisp=0, ny-1 do begin
@@ -322,10 +322,10 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
         best_xdisp_peaks_errors[ifile] = error
      endfor
 
-     if keyword_set(plot) then begin
-        window, 4, xs=640,ys=512
-        ploterr, best_xdisp_peaks, best_xdisp_peaks_errors
-     endif
+     ;;if keyword_set(plot) then begin
+     ;;   window, 4, xs=640,ys=512
+     ;;   ploterr, best_xdisp_peaks, best_xdisp_peaks_errors
+     ;;endif
      
 
      message, 'Finding left and right sides of the ueberflat', /INFORMATIONAL
