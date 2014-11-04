@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blip_search.pro,v 1.6 2013/04/29 16:39:47 jpmorgen Exp $
+; $Id: ssg_blip_search.pro,v 1.7 2014/11/04 17:49:07 jpmorgen Exp $
 ;
 ; $Log: ssg_blip_search.pro,v $
+; Revision 1.7  2014/11/04 17:49:07  jpmorgen
+; About to keep track of UT of blips to enable construction of a periodogram
+;
 ; Revision 1.6  2013/04/29 16:39:47  jpmorgen
 ; About to add negative blips
 ;
@@ -56,6 +59,8 @@
 ;
 ;-
 pro ssg_blip_search, $
+   positive=positive, $
+   negative=negative, $
    sigma=sigma, $
    threshold=threshold, $
    nday_threshold=nday_threshold, $
@@ -74,6 +79,9 @@ pro ssg_blip_search, $
    _EXTRA=extra ; args to plot
 
   init = {tok_sysvar}
+
+  if keyword_set(positive) + keyword_set(negative) ne 1 then $
+     message, 'ERROR: specify /positive or /negative for the kind of blips you are looking for'
 
   ;; Be polite, but get the line thicknesses we need for PS output
   ;; (leave for terminal output since that gets us started on PS output)
@@ -251,7 +259,7 @@ pro ssg_blip_search, $
            diff2 = diff1[idx[0:N_in_gap-3]] - diff1[idx[1:N_in_gap-2]]
         endif else begin
            ;; Intensity diffs based on normalized sigma.  Had a bug in
-           ;; this when I did my initial abstract.
+           ;; this when I did my initial abstract for 2012 AGU
            diff1 = (mintensity[idx[1:N_in_gap-1]] / merr_intensity[idx[1:N_in_gap-1]] $
                     - mintensity[idx[0:N_in_gap-2]] / merr_intensity[idx[0:N_in_gap-2]])
            diff2 = diff1[idx[0:N_in_gap-3]] - diff1[idx[1:N_in_gap-2]]
@@ -259,20 +267,40 @@ pro ssg_blip_search, $
 
            ;; Worked this out on paper.  Just do three points at a
            ;; time + divide the cumulative difference by the average
-           ;; error
+           ;; error.  Had a couple of bugs in this when I made my
+           ;; abstract for MOP
            diff2 = fltarr(N_in_gap-2)
            for i=0,N_in_gap-3 do begin
-              diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i+1]] - mintensity[idx[i+2]]) / $
-                         mean(merr_intensity[idx[i:i+2]])
+              ;; This is wrong: should be 3* error bar
+              ;; diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i]] - mintensity[idx[i+2]]) / $
+              ;;            mean(merr_intensity[idx[i:i+2]])
+              ;; This is technically the best, but led to exaggerated
+              ;; negative events.
+              ;; diff2[i] = (2*(mintensity[idx[i+1]] / merr_intensity[idx[i+1]]) $
+              ;;             - mintensity[idx[i]] / merr_intensity[idx[i]] $
+              ;;            - mintensity[idx[i+2]]) / merr_intensity[idx[i+2]]
+              ;; This led to the nicest distribution of positive and
+              ;; negative events, but the error is wrong
+              ;; diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i]] - mintensity[idx[i+2]]) / $
+              ;;            3*mean(merr_intensity[idx[i:i+2]])
+              ;; This does the errors correctly
+              diff2[i] = (2*mintensity[idx[i+1]] - mintensity[idx[i]] - mintensity[idx[i+2]]) / $
+                         sqrt(2*merr_intensity[idx[i+1]]^2. +  $
+                              merr_intensity[idx[i]]^2. + $
+                              merr_intensity[idx[i+2]]^2.)
            endfor
         endelse
 
-        ;; If diff2 is greater than the threshold value, add this nday to
-        ;; the list of candidate ndays to check.  Note that diff2 is
-        ;; shifted by a full idx value from mnday et al.  Make the
-        ;; threshold read as the average distance about the continuum, so
-        ;; we need to multiply it by 2
-        blip_idx = where(diff2 ge threshold*2, count)
+        ;; If diff2 is greater (less) than the threshold value, add
+        ;; this nday to the list of candidate ndays to check.  Note
+        ;; that diff2 is shifted by a full idx value from mnday et al.
+        ;; Make the threshold read as the average distance about the
+        ;; continuum, so we need to multiply it by 2
+        if keyword_set(positive) then $
+           blip_idx = where(diff2 ge threshold*2, count)
+        if keyword_set(negative) then $
+           blip_idx = where(-diff2 ge threshold*2, count)
+
         if count gt 0 then begin
            ;; unwrap
            blip_idx = idx[blip_idx]
@@ -352,6 +380,12 @@ print, long_3_hist
   ;;  ;; Put on threashold value
   ;;  xyouts, /norm, 0.75, 0.85, 'Threshold = ' + strtrim(threshold,2) + ' ' + units
 
+  ;; Put in positive/negative label
+  if keyword_set(positive) then $
+     xyouts, /norm, 0.15, 0.85, 'Positive Departures'
+  if keyword_set(negative) then $
+     xyouts, /norm, 0.15, 0.85, 'Negative Departures'
+
   ;; Put on East/West / front/back labels
   if keyword_set(east) then $
      xyouts, /norm, 0.75, 0.85, 'East'
@@ -368,12 +402,16 @@ print, long_3_hist
 
   ;; Plot a dashed line of the expected statistical value for our
   ;; threshold (in sigma case).  Make sure we divide by 2, since we
-  ;; are only sampling "up" blips
+  ;; are only sampling "up" (or down) blips
   if keyword_set(sigma) then begin
      yaxis = erfc(threshold) / 2. * mean(float(long_3_hist))
      plots, [0,360], yaxis, linestyle=!tok.dashed
      toprint = string(format='("Expected number for threshold = ", F4.1, " sigma")',  + threshold)
-     xyouts, 5, yaxis[0]+0.2, toprint
+     ;; Put label slightly above line
+     above = (!y.crange[1] - !y.crange[0]) / 30.
+     xyouts, 5, yaxis[0]+above, toprint
+     ;; print value as well
+     print, string(format='("Expected number for threshold = ", F4.1, " sigma = ", F4.1)',  + threshold, yaxis)
   endif
 
   ;; Put in plane crossings
