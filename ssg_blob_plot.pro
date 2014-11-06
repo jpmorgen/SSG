@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blob_plot.pro,v 1.2 2014/11/04 00:08:32 jpmorgen Exp $
+; $Id: ssg_blob_plot.pro,v 1.3 2014/11/06 02:47:58 jpmorgen Exp $
 ;
 ; $Log: ssg_blob_plot.pro,v $
+; Revision 1.3  2014/11/06 02:47:58  jpmorgen
+; Getting ready to play with points some more
+;
 ; Revision 1.2  2014/11/04 00:08:32  jpmorgen
 ; Entered in lots of info!
 ;
@@ -80,6 +83,7 @@ pro ssg_blob_plot
   oplot, [5.30786], [348.870], psym=!tok.asterisk
   oplot, [6.22852], [242.791], psym=!tok.square ;; follow model
   oplot, [6.28369], [279.612], psym=!tok.square ;; follow model
+  oplot, [7.38062], [291.28403], psym=!tok.square ;; first point, follow model
   oplot, [7.41333], [313.198], psym=!tok.square
   oplot, [7.43530], [327.741], psym=!tok.square
   ;;oplot, [7.44629], [335.163], psym=!tok.square
@@ -114,6 +118,7 @@ pro ssg_blob_plot
   oplot, [1.37183], [243.227], psym=!tok.psym_x
   oplot, [1.37183], [243.227+360], psym=!tok.psym_x
   oplot, [5.19019], [270.262], psym=!tok.psym_x
+  oplot, [5.25317], [312.30347], psym=!tok.psym_x
   oplot, [6.25024], [257.464], psym=!tok.psym_x
   oplot, [7.40234], [305.937], psym=!tok.psym_x
   oplot, [8.24902], [150.546], psym=!tok.psym_x
@@ -194,33 +199,33 @@ pro ssg_blob_plot
   bl1 = sysIV_III *t + 250.
   oplot, t, bl1, linestyle=!tok.dash_3dot
 
-  ;; See what no drift would look like
-  sysIV_III = 0
-  print, 'Sys IV 10.2hr drift relative to sysIII (degrees/day): ', sysIV_III
-  bl1 = sysIV_III *t + 345
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 310.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 280.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 250.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 200.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 180.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 160.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 140.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 130.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 75.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 40.
-  oplot, t, bl1, linestyle=!tok.long_dash
-  bl1 = sysIV_III *t + 10.
-  oplot, t, bl1, linestyle=!tok.long_dash
+  ;;;; See what no drift would look like
+  ;;sysIV_III = 0
+  ;;print, 'Sys IV 10.2hr drift relative to sysIII (degrees/day): ', sysIV_III
+  ;;bl1 = sysIV_III *t + 345
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 310.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 280.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 250.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 215.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 180.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 160.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 140.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 130.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 75.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 40.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
+  ;;bl1 = sysIV_III *t + 10.
+  ;;oplot, t, bl1, linestyle=!tok.long_dash
 
 
 
