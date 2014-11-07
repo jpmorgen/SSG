@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blob_plot.pro,v 1.3 2014/11/06 02:47:58 jpmorgen Exp $
+; $Id: ssg_blob_plot.pro,v 1.4 2014/11/07 14:04:16 jpmorgen Exp $
 ;
 ; $Log: ssg_blob_plot.pro,v $
+; Revision 1.4  2014/11/07 14:04:16  jpmorgen
+; Perhaps a more unbias census
+;
 ; Revision 1.3  2014/11/06 02:47:58  jpmorgen
 ; Getting ready to play with points some more
 ;
@@ -46,7 +49,7 @@
 ; Initial revision
 ;
 ;-
-pro ssg_blob_plot
+pro ssg_blob_plot, sysIV=sysIV, zero=zero
 
   init = {tok_sysvar}
   ;; t = findgen(100)/10.* 3600.*24
@@ -61,22 +64,22 @@ pro ssg_blob_plot
         xstyle=!tok.exact, ystyle=!tok.exact, $
         xtitle='Day of 1998-10', $
         ytitle='system III longitude of Io'
-  oplot, [1.18384], [117.951], psym=!tok.square
-  oplot, [1.18384], [117.951+360], psym=!tok.square
-  oplot, [1.21680], [139.875], psym=!tok.square
-  oplot, [1.21680], [139.875+360], psym=!tok.square
-  oplot, [1.33887], [221.32239], psym=!tok.square
-  oplot, [1.33887], [221.32239+360], psym=!tok.square
-  oplot, [1.36084], [235.83527], psym=!tok.square
-  oplot, [1.36084], [235.83527+360], psym=!tok.square
-  oplot, [1.39355], [257.74933], psym=!tok.square
-  oplot, [1.39355], [257.74933+360], psym=!tok.square
-  oplot, [1.45996], [302.113], psym=!tok.square
-  oplot, [1.45996], [302.113+360], psym=!tok.square
-  oplot, [5.34082], [10.634+360], psym=!tok.square
-  oplot, [5.34082], [10.634], psym=!tok.square
-  oplot, [5.38232], [38.4062+360], psym=!tok.square
-  oplot, [5.38232], [38.4062], psym=!tok.square
+  oplot, [1.18384], [117.951], psym=!tok.square ;; single point possibly hight
+  oplot, [1.18384], [117.951+360], psym=!tok.square ;; single point possibly hight
+  oplot, [1.21680], [139.875], psym=!tok.square ;; single point
+  oplot, [1.21680], [139.875+360], psym=!tok.square ;; single point, large excursion
+  oplot, [1.33887], [221.32239], psym=!tok.square ;; broad peak 
+  oplot, [1.33887], [221.32239+360], psym=!tok.square ;; broad peak 
+  ;;oplot, [1.36084], [235.83527], psym=!tok.square ;; single point, low statistic
+  ;;oplot, [1.36084], [235.83527+360], psym=!tok.square
+  oplot, [1.39355], [257.74933], psym=!tok.square ;; decent single point statistic
+  oplot, [1.39355], [257.74933+360], psym=!tok.square ;; decent single point statistic
+  oplot, [1.45996], [302.113], psym=!tok.square ;; broad peak
+  oplot, [1.45996], [302.113+360], psym=!tok.square ;; broad peak
+  oplot, [5.34082], [10.634+360], psym=!tok.square ;; two points
+  oplot, [5.34082], [10.634], psym=!tok.square ;; two points
+  oplot, [5.38232], [38.4062+360], psym=!tok.square ;; single point?
+  oplot, [5.38232], [38.4062], psym=!tok.square ;; single point?
   oplot, [5.16846], [255.749], psym=!tok.square ;; follow model
   oplot, [5.21216], [284.925], psym=!tok.asterisk ;; follow model
   ;;oplot, [5.27515], [326.956], psym=!tok.square
@@ -84,32 +87,32 @@ pro ssg_blob_plot
   oplot, [6.22852], [242.791], psym=!tok.square ;; follow model
   oplot, [6.28369], [279.612], psym=!tok.square ;; follow model
   oplot, [7.38062], [291.28403], psym=!tok.square ;; first point, follow model
-  oplot, [7.41333], [313.198], psym=!tok.square
-  oplot, [7.43530], [327.741], psym=!tok.square
+  oplot, [7.41333], [313.198], psym=!tok.square ;; single point
+  ;;oplot, [7.43530], [327.741], psym=!tok.square ;; too small
   ;;oplot, [7.44629], [335.163], psym=!tok.square
   ;;oplot, [8.22705], [135.932], psym=!tok.square
-  oplot, [8.23804], [143.244], psym=!tok.square
-  oplot, [8.26001], [157.998], psym=!tok.square
-  oplot, [8.32642], [202.100], psym=!tok.square
-  oplot, [8.38135], [238.829], psym=!tok.square
+  oplot, [8.23804], [143.244], psym=!tok.square ;; decent single-point, deep valley
+  oplot, [8.26001], [157.998], psym=!tok.square ;; possible broad peak
+  oplot, [8.32642], [202.100], psym=!tok.square ;; edge
+  ;;oplot, [8.38135], [238.829], psym=!tok.square ;; too small
   ;;oplot, [8.40332], [253.423], psym=!tok.square
   oplot, [8.43750], [276.296], psym=!tok.asterisk
-  oplot, [9.12061], [11.9574], psym=!tok.square
-  oplot, [9.19775], [63.3403], psym=!tok.square
-  oplot, [9.21973], [78.113983], psym=!tok.square
+  oplot, [9.12061], [11.9574], psym=!tok.square ;; isolated 1st point
+  oplot, [9.19775], [63.3403], psym=!tok.square ;; possible peak, bad stats
+  oplot, [9.21973], [78.113983], psym=!tok.square ;; isolated point, maybe peak is here
   oplot, [9.29712], [129.780], psym=!tok.asterisk
-;;  oplot, [9.33008], [151.684], psym=!tok.square
-  oplot, [9.39844], [197.321], psym=!tok.square
+;;  oplot, [9.33008], [151.684], psym=!tok.square ;; single perturbation
+  ;;oplot, [9.39844], [197.321], psym=!tok.square ;; possibly just part of larger peak
   oplot, [9.42041], [211.974], psym=!tok.asterisk
-  oplot, [10.0967], [302.981], psym=!tok.square
-  oplot, [10.1624], [346.820], psym=!tok.square
-  oplot, [10.1843], [1.47404], psym=!tok.asterisk
-  oplot, [10.2898], [71.751190], psym=!tok.square
-  oplot, [10.3115], [86.2841], psym=!tok.asterisk
-  oplot, [10.3335], [100.947], psym=!tok.square
-  oplot, [10.3560], [115.944], psym=!tok.square
-  oplot, [10.3789], [131.13318], psym=!tok.square
-  oplot, [10.4226], [160.319], psym=!tok.square
+  oplot, [10.0967], [302.981], psym=!tok.square ;; not a sharp blob, follow model
+  ;;oplot, [10.1624], [346.820], psym=!tok.square ;; Too low sig
+  oplot, [10.1843], [1.47404], psym=!tok.square ;; two points
+  ;;oplot, [10.2898], [71.751190], psym=!tok.square
+  oplot, [10.3115], [86.2841], psym=!tok.square ;; single point
+  ;;oplot, [10.3335], [100.947], psym=!tok.square
+  ;;oplot, [10.3560], [115.944], psym=!tok.square
+  ;;oplot, [10.3789], [131.13318], psym=!tok.square
+  ;;oplot, [10.4226], [160.319], psym=!tok.square
   oplot, [10.4558], [182.525], psym=!tok.square
 
   ;; Unexpected lows
@@ -169,64 +172,66 @@ pro ssg_blob_plot
   print, 'Blib period (hr): ', 1./(1./sysIII + sysIV_III/360./24)
   ;; 10.9 hr, which is a bit long for system IV
 
-  ;; See what a more typical sysIV period would look like
-  sysIV_III = (1./10.21 - 1./sysIII) *24. *360 ;; deg/day
-  print, 'Sys IV 10.2hr drift relative to sysIII (degrees/day): ', sysIV_III
-  bl1 = sysIV_III *t + 595
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 550
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 530
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 500.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 480.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 440.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 425.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 405.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 380.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 360.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 340.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 290.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-  bl1 = sysIV_III *t + 250.
-  oplot, t, bl1, linestyle=!tok.dash_3dot
-
-  ;;;; See what no drift would look like
-  ;;sysIV_III = 0
-  ;;print, 'Sys IV 10.2hr drift relative to sysIII (degrees/day): ', sysIV_III
-  ;;bl1 = sysIV_III *t + 345
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 310.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 280.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 250.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 215.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 180.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 160.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 140.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 130.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 75.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 40.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-  ;;bl1 = sysIV_III *t + 10.
-  ;;oplot, t, bl1, linestyle=!tok.long_dash
-
+  if keyword_set(sysIV) then begin
+     ;; See what a more typical sysIV period would look like
+     sysIV_III = (1./10.21 - 1./sysIII) *24. *360 ;; deg/day
+     print, 'Sys IV 10.2hr drift relative to sysIII (degrees/day): ', sysIV_III
+     ;;bl1 = sysIV_III *t + 595
+     ;;oplot, t, bl1, linestyle=!tok.dash_3dot
+     ;;bl1 = sysIV_III *t + 550
+     ;;oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 530
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 500.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 480.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 440.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     ;;bl1 = sysIV_III *t + 425.
+     ;;oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 405.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 380.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 360.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 340.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 290.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 250.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+  endif
+  if keyword_set(zero) then begin
+     ;; See what no drift would look like
+     sysIV_III = 0
+     print, 'Sys IV 10.2hr drift relative to sysIII (degrees/day): ', sysIV_III
+     bl1 = sysIV_III *t + 345
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 310.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 280.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 250.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 215.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 180.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 160.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 140.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     ;;bl1 = sysIV_III *t + 130.
+     ;;oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 75.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 40.
+     oplot, t, bl1, linestyle=!tok.long_dash
+     bl1 = sysIV_III *t + 10.
+     oplot, t, bl1, linestyle=!tok.long_dash
+  endif
 
 
 
