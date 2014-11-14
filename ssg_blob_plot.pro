@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blob_plot.pro,v 1.4 2014/11/07 14:04:16 jpmorgen Exp $
+; $Id: ssg_blob_plot.pro,v 1.5 2014/11/14 17:53:43 jpmorgen Exp $
 ;
 ; $Log: ssg_blob_plot.pro,v $
+; Revision 1.5  2014/11/14 17:53:43  jpmorgen
+; Changing dots
+;
 ; Revision 1.4  2014/11/07 14:04:16  jpmorgen
 ; Perhaps a more unbias census
 ;
@@ -49,7 +52,7 @@
 ; Initial revision
 ;
 ;-
-pro ssg_blob_plot, sysIV=sysIV, zero=zero
+pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
 
   init = {tok_sysvar}
   ;; t = findgen(100)/10.* 3600.*24
@@ -57,108 +60,224 @@ pro ssg_blob_plot, sysIV=sysIV, zero=zero
   ;; cirrange, sysIII_ang
   ;; print, sysIII_ang
 
-  ;; Plot peaks of "departure events"
-  plot, [0,0], psym=dot, $
-        xrange=[1,11], yrange=[-10,600], $
-        ytickinterval=90, yminor=9, $
-        xstyle=!tok.exact, ystyle=!tok.exact, $
-        xtitle='Day of 1998-10', $
-        ytitle='system III longitude of Io'
-  oplot, [1.18384], [117.951], psym=!tok.square ;; single point possibly hight
-  oplot, [1.18384], [117.951+360], psym=!tok.square ;; single point possibly hight
-  oplot, [1.21680], [139.875], psym=!tok.square ;; single point
-  oplot, [1.21680], [139.875+360], psym=!tok.square ;; single point, large excursion
-  oplot, [1.33887], [221.32239], psym=!tok.square ;; broad peak 
-  oplot, [1.33887], [221.32239+360], psym=!tok.square ;; broad peak 
-  ;;oplot, [1.36084], [235.83527], psym=!tok.square ;; single point, low statistic
-  ;;oplot, [1.36084], [235.83527+360], psym=!tok.square
-  oplot, [1.39355], [257.74933], psym=!tok.square ;; decent single point statistic
-  oplot, [1.39355], [257.74933+360], psym=!tok.square ;; decent single point statistic
-  oplot, [1.45996], [302.113], psym=!tok.square ;; broad peak
-  oplot, [1.45996], [302.113+360], psym=!tok.square ;; broad peak
-  oplot, [5.34082], [10.634+360], psym=!tok.square ;; two points
-  oplot, [5.34082], [10.634], psym=!tok.square ;; two points
-  oplot, [5.38232], [38.4062+360], psym=!tok.square ;; single point?
-  oplot, [5.38232], [38.4062], psym=!tok.square ;; single point?
-  oplot, [5.16846], [255.749], psym=!tok.square ;; follow model
-  oplot, [5.21216], [284.925], psym=!tok.asterisk ;; follow model
-  ;;oplot, [5.27515], [326.956], psym=!tok.square
-  oplot, [5.30786], [348.870], psym=!tok.asterisk
-  oplot, [6.22852], [242.791], psym=!tok.square ;; follow model
-  oplot, [6.28369], [279.612], psym=!tok.square ;; follow model
-  oplot, [7.38062], [291.28403], psym=!tok.square ;; first point, follow model
-  oplot, [7.41333], [313.198], psym=!tok.square ;; single point
-  ;;oplot, [7.43530], [327.741], psym=!tok.square ;; too small
-  ;;oplot, [7.44629], [335.163], psym=!tok.square
-  ;;oplot, [8.22705], [135.932], psym=!tok.square
-  oplot, [8.23804], [143.244], psym=!tok.square ;; decent single-point, deep valley
-  oplot, [8.26001], [157.998], psym=!tok.square ;; possible broad peak
-  oplot, [8.32642], [202.100], psym=!tok.square ;; edge
-  ;;oplot, [8.38135], [238.829], psym=!tok.square ;; too small
-  ;;oplot, [8.40332], [253.423], psym=!tok.square
-  oplot, [8.43750], [276.296], psym=!tok.asterisk
-  oplot, [9.12061], [11.9574], psym=!tok.square ;; isolated 1st point
-  oplot, [9.19775], [63.3403], psym=!tok.square ;; possible peak, bad stats
-  oplot, [9.21973], [78.113983], psym=!tok.square ;; isolated point, maybe peak is here
-  oplot, [9.29712], [129.780], psym=!tok.asterisk
-;;  oplot, [9.33008], [151.684], psym=!tok.square ;; single perturbation
-  ;;oplot, [9.39844], [197.321], psym=!tok.square ;; possibly just part of larger peak
-  oplot, [9.42041], [211.974], psym=!tok.asterisk
-  oplot, [10.0967], [302.981], psym=!tok.square ;; not a sharp blob, follow model
-  ;;oplot, [10.1624], [346.820], psym=!tok.square ;; Too low sig
-  oplot, [10.1843], [1.47404], psym=!tok.square ;; two points
-  ;;oplot, [10.2898], [71.751190], psym=!tok.square
-  oplot, [10.3115], [86.2841], psym=!tok.square ;; single point
-  ;;oplot, [10.3335], [100.947], psym=!tok.square
-  ;;oplot, [10.3560], [115.944], psym=!tok.square
-  ;;oplot, [10.3789], [131.13318], psym=!tok.square
-  ;;oplot, [10.4226], [160.319], psym=!tok.square
-  oplot, [10.4558], [182.525], psym=!tok.square
+  ;; Initialize postscipt output
+  if keyword_set(ps) then begin
+     ;; Be polite, but get the line thicknesses we need for PS output
+     oPthick     = !P.thick
+     oPcharsize  = !P.charsize
+     oPcharthick = !P.charthick
+     oXthick     = !X.thick
+     oYthick     = !Y.thick
 
-  ;; Unexpected lows
-  oplot, [1.28247], [183.553], psym=!tok.psym_x
-  oplot, [1.28247], [183.553+360], psym=!tok.psym_x
-  oplot, [1.37183], [243.227], psym=!tok.psym_x
-  oplot, [1.37183], [243.227+360], psym=!tok.psym_x
-  oplot, [5.19019], [270.262], psym=!tok.psym_x
-  oplot, [5.25317], [312.30347], psym=!tok.psym_x
-  oplot, [6.25024], [257.464], psym=!tok.psym_x
-  oplot, [7.40234], [305.937], psym=!tok.psym_x
-  oplot, [8.24902], [150.546], psym=!tok.psym_x
-  oplot, [8.33740], [209.402], psym=!tok.psym_x
-  oplot, [8.41431], [260.755], psym=!tok.psym_x
-  oplot, [9.40942], [204.583], psym=!tok.psym_x
-  oplot, [9.37671], [182.819], psym=!tok.psym_x
-  oplot, [10.4448], [175.114], psym=!tok.psym_x
+     !P.thick = 3
+     !P.charsize = 1.5
+     !P.charthick = 2
+     !X.thick = 2
+     !Y.thick = 2      
+     if size(ps, /TNAME) ne 'STRING' then $
+       ps = 'ssg_blop_plot_out.eps'
+     set_plot, 'ps'
+     device, /portrait, filename=ps, /encap
+  endif
 
-  ;; Plot usable points
+  ;; Find points in sequence of data taken starting 1998-10-1, which is shown in Oliversen et al. (2001)
   dbopen,'io6300_integrated'
   entries = dbfind("obj_code=1", dbfind("intensity>0.05", $
                    dbfind("nday>3195", dbfind("nday<3220"))))
   dbext, entries, 'nday, LONG_3, intensity, err_intensity', $
          mndays, mLONG_3, mintensities, merr_intensities
   dbclose
-  dayo = mndays-3194
+  dayo0 = 3194.
+  dayo = mndays-dayo0
+
+  ;; Generate finding table
+  cirrange, mlong_3
+  for i=0,N_elements(dayo)-1 do print, dayo[i], mlong_3[i]
+
+  ;; Make plot from data table
+  plot, [0,0], psym=dot, $
+        xrange=[1,11], yrange=[-10,720], $
+        ytickinterval=90, yminor=9, $
+        xstyle=!tok.exact, ystyle=!tok.exact, $
+        xtitle='Day of 1998-10', $
+        ytitle='system III longitude of Io'
+
+  ;; Generate table of events
+  dayob =         1.18384  & sysIIIb =           117.951  & psymb =         !tok.square    ;; single point possibly hight
+  dayob = [dayob, 1.21680] & sysIIIb = [sysIIIb, 139.875] & psymb = [psymb, !tok.square  ] ;; single point
+  dayob = [dayob, 1.33887] & sysIIIb = [sysIIIb, 221.322] & psymb = [psymb, !tok.square  ] ;; broad peak 
+  dayob = [dayob, 1.39355] & sysIIIb = [sysIIIb, 257.749] & psymb = [psymb, !tok.square  ] ;; decent single point statistic
+  dayob = [dayob, 1.45996] & sysIIIb = [sysIIIb, 302.113] & psymb = [psymb, !tok.square  ] ;; broad peak
+  dayob = [dayob, 5.16846] & sysIIIb = [sysIIIb, 255.749] & psymb = [psymb, !tok.square  ] ;; follow model
+  dayob = [dayob, 5.21216] & sysIIIb = [sysIIIb, 284.925] & psymb = [psymb, !tok.asterisk] ;; follow model
+  dayob = [dayob, 5.30786] & sysIIIb = [sysIIIb, 348.870] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 5.34082] & sysIIIb = [sysIIIb,  10.634] & psymb = [psymb, !tok.square  ] ;; two points
+  dayob = [dayob, 5.38232] & sysIIIb = [sysIIIb, 38.4062] & psymb = [psymb, !tok.square  ] ;; single point?
+  dayob = [dayob, 6.22852] & sysIIIb = [sysIIIb, 242.791] & psymb = [psymb, !tok.square  ] ;; follow model
+  dayob = [dayob, 6.28369] & sysIIIb = [sysIIIb, 279.612] & psymb = [psymb, !tok.square  ] ;; follow model
+  dayob = [dayob, 7.38062] & sysIIIb = [sysIIIb, 291.284] & psymb = [psymb, !tok.square  ] ;; first point, follow model
+  dayob = [dayob, 7.41333] & sysIIIb = [sysIIIb, 313.198] & psymb = [psymb, !tok.square  ] ;; single point
+  dayob = [dayob, 8.23804] & sysIIIb = [sysIIIb, 143.244] & psymb = [psymb, !tok.square  ] ;; decent single-point, deep valley
+  dayob = [dayob, 8.26001] & sysIIIb = [sysIIIb, 157.998] & psymb = [psymb, !tok.square  ] ;; possible broad peak
+  dayob = [dayob, 8.32642] & sysIIIb = [sysIIIb, 202.100] & psymb = [psymb, !tok.square  ] ;; edge
+  dayob = [dayob, 8.43750] & sysIIIb = [sysIIIb, 276.296] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 9.12061] & sysIIIb = [sysIIIb, 11.9574] & psymb = [psymb, !tok.square  ] ;; isolated 1st point
+  dayob = [dayob, 9.19775] & sysIIIb = [sysIIIb, 63.3403] & psymb = [psymb, !tok.square  ] ;; possible peak, bad stats
+  dayob = [dayob, 9.21973] & sysIIIb = [sysIIIb, 78.1139] & psymb = [psymb, !tok.square  ] ;; isolated point, maybe peak is here
+  dayob = [dayob, 9.29712] & sysIIIb = [sysIIIb, 129.780] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 9.42041] & sysIIIb = [sysIIIb, 211.974] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 10.0967] & sysIIIb = [sysIIIb, 302.981] & psymb = [psymb, !tok.square  ] ;; not a sharp blob, follow model
+  dayob = [dayob, 10.1843] & sysIIIb = [sysIIIb, 1.47404] & psymb = [psymb, !tok.square  ] ;; two points
+  dayob = [dayob, 10.3115] & sysIIIb = [sysIIIb, 86.2841] & psymb = [psymb, !tok.square  ] ;; single point
+  dayob = [dayob, 10.4558] & sysIIIb = [sysIIIb, 182.525] & psymb = [psymb, !tok.square  ]
+
+  ;; Unexpected lows
+  dayob = [dayob, 1.37183] & sysIIIb = [sysIIIb, 243.227] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 5.19019] & sysIIIb = [sysIIIb, 270.262] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 5.25317] & sysIIIb = [sysIIIb, 312.303] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 6.25024] & sysIIIb = [sysIIIb, 257.464] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 7.40234] & sysIIIb = [sysIIIb, 305.937] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 8.24902] & sysIIIb = [sysIIIb, 150.546] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 8.33740] & sysIIIb = [sysIIIb, 209.402] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 9.40942] & sysIIIb = [sysIIIb, 204.583] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 9.37671] & sysIIIb = [sysIIIb, 182.819] & psymb = [psymb, !tok.psym_x  ]
+  dayob = [dayob, 10.4448] & sysIIIb = [sysIIIb, 175.114] & psymb = [psymb, !tok.psym_x  ]
+
+  ;; Plot points
+  ;; psym doesn't take a vector argument
+  for ib=0, N_elements(dayob)-1 do begin
+     oplot, [dayob[ib]], [sysIIIb[ib]], psym=psymb[ib]
+  endfor
+
+  ;; Plot next cycle for select days
+  wrap_idx = where(dayob lt 2)
+  wrap_idx2 = where((dayob gt 4 and dayob lt 7) $
+                   and sysIIIb lt 150)
+  wrap_idx = [wrap_idx, wrap_idx2]
+  for ib=0, N_elements(wrap_idx)-1 do begin
+     oplot, [dayob[wrap_idx[ib]]], [sysIIIb[wrap_idx[ib]]]+360, psym=psymb[wrap_idx[ib]]
+  endfor
+
+  ;; Print table in LaTeX format
+  UT = nday2date(dayo0 + dayob)
+  etype = make_array(N_elements(dayob), value='peak')
+  big_idx = where(psymb eq !tok.asterisk)
+  etype[big_idx] = 'large peak'
+  dip_idx = where(psymb eq !tok.psym_x)
+  etype[dip_idx] = 'sharp dip'
+  ;; Sort in day order
+  sidx = sort(dayob)
+  for ib=0, N_elements(dayob)-1 do begin
+     UTarr = strsplit(UT[sidx[ib]], 'T', /extract)
+     print, UTarr[0], ' & ', UTarr[1], ' & ',  sysIIIb[sidx[ib]], ' & ', etype[sidx[ib]], ' \\'
+  endfor
+
+
+  ;; Plot usable points (note, no "b" in dayo, these are all of the points)
   wrap_idx = where(dayo lt 2)
   ;; Plot both wrapped and unwrapped
-  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot
+  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot, symsize=10
   mLONG_3[wrap_idx] += 360
   wrap_idx = where((dayo gt 4 and dayo lt 7) $
                    and mLONG_3 lt 150)
-  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot
+  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot, symsize=10
   mLONG_3[wrap_idx] += 360
-  oplot, dayo, mLONG_3, psym=!tok.dot
+  oplot, dayo, mLONG_3, psym=!tok.dot, symsize=10
 
-  ;; Plot trend lines
+  ;;;; Plot peaks of "departure events"
+  ;;plot, [0,0], psym=dot, $
+  ;;      xrange=[1,11], yrange=[-10,600], $
+  ;;      ytickinterval=90, yminor=9, $
+  ;;      xstyle=!tok.exact, ystyle=!tok.exact, $
+  ;;      xtitle='Day of 1998-10', $
+  ;;      ytitle='system III longitude of Io'
+  ;;oplot, [1.18384], [117.951], psym=!tok.square ;; single point possibly hight
+  ;;oplot, [1.18384], [117.951+360], psym=!tok.square ;; single point possibly hight
+  ;;oplot, [1.21680], [139.875], psym=!tok.square ;; single point
+  ;;oplot, [1.21680], [139.875+360], psym=!tok.square ;; single point, large excursion
+  ;;oplot, [1.33887], [221.32239], psym=!tok.square ;; broad peak 
+  ;;oplot, [1.33887], [221.32239+360], psym=!tok.square ;; broad peak 
+  ;;;;oplot, [1.36084], [235.83527], psym=!tok.square ;; single point, low statistic
+  ;;;;oplot, [1.36084], [235.83527+360], psym=!tok.square
+  ;;oplot, [1.39355], [257.74933], psym=!tok.square ;; decent single point statistic
+  ;;oplot, [1.39355], [257.74933+360], psym=!tok.square ;; decent single point statistic
+  ;;oplot, [1.45996], [302.113], psym=!tok.square ;; broad peak
+  ;;oplot, [1.45996], [302.113+360], psym=!tok.square ;; broad peak
+  ;;oplot, [5.34082], [10.634], psym=!tok.square ;; two points
+  ;;oplot, [5.34082], [10.634+360], psym=!tok.square ;; two points
+  ;;oplot, [5.38232], [38.4062], psym=!tok.square ;; single point?
+  ;;oplot, [5.38232], [38.4062+360], psym=!tok.square ;; single point?
+  ;;oplot, [5.16846], [255.749], psym=!tok.square ;; follow model
+  ;;oplot, [5.21216], [284.925], psym=!tok.asterisk ;; follow model
+  ;;;;oplot, [5.27515], [326.956], psym=!tok.square
+  ;;oplot, [5.30786], [348.870], psym=!tok.asterisk
+  ;;oplot, [6.22852], [242.791], psym=!tok.square ;; follow model
+  ;;oplot, [6.28369], [279.612], psym=!tok.square ;; follow model
+  ;;oplot, [7.38062], [291.28403], psym=!tok.square ;; first point, follow model
+  ;;oplot, [7.41333], [313.198], psym=!tok.square ;; single point
+  ;;;;oplot, [7.43530], [327.741], psym=!tok.square ;; too small
+  ;;;;oplot, [7.44629], [335.163], psym=!tok.square
+  ;;;;oplot, [8.22705], [135.932], psym=!tok.square
+  ;;oplot, [8.23804], [143.244], psym=!tok.square ;; decent single-point, deep valley
+  ;;oplot, [8.26001], [157.998], psym=!tok.square ;; possible broad peak
+  ;;oplot, [8.32642], [202.100], psym=!tok.square ;; edge
+  ;;;;oplot, [8.38135], [238.829], psym=!tok.square ;; too small
+  ;;;;oplot, [8.40332], [253.423], psym=!tok.square
+  ;;oplot, [8.43750], [276.296], psym=!tok.asterisk
+  ;;oplot, [9.12061], [11.9574], psym=!tok.square ;; isolated 1st point
+  ;;oplot, [9.19775], [63.3403], psym=!tok.square ;; possible peak, bad stats
+  ;;oplot, [9.21973], [78.113983], psym=!tok.square ;; isolated point, maybe peak is here
+  ;;oplot, [9.29712], [129.780], psym=!tok.asterisk
+;;;;  oplot, [9.33008], [151.684], psym=!tok.square ;; single perturbation
+  ;;;;oplot, [9.39844], [197.321], psym=!tok.square ;; possibly just part of larger peak
+  ;;oplot, [9.42041], [211.974], psym=!tok.asterisk
+  ;;oplot, [10.0967], [302.981], psym=!tok.square ;; not a sharp blob, follow model
+  ;;;;oplot, [10.1624], [346.820], psym=!tok.square ;; Too low sig
+  ;;oplot, [10.1843], [1.47404], psym=!tok.square ;; two points
+  ;;;;oplot, [10.2898], [71.751190], psym=!tok.square
+  ;;oplot, [10.3115], [86.2841], psym=!tok.square ;; single point
+  ;;;;oplot, [10.3335], [100.947], psym=!tok.square
+  ;;;;oplot, [10.3560], [115.944], psym=!tok.square
+  ;;;;oplot, [10.3789], [131.13318], psym=!tok.square
+  ;;;;oplot, [10.4226], [160.319], psym=!tok.square
+  ;;oplot, [10.4558], [182.525], psym=!tok.square
+  ;;
+  ;;;; Unexpected lows
+  ;;;;oplot, [1.28247], [183.553], psym=!tok.psym_x
+  ;;;;oplot, [1.28247], [183.553+360], psym=!tok.psym_x
+  ;;oplot, [1.37183], [243.227], psym=!tok.psym_x
+  ;;oplot, [1.37183], [243.227+360], psym=!tok.psym_x
+  ;;oplot, [5.19019], [270.262], psym=!tok.psym_x
+  ;;oplot, [5.25317], [312.30347], psym=!tok.psym_x
+  ;;oplot, [6.25024], [257.464], psym=!tok.psym_x
+  ;;oplot, [7.40234], [305.937], psym=!tok.psym_x
+  ;;oplot, [8.24902], [150.546], psym=!tok.psym_x
+  ;;oplot, [8.33740], [209.402], psym=!tok.psym_x
+  ;;;;oplot, [8.41431], [260.755], psym=!tok.psym_x ;; single point
+  ;;oplot, [9.40942], [204.583], psym=!tok.psym_x
+  ;;oplot, [9.37671], [182.819], psym=!tok.psym_x
+  ;;oplot, [10.4448], [175.114], psym=!tok.psym_x
+  ;;
+  ;;;; Unexpected lows
+  ;;;;oplot, [1.28247], [183.553], psym=!tok.psym_x
+  ;;;;oplot, [1.28247], [183.553+360], psym=!tok.psym_x
+  ;;oplot, [1.37183], [243.227], psym=!tok.psym_x
+  ;;oplot, [1.37183], [243.227+360], psym=!tok.psym_x
+  ;;oplot, [5.19019], [270.262], psym=!tok.psym_x
+  ;;oplot, [5.25317], [312.30347], psym=!tok.psym_x
+  ;;oplot, [6.25024], [257.464], psym=!tok.psym_x
+  ;;oplot, [7.40234], [305.937], psym=!tok.psym_x
+  ;;oplot, [8.24902], [150.546], psym=!tok.psym_x
+  ;;oplot, [8.33740], [209.402], psym=!tok.psym_x
+  ;;;;oplot, [8.41431], [260.755], psym=!tok.psym_x ;; single point
+  ;;oplot, [9.40942], [204.583], psym=!tok.psym_x
+  ;;oplot, [9.37671], [182.819], psym=!tok.psym_x
+  ;;oplot, [10.4448], [175.114], psym=!tok.psym_x
+
+
+  ;; Prepare to plot trend lines
   sysIV_III = -600./11 ;; deg per day
   t = findgen(100)/10. + 1
-;;  bl1 = sysIV_III *t + 640.
-;;  oplot, t, bl1, linestyle=!tok.dashed
-;;  bl2 = sysIV_III *t + 735.
-;;  oplot, t, bl2, linestyle=!tok.dashed
-;;  bl3 = sysIV_III *t + 560.
-;;  oplot, t, bl3, linestyle=!tok.dashed
-
 
   print, 'Blob slip relative to sys III per day (degrees/day): ', sysIV_III
   print, 'Blob slip relative to sys III per day (cycles/day): ', sysIV_III/360.
@@ -203,6 +322,30 @@ pro ssg_blob_plot, sysIV=sysIV, zero=zero
      bl1 = sysIV_III *t + 250.
      oplot, t, bl1, linestyle=!tok.dash_3dot
   endif
+
+  if keyword_set(sys42) then begin
+     ;; See what a more typical sysIV period would look like
+     sysIV_III = (1./10.21 - 1./sysIII) *24. *360 ;; deg/day
+     bl1 = 2*sysIV_III *t + 730
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 680
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 650
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 595
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 560
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 540
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 520
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 500
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 450
+     oplot, t, bl1, linestyle=!tok.dashed
+  endif
+
   if keyword_set(zero) then begin
      ;; See what no drift would look like
      sysIV_III = 0
@@ -233,27 +376,16 @@ pro ssg_blob_plot, sysIV=sysIV, zero=zero
      oplot, t, bl1, linestyle=!tok.long_dash
   endif
 
+  if keyword_set(ps) then begin
+     device,/close
+     set_plot, 'x' 
+     !P.thick     = oPthick    
+     !P.charsize  = oPcharsize 
+     !P.charthick = oPcharthick
+     !X.thick     = oXthick    
+     !Y.thick     = oYthick    
+  endif
 
-
- ;;  window, 1
- ;;
- ;;  o4_idx = where(floor(dayo) eq 4)
- ;;  plot, mLONG_3[o4_idx], mintensities[o4_idx]
- ;;  oploterr, mLONG_3[o4_idx], mintensities[o4_idx], merr_intensities[o4_idx]
-
-
-  ;;
-  ;;  1998-10-1	& 		& 140?, 210? 305?\\
-  ;;1998-10-5	& 		& 345\\
-  ;;1998-10-6	& 		& 285 \\
-  ;;1998-10-7	& 		& - \\
-  ;;1998-10-8	& 		& 140, 235?, 285\\
-  ;;1998-10-9	& 		& 130, 205\\
-  ;;1998-10-10	& 		& 0 \\
-
-  
-  cirrange, mlong_3
-  for i=0,N_elements(dayo)-1 do print, dayo[i], mlong_3[i]
 
 end
 
