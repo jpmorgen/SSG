@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_dispers.pro,v 1.10 2014/03/04 16:54:26 jpmorgen Exp $
+; $Id: ssg_get_dispers.pro,v 1.11 2014/11/20 17:07:47 jpmorgen Exp $
 
 ; ssg_get_dispers.  Use comp lamp spectra to find dispersion relation
 
@@ -214,6 +214,12 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
 
   if NOT keyword_set(atlas) then atlas='/data/phys_par/cal_lamps/thar_list'
   if NOT keyword_set(frac_lines) then frac_lines = 0.6
+  ;; Use an edited Th Ar comp lamp list, since we don't fit all
+  ;; of the small lines
+  ;;if NOT keyword_set(atlas) then atlas='/data/phys_par/cal_lamps/thar_list_edited'
+  ;; With the edited lines, the fraction that end up being strong
+  ;; enough to fit is 1
+  ;;if NOT keyword_set(frac_lines) then frac_lines = 1
   if NOT keyword_set(cutval) then cutval = 3 ; cut for discarding bad lines
   if keyword_set(width_fixed) then begin
      if N_elements(width_fixed) eq 1 then width_fixed = [1,1]
@@ -228,7 +234,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
   ;; Make sure we don't modify any external variables and build up a
   ;; list of defaults coefs politely
   in_disp = disp
-  if N_elements(in_disp) eq 1 then in_disp = [in_disp, 0.03]
+  if N_elements(in_disp) eq 1 then in_disp = [in_disp, 0.028]
   while N_elements(in_disp) lt order+1 do $
     in_disp = [in_disp, 0]
 
