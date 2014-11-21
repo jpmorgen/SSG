@@ -1,12 +1,12 @@
 ;+
-; $Id: ssg_fit2ana.pro,v 1.2 2014/01/31 20:19:11 jpmorgen Exp $
+; $Id: ssg_fit2ana.pro,v 1.3 2014/11/21 02:43:00 jpmorgen Exp $
 
 ; ssg_fit2ana.  Takes information from the fit database and stuffs it
 ; into the analysis database
 
 ;-
 
-pro ssg_fit2ana, nday_start_or_range
+pro ssg_fit2ana, nday_start_or_range, interactive=interactive
 
 
   init = {ssg_sysvar}
@@ -14,21 +14,23 @@ pro ssg_fit2ana, nday_start_or_range
 ;  ON_ERROR, 2
   oldpriv=!priv
   !priv = 2
-  CATCH, err
-  if err ne 0 then begin
-     message, /NONAME, !error_state.msg, /CONTINUE
-     message, 'Closing database(s) and exiting gracefully',/CONTINUE
-     dbclose
-     !priv = oldpriv
-     return
-  endif
+  ;;CATCH, err
+  ;;if err ne 0 then begin
+  ;;   message, /NONAME, !error_state.msg, /CONTINUE
+  ;;   message, 'Closing database(s) and exiting gracefully',/CONTINUE
+  ;;   dbclose
+  ;;   !priv = oldpriv
+  ;;   return
+  ;;endif
 
   if NOT keyword_set(nday_start_or_range) then nday_start_or_range=0
 
   c = 299792.458 ;; km/s
 
   message, /CONTINUE, 'Select observations from which to extract Io intensity measurements'
-  ndays=ssg_select(nday_start_or_range, count=count, title='Select spectra to transfer to analysis database')
+  ndays=ssg_select(nday_start_or_range, count=count, $
+                   title='Select spectra to transfer to analysis database', $
+                   non_interactive=(NOT keyword_set(interactive)))
   if count eq 0 then return
   rdbname = 'ssg_reduce'
 ;  fdbname = 'oi_6300_fit'
@@ -37,13 +39,14 @@ pro ssg_fit2ana, nday_start_or_range
 
   ;; Possibly phasing out the fit database in favor of parinfo.sav files
   dbopen, rdbname
-  entries = where_nday_eq(ndays, count=N_ndays, tolerance=0.005)
+  entries = where_nday_eq(ndays, count=N_ndays, tolerance=0.001)
 
   dbext, entries, 'dir, disp_pix, spectrum, spec_err', $
          dirs, disp_pix, spectra, spec_errors
+  dbclose
 
   dbopen, adbname, 0
-  aentries = where_nday_eq(ndays, count=adays, tolerance=0.005)
+  aentries = where_nday_eq(ndays, count=adays, tolerance=0.001)
   if N_ndays ne adays then $
     message, 'ERROR: internal database weirdness'
 
@@ -53,7 +56,7 @@ pro ssg_fit2ana, nday_start_or_range
   endif
 
   ;; Collect things we need for our calculations
-  dbext, aentries, 'delta,r,phi,spa,io_dia', delta, r, phi, sol_pha, io_dia
+  dbext, aentries, 'delta,r,phi,spa,ang_dia', delta, r, phi, sol_pha, io_dia
   ;; Collect arrays for our output results
   dbext, aentries, $
          'deldot_m,err_deldot_m, fline,err_fline, fcont,err_fcont, wc,err_wc', $
@@ -124,7 +127,7 @@ pro ssg_fit2ana, nday_start_or_range
 
         ;; IDL doesn't deal well with the structure in where statements
         test = sparinfo[f_idx].ssg.nday
-        our_nday_idx = where(abs(ndays[inday] - test) lt 0.0001, $
+        our_nday_idx = where(abs(ndays[inday] - test) lt 0.001, $
                              count)
         if count eq 0 then $
           message, 'ERROR: no saved parinfo found for this particular nday'
