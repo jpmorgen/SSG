@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blob_plot.pro,v 1.5 2014/11/14 17:53:43 jpmorgen Exp $
+; $Id: ssg_blob_plot.pro,v 1.6 2014/11/28 15:57:56 jpmorgen Exp $
 ;
 ; $Log: ssg_blob_plot.pro,v $
+; Revision 1.6  2014/11/28 15:57:56  jpmorgen
+; Added some histogram stuff I am still working on
+;
 ; Revision 1.5  2014/11/14 17:53:43  jpmorgen
 ; Changing dots
 ;
@@ -99,7 +102,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
         xrange=[1,11], yrange=[-10,720], $
         ytickinterval=90, yminor=9, $
         xstyle=!tok.exact, ystyle=!tok.exact, $
-        xtitle='Day of 1998-10', $
+        xtitle='!6 Day of 1998-10', $
         ytitle='system III longitude of Io'
 
   ;; Generate table of events
@@ -173,16 +176,27 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
   endfor
 
 
+  ;;;; Plot usable points (note, no "b" in dayo, these are all of the points)
+  ;;wrap_idx = where(dayo lt 2)
+  ;;;; Plot both wrapped and unwrapped
+  ;;oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot, symsize=10
+  ;;mLONG_3[wrap_idx] += 360
+  ;;wrap_idx = where((dayo gt 4 and dayo lt 7) $
+  ;;                 and mLONG_3 lt 150)
+  ;;oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot, symsize=10
+  ;;mLONG_3[wrap_idx] += 360
+  ;;oplot, dayo, mLONG_3, psym=!tok.dot, symsize=10
+
   ;; Plot usable points (note, no "b" in dayo, these are all of the points)
   wrap_idx = where(dayo lt 2)
   ;; Plot both wrapped and unwrapped
-  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot, symsize=10
+  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.square, symsize=0.10
   mLONG_3[wrap_idx] += 360
   wrap_idx = where((dayo gt 4 and dayo lt 7) $
                    and mLONG_3 lt 150)
-  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.dot, symsize=10
+  oplot, dayo[wrap_idx], mLONG_3[wrap_idx], psym=!tok.square, symsize=0.10
   mLONG_3[wrap_idx] += 360
-  oplot, dayo, mLONG_3, psym=!tok.dot, symsize=10
+  oplot, dayo, mLONG_3, psym=!tok.square, symsize=0.10
 
   ;;;; Plot peaks of "departure events"
   ;;plot, [0,0], psym=dot, $
@@ -326,24 +340,28 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
   if keyword_set(sys42) then begin
      ;; See what a more typical sysIV period would look like
      sysIV_III = (1./10.21 - 1./sysIII) *24. *360 ;; deg/day
-     bl1 = 2*sysIV_III *t + 730
+     ;;bl1 = 2*sysIV_III *t + 730
+     ;;oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 690
      oplot, t, bl1, linestyle=!tok.dashed
-     bl1 = 2*sysIV_III *t + 680
+     bl1 = 2*sysIV_III *t + 670
      oplot, t, bl1, linestyle=!tok.dashed
      bl1 = 2*sysIV_III *t + 650
      oplot, t, bl1, linestyle=!tok.dashed
-     bl1 = 2*sysIV_III *t + 595
+     bl1 = 2*sysIV_III *t + 610
+     oplot, t, bl1, linestyle=!tok.dashed
+     bl1 = 2*sysIV_III *t + 585
      oplot, t, bl1, linestyle=!tok.dashed
      bl1 = 2*sysIV_III *t + 560
      oplot, t, bl1, linestyle=!tok.dashed
      bl1 = 2*sysIV_III *t + 540
      oplot, t, bl1, linestyle=!tok.dashed
-     bl1 = 2*sysIV_III *t + 520
+     bl1 = 2*sysIV_III *t + 525
      oplot, t, bl1, linestyle=!tok.dashed
-     bl1 = 2*sysIV_III *t + 500
+     bl1 = 2*sysIV_III *t + 505
      oplot, t, bl1, linestyle=!tok.dashed
-     bl1 = 2*sysIV_III *t + 450
-     oplot, t, bl1, linestyle=!tok.dashed
+     ;;bl1 = 2*sysIV_III *t + 450
+     ;;oplot, t, bl1, linestyle=!tok.dashed
   endif
 
   if keyword_set(zero) then begin
@@ -375,6 +393,22 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      bl1 = sysIV_III *t + 10.
      oplot, t, bl1, linestyle=!tok.long_dash
   endif
+
+  al_legend, ['Peak', 'Large Peak', 'Sharp Dip'], psym=[!tok.square, !tok.asterisk, !tok.psym_x], /norm, pos=[0.65, 0.9], box=0
+  al_legend, ['sysIII', 'sysIV'], linestyle=[!tok.dashed, !tok.dash_3dot], box=0, /norm, pos=[0.65, 0.75], linsize=0.5
+
+  ;; Work on histogram of differences idea.  Just do peaks for now
+  peak_idx = where(psymb ne !tok.psym_x, N_peaks)
+  diff_arr = make_array(N_peaks, N_peaks, value=!values.f_NAN)
+  for i1=0, N_peaks-2 do begin
+     diff_arr[i1, i1+1:N_peaks-1] = dayob[peak_idx[i1+1:N_peaks-1]] - dayob[i1]
+  endfor ; i1
+
+  atv, diff_arr
+  binsize=0.1
+  hist = histogram(diff_arr, binsize=0.1, /NAN)
+  day_axis = indgen(N_elements(hist)) * binsize
+  plot, day_axis, hist
 
   if keyword_set(ps) then begin
      device,/close
