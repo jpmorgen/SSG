@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blob_plot.pro,v 1.6 2014/11/28 15:57:56 jpmorgen Exp $
+; $Id: ssg_blob_plot.pro,v 1.7 2015/01/14 00:30:36 jpmorgen Exp $
 ;
 ; $Log: ssg_blob_plot.pro,v $
+; Revision 1.7  2015/01/14 00:30:36  jpmorgen
+; Tweaked a bit
+;
 ; Revision 1.6  2014/11/28 15:57:56  jpmorgen
 ; Added some histogram stuff I am still working on
 ;
@@ -55,7 +58,9 @@
 ; Initial revision
 ;
 ;-
-pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
+pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
+                   N_freq=N_freq, time_accuracy_minutes=time_accuracy_minutes, $
+                   _EXTRA=extra
 
   init = {tok_sysvar}
   ;; t = findgen(100)/10.* 3600.*24
@@ -103,7 +108,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
         ytickinterval=90, yminor=9, $
         xstyle=!tok.exact, ystyle=!tok.exact, $
         xtitle='!6 Day of 1998-10', $
-        ytitle='system III longitude of Io'
+        ytitle='Io System III Longitude (deg)'
 
   ;; Generate table of events
   dayob =         1.18384  & sysIIIb =           117.951  & psymb =         !tok.square    ;; single point possibly hight
@@ -113,7 +118,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
   dayob = [dayob, 1.45996] & sysIIIb = [sysIIIb, 302.113] & psymb = [psymb, !tok.square  ] ;; broad peak
   dayob = [dayob, 5.16846] & sysIIIb = [sysIIIb, 255.749] & psymb = [psymb, !tok.square  ] ;; follow model
   dayob = [dayob, 5.21216] & sysIIIb = [sysIIIb, 284.925] & psymb = [psymb, !tok.asterisk] ;; follow model
-  dayob = [dayob, 5.30786] & sysIIIb = [sysIIIb, 348.870] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 5.29712] & sysIIIb = [sysIIIb, 341.479] & psymb = [psymb, !tok.asterisk] ;;
   dayob = [dayob, 5.34082] & sysIIIb = [sysIIIb,  10.634] & psymb = [psymb, !tok.square  ] ;; two points
   dayob = [dayob, 5.38232] & sysIIIb = [sysIIIb, 38.4062] & psymb = [psymb, !tok.square  ] ;; single point?
   dayob = [dayob, 6.22852] & sysIIIb = [sysIIIb, 242.791] & psymb = [psymb, !tok.square  ] ;; follow model
@@ -135,16 +140,24 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
   dayob = [dayob, 10.4558] & sysIIIb = [sysIIIb, 182.525] & psymb = [psymb, !tok.square  ]
 
   ;; Unexpected lows
-  dayob = [dayob, 1.37183] & sysIIIb = [sysIIIb, 243.227] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 5.19019] & sysIIIb = [sysIIIb, 270.262] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 5.25317] & sysIIIb = [sysIIIb, 312.303] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 6.25024] & sysIIIb = [sysIIIb, 257.464] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 7.40234] & sysIIIb = [sysIIIb, 305.937] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 8.24902] & sysIIIb = [sysIIIb, 150.546] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 8.33740] & sysIIIb = [sysIIIb, 209.402] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 9.40942] & sysIIIb = [sysIIIb, 204.583] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 9.37671] & sysIIIb = [sysIIIb, 182.819] & psymb = [psymb, !tok.psym_x  ]
-  dayob = [dayob, 10.4448] & sysIIIb = [sysIIIb, 175.114] & psymb = [psymb, !tok.psym_x  ]
+  ;; Carey suggests a little clearer point
+  usersym_def = [[-1, 1], $
+                 [1, 1], $
+                 [0, -1], $
+                 [-1, 1]]
+  usersym, usersym_def
+  dayob = [dayob, 1.37183] & sysIIIb = [sysIIIb, 243.227] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 5.19019] & sysIIIb = [sysIIIb, 270.262] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 5.25317] & sysIIIb = [sysIIIb, 312.303] & psymb = [psymb, !tok.usersym  ]
+  ;dayob = [dayob, 5.31885] & sysIIIb = [sysIIIb, 356.122] & psymb = [psymb,!tok.usersym  ] ;; just one point
+  dayob = [dayob, 6.25024] & sysIIIb = [sysIIIb, 257.464] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 7.40234] & sysIIIb = [sysIIIb, 305.937] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 8.24902] & sysIIIb = [sysIIIb, 150.546] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 8.33740] & sysIIIb = [sysIIIb, 209.402] & psymb = [psymb, !tok.usersym  ] 
+  dayob = [dayob, 8.45947] & sysIIIb = [sysIIIb, 290.930] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 9.40942] & sysIIIb = [sysIIIb, 204.583] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 9.37671] & sysIIIb = [sysIIIb, 182.819] & psymb = [psymb, !tok.usersym  ]
+  dayob = [dayob, 10.4448] & sysIIIb = [sysIIIb, 175.114] & psymb = [psymb, !tok.usersym  ]
 
   ;; Plot points
   ;; psym doesn't take a vector argument
@@ -317,7 +330,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      oplot, t, bl1, linestyle=!tok.dash_3dot
      bl1 = sysIV_III *t + 500.
      oplot, t, bl1, linestyle=!tok.dash_3dot
-     bl1 = sysIV_III *t + 480.
+     bl1 = sysIV_III *t + 475.
      oplot, t, bl1, linestyle=!tok.dash_3dot
      bl1 = sysIV_III *t + 440.
      oplot, t, bl1, linestyle=!tok.dash_3dot
@@ -325,8 +338,8 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      ;;oplot, t, bl1, linestyle=!tok.dash_3dot
      bl1 = sysIV_III *t + 405.
      oplot, t, bl1, linestyle=!tok.dash_3dot
-     bl1 = sysIV_III *t + 380.
-     oplot, t, bl1, linestyle=!tok.dash_3dot
+     ;;bl1 = sysIV_III *t + 380.
+     ;;oplot, t, bl1, linestyle=!tok.dash_3dot
      bl1 = sysIV_III *t + 360.
      oplot, t, bl1, linestyle=!tok.dash_3dot
      bl1 = sysIV_III *t + 340.
@@ -334,6 +347,30 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      bl1 = sysIV_III *t + 290.
      oplot, t, bl1, linestyle=!tok.dash_3dot
      bl1 = sysIV_III *t + 250.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+  endif
+
+  if keyword_set(phased) then begin
+     ;; See what a more typical sysIV period would look like
+     sysIV_III = (1./10.667 - 1./sysIII) *24. *360 ;; deg/day
+     print, 'Sys IV 10.667hr drift relative to sysIII (degrees/day): ', sysIV_III
+     bl1 = sysIV_III *t + 810
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 790
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 750.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 730.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 700.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 660.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 630.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 610.
+     oplot, t, bl1, linestyle=!tok.dash_3dot
+     bl1 = sysIV_III *t + 570.
      oplot, t, bl1, linestyle=!tok.dash_3dot
   endif
 
@@ -394,7 +431,10 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      oplot, t, bl1, linestyle=!tok.long_dash
   endif
 
-  al_legend, ['Peak', 'Large Peak', 'Sharp Dip'], psym=[!tok.square, !tok.asterisk, !tok.psym_x], /norm, pos=[0.65, 0.9], box=0
+  ;; Had a horrible time trying to use usersym.  Ended up using cgsymcat
+  al_legend, ['Peak', 'Large Peak', 'Sharp Dip'], $
+             psym=[!tok.square, !tok.asterisk, 11], $
+             /norm, pos=[0.65, 0.9], box=0
   al_legend, ['sysIII', 'sysIV'], linestyle=[!tok.dashed, !tok.dash_3dot], box=0, /norm, pos=[0.65, 0.75], linsize=0.5
 
   ;; Work on histogram of differences idea.  Just do peaks for now
@@ -404,11 +444,66 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      diff_arr[i1, i1+1:N_peaks-1] = dayob[peak_idx[i1+1:N_peaks-1]] - dayob[i1]
   endfor ; i1
 
-  atv, diff_arr
-  binsize=0.1
-  hist = histogram(diff_arr, binsize=0.1, /NAN)
-  day_axis = indgen(N_elements(hist)) * binsize
-  plot, day_axis, hist
+  ;;atv, diff_arr
+
+  ;; This wasn't too successful: it just showed me that things
+  ;; were taken on different days
+  ;;binsize=0.1
+  ;;hist = histogram(diff_arr, binsize=0.1, /NAN)
+  ;;day_axis = indgen(N_elements(hist)) * binsize
+  ;;plot, day_axis, hist
+
+  ;; Try to generate a basic power spectrum using multiples of
+  ;; frequencies
+  min_freq = 1./max(diff_arr, /NAN)
+  max_freq = 1./min(diff_arr, /NAN)
+  if NOT keyword_set(N_freq) then $
+     N_freq = 1500
+  ;; Minimum timing accuracy of lining up peaks is 20 minutes.
+  ;; Slighly longer gives a peak near 1/day
+  if NOT keyword_set(time_accuracy_minutes) then $
+     time_accuracy_minutes = 60.
+  time_accuracy_day = time_accuracy_minutes / 60. / 24.
+  freq_arr = min_freq + findgen(N_freq)/N_freq * (max_freq - min_freq)
+  hit_array = make_array(N_freq, value=0)
+
+  ;; We have a "deadband" or timing accuracy of 20 minutes, maybe
+  ;; 40 (see above for assignments) within which it is reasonable
+  ;; to assume we have a "hit"
+  cycle_accuracy = time_accuracy_day * freq_arr
+  ;; As frequency increases, this cycle accuracy erodes the ability of
+  ;; the algorithm to separate different distances into different bins
+  ;; until at 0.5, all distances match.  A back-of-the-envelope correction,
+  ;; which I still don't quite have a good feeling for/about,
+  ;; is to simply subtract the line
+  bad_idx = where(cycle_accuracy gt 0.5, count)
+  if count gt 0 then $
+     cycle_accuracy[bad_idx] = 0.5
+  junk = where(finite(diff_arr), N_diffs)
+  hit_fix = cycle_accuracy*N_diffs*2
+
+  for i_freq=0, N_freq-1 do begin
+     ;; Compute number of cycles between each set of two points for
+     ;; this frequency.  This will be a real number.  
+     num_cycles_arr = diff_arr * freq_arr[i_freq]
+     ;; Mark hits where the fractional part of our num_cycles_arr is
+     ;; within our deadband 
+     hit_idx = where(abs(num_cycles_arr - round(num_cycles_arr)) le cycle_accuracy[i_freq], N_hits)
+     ;; I observe a slope that goes up to saturation at the total
+     ;; number of features^2.  I assume this is from the effect of our
+     ;; deadband, which grows to greater than 0.5 cycles by the time
+     ;; we reach high enough frequencies, so everything matches.  So
+     ;; we want to take out the matches from 
+     ;; we get to ~35/day.  Basically, we are jittering within that deadband
+     ;;;; As the sample frequency increases, the effect of our deadband
+     ;;;; grows so that finally all points are hits.  Normalize this.
+     ;;;; This is ending up not being as easy
+     ;;N_hits = N_hits *  (1 - cycle_accuracy) / (1. + 2 * cycle_accuracy) 
+     hit_array[i_freq] = N_hits
+  endfor ;; each frequency
+
+  ;;plot, freq_arr, hit_array-hit_fix, _EXTRA=extra
+  ;;plot, freq_arr, hit_array, _EXTRA=extra
 
   if keyword_set(ps) then begin
      device,/close
@@ -419,7 +514,6 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, ps=ps
      !X.thick     = oXthick    
      !Y.thick     = oYthick    
   endif
-
 
 end
 
