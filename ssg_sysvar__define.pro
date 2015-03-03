@@ -1,5 +1,5 @@
 ; +
-; $Id: ssg_sysvar__define.pro,v 1.1 2013/01/03 22:31:02 jpmorgen Exp $
+; $Id: ssg_sysvar__define.pro,v 1.2 2015/03/03 19:50:53 jpmorgen Exp $
 
 ; ssg_sysvar__define.pro 
 
@@ -46,15 +46,19 @@ pro ssg_sysvar__define, top
   ;; Doppler shifted axis to 3 so Io lines don't trigger an axis.  Use
   ;; !sso.special to indicate Io lines instead.
   !sso.min_lines = 3
-  ;; plot proc will hopefully get better...
-  !pfo.plotproc = 'sso_plot_fit'
+  ;; --> work on this plot proc will hopefully get better...
+  ;;!pfo.plotproc = 'sso_plot_fit'
 
+  ;; getting ready to change over to new dynamic pfo system -- later
   ssg_parinfo__define, parinfo=ssg_parinfo
   ssg_dg_struct__define, dg_struct=dg_struct
   ssg $
-    = {ssg_sysvar, $
-       top	:	top, $
-       JDnday0	:	julday(1,1,1990,0), $ ; JDUTC of nday = 0
+     = {ssg_sysvar, $
+        top	:	top, $
+        $;; Create a list of regexp that we know raise frequent errors
+        non_fits : ['ORIG*', '*.tex', '*.lis', '*.log', '*.ps', '*.dvi', '*.pdf'], $
+
+        JDnday0	:	julday(1,1,1990,0), $ ; JDUTC of nday = 0
        $ ;; The smallest tolerance that dbfind could handle was 0.00005
        $ ;; using f11.5 input formatting.  That was about 4.3 s, which 
        $ ;; is way faster than files should be coming from the TI chips.  
@@ -62,6 +66,8 @@ pro ssg_sysvar__define, top
        $ ;; the tolerance --> a faster camera might need a smaller tolerance 
        $ ;; and a different formatted input to dbfind
        tolerance:	0.00005d*2d, $
+       $ ;; For prett-printing objects from obj_codes in database.
+       obj_codes: ['Jupiter', 'Io', 'Europa', 'Ganymede', 'Callisto', 'Night Sky', 'Dark', 'Comp', 'Flat', 'Day Sky', 'Other'], $
        $ ;; mmp_xyz is the position of MMP relative to the center of 
        $ ;; the earth in the ITRF93 reference frame.  See 
        $ ;; ~/data/ephemeris/tk/mmp.tk for details about how it was 
@@ -74,6 +80,9 @@ pro ssg_sysvar__define, top
        mmp_xyz	:	[-1994124.0333d, $
                          -5037950.3038d, $
                          3357614.1124d] / 1000d, $
+       $ ;; The mmp.tk file was lost, but io.notebk from April 26, 2004 and Feb 12, 2013 has notes
+       $ ;; mmg_geodetic is just a string that gets sent on to the HORIZONS email interface in ssg_ephem_req
+       mmp_geodetic : '248.405325000, 31.958416667, 2.06675', $
        min_cont	:	5, $ ; e/s minimum continuum value for fit
        $ ;; --> Eventually, I want to do this better
        obj_lines	:	[5577.34d, 5889.95d, 5895.92d, 6300.304d], $
@@ -82,7 +91,7 @@ pro ssg_sysvar__define, top
        $ ;; stuff in ssg_fit1spec
        too_small 	:	-873, $
        dg_struct	:	dg_struct, $
-       parinfo	:	ssg_parinfo}
+       parinfo		:	ssg_parinfo}
 
   defsysv, '!ssg', ssg
 
