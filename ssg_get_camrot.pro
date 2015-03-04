@@ -1,19 +1,35 @@
 ;+
-; $Id: ssg_get_camrot.pro,v 1.6 2003/06/11 19:57:50 jpmorgen Exp $
+; $Id: ssg_get_camrot.pro,v 1.7 2015/03/04 15:52:58 jpmorgen Exp $
 
 ; ssg_get_camrot.  find the rotation of the camera relative to the
 ; flatfield pattern
 
 ;-
 
-pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, maxiter=maxiter, max_angle=max_angle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
+function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=nx
+  ;; tnmin doesn't need common blocks but is slow for this application
+  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx
+  if keyword_set(dp) then $
+     message, 'ERROR: You are asking me to calculate a derivative of the parameters for tnmin.  I don''nt know how to do this.  Make sure you specify /AUTODERIVATIVE with tnmin'
 
+  ;; I am not sure why amoeba passes two arguments when I just want
+  ;; one, but that was an easy enough fix.
+  rot_im = ssg_camrot(ref_im, angle[0], nx/2., sli_cent, /quiet)
+  return, -total(im*rot_im,/NAN)
+
+end
+
+pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, ftol=ftol, maxiter=maxiter, max_angle=max_angle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
+
+  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx
 ;  ON_ERROR, 2
   cd, indir
-  if NOT keyword_set(maxiter) then maxiter=10  
+  if NOT keyword_set(ftol) then ftol = 1E-5
   if NOT keyword_set(start_angle) then start_angle=0.
+  if NOT keyword_set(max_angle) then max_angle=5.
   if NOT keyword_set(nsteps) then nsteps=25
   if NOT keyword_set(trimspec) then trimspec=16
+  if NOT keyword_set(nterms) then nterms=5
   params = [0, start_angle]
 
   silent = 1
@@ -52,7 +68,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
   ;; afternoon, UT date hasn't turned over yet.
   temp=strsplit(dates[nf-1],'T',/extract) 
   utdate=temp[0]
-  this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
+  this_nday = median(fix(ndays)) ; presumably this will throw out anything taken at an odd time
   
   files=strtrim(files)
   if NOT keyword_set(review) then begin ; We really want to do all the fitting
@@ -73,148 +89,120 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         if err ne 0 then begin
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE
-        endif else begin
-           if badarray[i] ge 4096 then message, 'BAD FILE, use display, ssg_spec_extract, and look at the header if you are unsure why'
-           if typecodes[i] lt 2 then message, 'Can''t get a camera rotation measurement from bias or dark images'
+           CONTINUE
+        endif ;; catching error
 
-           im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
-           test = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
-           if count eq 0 then message, 'ERROR: you must call ssg_[get&fit]_sliloc first'
+        ;; Skip bad images
+        if badarray[i] ge 4096 then $
+           CONTINUE
+        ;; Can't get a camera rotation measurement from bias or dark images
+        if typecodes[i] lt 2 then $
+           CONTINUE
 
-           if NOT keyword_set(max_angle) then begin
-              max_angle = 0.25
-              ;; Binned measurments can use smaller angles 
-              ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
-              if count gt 0 then begin
-                 if ccdsum eq '1 4' then begin
-                    max_angle = max_angle/4.
-                 endif
-              endif
-           endif
+        im = ssgread(files[i], hdr, eim, ehdr, /DATA, /TRIM)
+        test = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
+        if count eq 0 then message, 'ERROR: you must call ssg_[get&fit]_sliloc first'
 
-           asize = size(im) & nx = asize(1) & ny = asize(2)
-
-           ;; Trim off the ends of the spectrum to prevent any weird
-           ;; CCD edge effects from bothering us
-           if trimspec gt 0 then begin
-              im[0:trimspec-1,*] 	= !values.f_nan
-              im[nx-trimspec-1:nx-1,*] 	= !values.f_nan
-           endif
-           ;; Borrow some code from ssg_lightsub to get rid of any
-           ;; background light problem (particularly troublesome in
-           ;; comps).  ssg_lightsub works better with the rotation
-           ;; taken out, which is why we don't do it for real before
-           ;; now.
-           mask = fltarr(nx,ny)+1.
-           mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
-           edge_im = im * mask
-           edge_spec = fltarr(nx)
-           for ix=0,nx-1 do begin
-              ;; Calculate median only, since there is certain to be
-              ;; contamination from the wing of the light coming through
-              ;; the slicer/exit slit jaws that would mess up the average
-              edge_spec[ix] = median(edge_im[ix,*])
-           endfor
-           ;;plot, edge_spec
-           good_idx = where(finite(edge_spec) eq 1, count)
+        if NOT keyword_set(max_angle) then begin
+           max_angle = 0.25
+           ;; Binned measurments can use smaller angles 
+           ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
            if count gt 0 then begin
-              template = template_create(im, edge_spec)
-              im = im - template
-           endif
-
-           if keyword_set(showplots) then wset,7
-           ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
-                             hdr, spec, xdisp, showplots=showplots, $
-                             med_spec=med_spec, med_xdisp=med_xdisp, /average
-
-           ;; For everything but comps, remove cosmic rays.  CR
-           ;; removal from comps doesn't work very well because of
-           ;; high contrast in good signal
-           if typecodes[i] gt 2 then begin
-              template = template_create(im, normalize(med_spec))
-              im = im/template
-              ;; Mark likely cosmic rays as NAN
-              badim = mark_cr(im)
-              badidx = where(badim gt 0, count)
-              if count gt 0.01*N_elements(im) then $
-                message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
-              if count gt 0 then $
-                im[badidx] = !values.f_nan
-           endif ;; not a comp
-
-           if keyword_set(TV) then display, im, /reuse
-
-           ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
-
-           if typecodes[i] gt 2 then begin
-              ;; For non-comp images, this removes additional cosmic
-              ;; ray effects
-              ref_im=template_create(im, med_xdisp)
-           endif else begin
-              ;; For the comps, the median xdisp spectrum is 0, so use
-              ;; the average instead
-              ref_im=template_create(im, xdisp)
-           endelse
-
-
-           ;; Here is a trick to speed automation.  The measured slicer
-           ;; center should be the best one to do this rotation about.
-           ;; I want to fit the slicer centers as a function of time to
-           ;; see how flatfields, etc. should be aligned or thrown out
-           ;; Just in case something wasn't assigned
-           sli_cent = sli_cents[i]
-           if finite(sli_cent) eq 0 then $
-             sli_cent = sli_cents[i]
-           if sli_cent eq 0 or finite(sli_cent) eq 0 then $
-             sli_cent = ny/2.
-
-           num_tries = 0
-           repeat begin
-              center = params[1]
-;           ;; Incidently, this code could also be used to fit the slicer center
-;           message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
-;           to_pass = { image:im, ref_im:ref_im, sli_cent:sli_cent }
-;           max_center = tnmin('camrot_compare', 0., $
-;                              FUNCTARGS=to_pass, /AUTODERIVATIVE, $
-;                              /MAXIMIZE, MAXITER=MAXITER, $
-;                              FGUESS=total(im^2, /NAN))
-;
-;           print, max_center
-
-              stepsize = max_angle*2./nsteps
-              correlations = fltarr(nsteps)
-
-              ;; Center of the data image should be close enough to
-              ;; the real center of the spectral image so that
-              ;; rotating the reference image back and forth doesn't
-              ;; create offset problems, which would skew the results.
-              angles = stepsize*(indgen(nsteps) - nsteps/2.) + center
-
-              for ri=0,nsteps-1 do begin
-                 rot_im=ssg_camrot(ref_im, angles[ri], nx/2., sli_cent)
-                 correlations[ri] = total(im*rot_im,/NAN)
-              endfor
-              fit = mpfitpeak(angles, correlations, params, nterms=nterms, $
-                              error=sqrt(correlations), perror=perror, $
-                              /POSITIVE)
-           
-              if keyword_set(showplots) then begin
-                 wset,6
-                 plot, angles, correlations, psym=asterisk, title=files[i], $
-                       xtitle='Angle of reference image (degrees)', $
-                       ytitle='Correlation coefficient', $
-                       yrange=[min(correlations), max(correlations)], ystyle=2
-                 oplot, angles, fit, linestyle=solid
-                 oploterr, angles, correlations, sqrt(correlations)
+              if ccdsum eq '1 4' then begin
+                 max_angle = max_angle/4.
               endif
-              num_tries = num_tries + 1
-           endrep until abs(params[1] - center) lt stepsize*nsteps/3. $
-             or num_tries eq 3
-           m_cam_rots[i] = params[1]
-           e_cam_rots[i] = perror[1]
-           print, params[1], perror[1]
-           ngood = ngood + 1
-        endelse ;; CATCH if err
+           endif
+        endif
+
+        asize = size(im) & nx = asize(1) & ny = asize(2)
+
+        ;; Trim off the ends of the spectrum to prevent any weird
+        ;; CCD edge effects from bothering us
+        if trimspec gt 0 then begin
+           im[0:trimspec-1,*] 	= !values.f_nan
+           im[nx-trimspec-1:nx-1,*] 	= !values.f_nan
+        endif
+        ;; Borrow some code from ssg_lightsub to get rid of any
+        ;; background light problem (particularly troublesome in
+        ;; comps).  ssg_lightsub works better with the rotation
+        ;; taken out, which is why we don't do it for real before
+        ;; now.
+        mask = fltarr(nx,ny)+1.
+        mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
+        edge_im = im * mask
+        edge_spec = fltarr(nx)
+        for ix=0,nx-1 do begin
+           ;; Calculate median only, since there is certain to be
+           ;; contamination from the wing of the light coming through
+           ;; the slicer/exit slit jaws that would mess up the average
+           edge_spec[ix] = median(edge_im[ix,*])
+        endfor
+        ;;plot, edge_spec
+        good_idx = where(finite(edge_spec) eq 1, count)
+        if count gt 0 then begin
+           template = template_create(im, edge_spec)
+           im = im - template
+        endif
+
+        if keyword_set(showplots) then wset,7
+        ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
+                          hdr, spec, xdisp, showplots=showplots, $
+                          med_spec=med_spec, med_xdisp=med_xdisp, /average
+
+        ;; For everything but comps, remove cosmic rays.  CR
+        ;; removal from comps doesn't work very well because of
+        ;; high contrast in good signal
+        if typecodes[i] gt 2 then begin
+           template = template_create(im, normalize(med_spec))
+           im = im/template
+           ;; Mark likely cosmic rays as NAN
+           badim = mark_cr(im)
+           badidx = where(badim gt 0, count)
+           if count gt 0.01*N_elements(im) then $
+              message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
+           if count gt 0 then $
+              im[badidx] = !values.f_nan
+        endif ;; not a comp
+
+        if keyword_set(TV) then display, im, /reuse
+
+        ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
+
+        if typecodes[i] gt 2 then begin
+           ;; For non-comp images, this removes additional cosmic
+           ;; ray effects
+           ref_im=template_create(im, med_xdisp)
+        endif else begin
+           ;; For the comps, the median xdisp spectrum is 0, so use
+           ;; the average instead
+           ref_im=template_create(im, xdisp)
+        endelse
+
+
+        ;; Here is a trick to speed automation.  The measured slicer
+        ;; center should be the best one to do this rotation about.
+        ;; I want to fit the slicer centers as a function of time to
+        ;; see how flatfields, etc. should be aligned or thrown out
+        ;; Just in case something wasn't assigned
+        sli_cent = sli_cents[i]
+        if finite(sli_cent) eq 0 then $
+           sli_cent = sli_cents[i]
+        if sli_cent eq 0 or finite(sli_cent) eq 0 then $
+           sli_cent = ny/2.
+
+        ;;to_pass = { im:im, ref_im:ref_im, sli_cent:sli_cent, nx:nx }
+        ;; tnmin was pretty slow
+        ;;cam_rot = tnmin('rot_compare', 0.,  $
+        ;;               FUNCTARGS=to_pass, /AUTODERIVATIVE, $
+        ;;               /MAXIMIZE)
+        cam_rot = amoeba(ftol, function_name='rot_compare', $
+                         function_value=function_value, $
+                         p0=start_angle, scale=max_angle)
+        if cam_rot eq -1 then $
+           message, 'ERROR: can''t get camrot on this one'
+        m_cam_rots[i] = cam_rot
+        e_cam_rots[i] = ftol
+        ngood = ngood + 1
      endfor ;; all files in directory
      CATCH, /CANCEL
      if ngood eq 0 then message, 'ERROR: no properly prepared files found, database not updated'

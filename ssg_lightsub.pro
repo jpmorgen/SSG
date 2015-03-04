@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_lightsub.pro,v 1.4 2003/06/13 03:51:57 jpmorgen Exp $
+; $Id: ssg_lightsub.pro,v 1.5 2015/03/04 15:45:07 jpmorgen Exp $
 ;-
 
 ;; ssg_lightsub Calculates the background spectrum from room lights or
@@ -95,8 +95,10 @@ pro ssg_lightsub, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom,
         av_back[i] 	= mean(edge_im, /NAN)
         stdev_back[i] 	= stddev(edge_im, /NAN)
 
-        if keyword_set(TV) then $
-          display, edge_im, /reuse
+        if keyword_set(TV) then begin
+           display, edge_im, /reuse
+           wait, 1
+        endif
 
         ;; The background light seems to be a tilted plane.  Fit a
         ;; line to each column and store the results.  Make the

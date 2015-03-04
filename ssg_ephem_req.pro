@@ -7,6 +7,12 @@
 ; CATEGORY: ssg reduction/analysis
 ;
 ; CALLING SEQUENCE: ssg_ephem_req, obj, [begin_nday, [end_nday,]], [/nomail]
+;   begin_nday=begin_nday, $
+;   end_nday=end_nday, $
+;   nomail=nomail, $
+;   fname=fname, $
+;   outnames=outnames, $
+;   timeout=timeout
 ;
 ; DESCRIPTION: creates a JPL HORIZONS batch job request for
 ; observations stored in the ssg reduction database.  Sends the file
@@ -40,9 +46,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_ephem_req.pro,v 1.1 2014/01/31 20:03:47 jpmorgen Exp $
+; $Id: ssg_ephem_req.pro,v 1.2 2015/03/04 15:49:37 jpmorgen Exp $
 ;
 ; $Log: ssg_ephem_req.pro,v $
+; Revision 1.2  2015/03/04 15:49:37  jpmorgen
+; Summary: Last checkin before git
+;
 ; Revision 1.1  2014/01/31 20:03:47  jpmorgen
 ; Initial revision
 ;
@@ -68,14 +77,13 @@ pro ssg_ephem_req, $
 
   ;; Open up our reduction database
   dbclose ;; Just in case
-  dbname = 'ssg_reduce'
-  dbopen, dbname, 0
+  adbname = 'io_oi_analyze'
+  dbopen, adbname, 0
 
   ;; Get the database entries corresponding to the nday range we want.
-  ;; Exclude bias, flat, etc. images by looking at "objects" only.
+  ;; Exclude anything marked "bad"
   entries = dbfind(string("nday>", begin_nday), $
-                   dbfind(string("nday<", end_nday), $
-                          dbfind(string("typecode=", 5))), count=ecount)
+                   dbfind(string("nday<", end_nday)), count=ecount)
   if ecount eq 0 then begin
      message, /CONTINUE, 'WARNING: no objects in reduction database between ' + string(nday_range[0]) + ' and ' + string(nday_range[1])
      dbclose
@@ -104,7 +112,7 @@ pro ssg_ephem_req, $
   ;; Unless explicitly asked not to, email our job to HORIZONS.  See
   ;; documentation in eph_unix_mail_req to learn how to use procmail
   ;; to get HORIZONS emails to go to MH_dir.  NOTE: our one ephemeris
-  ;; request will generate 
+  ;; request will generate five files
   if NOT keyword_set(nomail) then begin
      eph_unix_mail_req, fnames=fname, $
                         outnames=outnames, $

@@ -1,6 +1,6 @@
 ;+
 
-; $Id: ssg_fit1spec.pro,v 1.9 2014/03/07 19:26:04 jpmorgen Exp $
+; $Id: ssg_fit1spec.pro,v 1.10 2015/03/04 15:42:21 jpmorgen Exp $
 
 ; ssg_fit1spec.pro
 
@@ -87,7 +87,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                   disp_min_ew=disp_min_ew, maxiter=maxiter, quiet=quiet, $
                   grave_report=grave_report, nprint=nprint, min_ew=min_ew, $
                   xtol=xtol, ftol=ftol, gtol=gtol, resdamp=resdamp, $
-                  mpstep=mpstep, landscape=landscape, autofit=autofit
+                  mpstep=mpstep, landscape=landscape, autofit=autofit, $
+                  delta_nday=delta_nday, dispers=dispers_in
 
   init = {ssg_sysvar}
 
@@ -109,6 +110,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if N_elements(mpstep) eq 0 then mpstep=0
   if N_elements(landscape) eq 0 then landscape=1
   if N_elements(autofit) eq 0 then autofit=0
+  if N_elements(delta_nday) eq 0 then delta_nday=0
   ;; 8 sometimes covers too much, but STATUS=3 or more automatically
   ;; narrows down
   if N_elements(auto_dd_numlines) eq 0 then auto_dd_numlines = 8
@@ -188,10 +190,13 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
 
   ;; Build up a large parinfo from which we can choose lines to fit
 
+  ;; I suspect Pacifico's clock was off for some of the time,
+  ;; particularly in 2002, up to 2002-03-17, delta_nday helps fiddle
+  ;; with that
   obj_path = sso_path_create([obj, !eph.earth])
-  obj_dop = sso_eph_dop(nday2date(nday), obj_path, !ssg.mmp_xyz)
+  obj_dop = sso_eph_dop(nday2date(nday+delta_nday), obj_path, !ssg.mmp_xyz)
   sun_obj_path = sso_path_create([!eph.sun, obj, !eph.earth])
-  sun_obj_dop = sso_eph_dop(nday2date(nday), sun_obj_path, !ssg.mmp_xyz)
+  sun_obj_dop = sso_eph_dop(nday2date(nday+delta_nday), sun_obj_path, !ssg.mmp_xyz)
 
   value = obj_dop
   deldot_par = $
@@ -262,30 +267,57 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   cd, dirs[0]
   im=ssgread(files[0], hdr, /DATA)
   asize = size(im) & nx = asize(1) & ny = asize(2)
+  
+  ;; Handle the dispersion.  The diserpsion in our reduced database,
+  ;; read in as orig_dispers, above, is our default dispersion.  Make
+  ;; it an array with just one trailing NAN
+  disp_idx = where(finite(orig_dispers), disp_order)
+  disp_order -= 1
+  orig_dispers = [orig_dispers[disp_idx], !values.f_nan]
+  if keyword_set(dispers_in) then begin
+     ;; Use command line dispersion in preference to that in the database
+     orig_dispers = dispers_in
+     disp_order = N_elements(orig_dispers) - 1
+     orig_dispers = [orig_dispers, !values.f_nan]
+  endif
+  
+  ;; ;; --> TEMPORARY CODE.  I am going to nuke this after I switch over
+  ;; ;; to using the dispersion in the database.
+  ;; ;; Read in dispersion coefficients so I can use that as part of the
+  ;; ;; fit.  This code is replaced below by reading the database.
+  ;; disp_order = 0
+  ;; orig_dispers = $
+  ;;   sxpar(hdr, string(format='("DISPERS", i1)', disp_order), count=count)
+  ;; while count ne 0 do begin
+  ;;    disp_order = disp_order + 1
+  ;;   temp = sxpar(hdr, $
+  ;;                 string(format='("DISPERS", i1)', disp_order), count=count)
+  ;;    if count ne 0 then $
+  ;;      orig_dispers = [orig_dispers, temp]
+  ;; endwhile
+  ;; orig_dispers = [orig_dispers, !values.d_nan]
+  ;; disp_order = disp_order - 1
+  ;; if disp_order eq 0 then $
+  ;;   message, 'ERROR: not enough DISPERS keywords found in header of ' + shortfile
 
-  ;; --> TEMPORARY CODE.  I am going to nuke this after I switch over
-  ;; to using the dispersion in the database.
-  ;; Read in dispersion coefficients so I can use that as part of the
-  ;; fit.  This code is replaced below by reading the database.
-  disp_order = 0
-  orig_dispers = $
-    sxpar(hdr, string(format='("DISPERS", i1)', disp_order), count=count)
-  while count ne 0 do begin
-     disp_order = disp_order + 1
-    temp = sxpar(hdr, $
-                  string(format='("DISPERS", i1)', disp_order), count=count)
-     if count ne 0 then $
-       orig_dispers = [orig_dispers, temp]
-  endwhile
-  orig_dispers = [orig_dispers, !values.d_nan]
-  disp_order = disp_order - 1
+  ;; Open up a new window, 6, if I need it, otherwise, change to it
+  ;; (avoids mouse problems in my X configuration).  This is a little
+  ;; tricky since I do want a real message to be raised and displayed
+  ;; (code isn't perfect!)
+  CATCH, err
+  if err ne 0 then begin
+     CATCH, /CANCEL
+     if !error_state.name eq 'IDL_M_WINDOW_CLOSED' then begin
+        window,6
+     endif else begin
+        message, /NONAME, !error_state.msg
+     endelse ;; a real error
+  endif else begin
+     ;;  This executes first
+     wset, 6
+  endelse
 
-  if disp_order eq 0 then $
-    message, 'ERROR: not enough DISPERS keywords found in header of ' + shortfile
-
-
-  window,6
-  title = string(objects[0], ' ', shortfile, ' ', nday2date(ndays[0]), ' (UT)')
+  title = objects[0] + ' ' + shortfile + ' ' + nday2date(ndays[0]) + ' (UT)'
   ;; This has to be in font !3 for the angstrom symbol to be found.
   ;; The extra ;" is to close the " in the string
   xtitle = 'Rest Wavelength, '+string("305B) ;" ;
@@ -631,8 +663,10 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                  ifit_numlines = ifit_numlines - 1
               endif else begin ;; wrange is OK
                  pix_range = interpol(pix_axis, xaxis, wrange)
-                 left_pix = pix_range[0]
-                 right_pix = pix_range[1]
+                 ;; Occasionally interpolation messes up, so make sure
+                 ;; left and right pixels don't fall outside of legal range
+                 left_pix = max([pix_range[0], 0])
+                 right_pix = min([pix_range[1], max(pix_axis)])
                  autofit = 2
               endelse
            endrep until NOT tnotdone
@@ -733,8 +767,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               autofit = 4
            endif else begin ;; wrange is OK
               pix_range = interpol(pix_axis, xaxis, wrange)
-              left_pix = pix_range[0]
-              right_pix = pix_range[1]
+              left_pix = max([pix_range[0], 0])
+              right_pix = min([pix_range[1], max(pix_axis)])
               autofit = 5
            endelse
         endif ;; finish turning on dispersion + Doppler fit

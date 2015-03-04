@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fix_head.pro,v 1.6 2014/02/07 14:23:53 jpmorgen Exp $
+; $Id: ssg_fix_head.pro,v 1.7 2015/03/04 15:50:21 jpmorgen Exp $
 
 ; ssg_fix_head.  Fix up Y2K and other header problems with the FITS
 ; headers ON THE RAW FILES.  Saves a copy of all the affected files in
@@ -33,7 +33,7 @@ pro ssg_fix_head, indir, outdir
   cd, indir
 
   ;; See if there are any files listed in the directory
-  files = findfile(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = file_search(string(indir, '/*')) ; Doesn't matter if <dir>//*
   files = strtrim(files)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
@@ -121,7 +121,11 @@ pro ssg_fix_head, indir, outdir
         ;; place in the directory tree.
         year_dir = fix(dir_array[N_elements(dir_array)-2])
         day_dir = dir_array[N_elements(dir_array)-1]
-        year_from_dir = fix(strmid(day_dir, 0, 2))
+        ;; Correct for new date format after 2000 (create a Y2100 bug!)
+        if strmatch(day_dir, '20[0-9][0-9][0-9][0-9][0-9][0-9]') then $
+           year_from_dir = fix(strmid(day_dir, 2, 2)) $
+        else $
+           year_from_dir = fix(strmid(day_dir, 0, 2))
         ;; The study started in 1990
         if year_from_dir ge 90 then begin
            year_from_dir = year_from_dir + 1900
@@ -138,12 +142,19 @@ pro ssg_fix_head, indir, outdir
         
         ;; MONTH 
         ;; some data directories are recorded 03jan01, others 970101.
+        ;; Fri Feb  7 09:52:47 2014  jpmorgen@snipe
+        ;; I just fixed this so before 2000, all directories are
+        ;; YYMMDD.  After 2000, they are YYYY0101
         ;; Filenames before 1997 or so don't always have months in
         ;; them, so don't count on them.
 
         ;;month_from_file = 	strmid(shortinfile, 2, 3)
+        ;;if strlen(day_dir) gt 6 then begin
+        ;;   month_from_dir = 	strmid(day_dir, 2, 3)
         if strlen(day_dir) gt 6 then begin
-           month_from_dir = 	strmid(day_dir, 2, 3)
+           ;; > 2000
+           temp = fix(strmid(day_dir, 4, 2))
+           month_from_dir = months[temp-1]
         endif else begin
            temp = fix(strmid(day_dir, 2, 2))
            month_from_dir = months[temp-1]
@@ -175,11 +186,14 @@ pro ssg_fix_head, indir, outdir
 
         ;; DAY
         if strlen(day_dir) gt 6 then begin
-           day_from_dir = 	strmid(day_dir, 5, 2)
+           ;; New format YYYYMMDD puts day starting in 6
+           ;;day_from_dir = 	strmid(day_dir, 5, 2)
+           day_from_dir = 	strmid(day_dir, 6, 2)
         endif else begin
            day_from_dir = 	strmid(day_dir, 4, 2)
         endelse
         day = day_from_dir
+
 ;        day_from_file = 	strmid(shortinfile, 0, 2)
 ;        day = day_from_file
 ;        if day_from_file ne day_from_dir then begin

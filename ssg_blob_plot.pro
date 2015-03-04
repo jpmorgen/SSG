@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blob_plot.pro,v 1.7 2015/01/14 00:30:36 jpmorgen Exp $
+; $Id: ssg_blob_plot.pro,v 1.8 2015/03/04 15:44:58 jpmorgen Exp $
 ;
 ; $Log: ssg_blob_plot.pro,v $
+; Revision 1.8  2015/03/04 15:44:58  jpmorgen
+; Summary: Last checkin before git
+;
 ; Revision 1.7  2015/01/14 00:30:36  jpmorgen
 ; Tweaked a bit
 ;
@@ -117,8 +120,8 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
   dayob = [dayob, 1.39355] & sysIIIb = [sysIIIb, 257.749] & psymb = [psymb, !tok.square  ] ;; decent single point statistic
   dayob = [dayob, 1.45996] & sysIIIb = [sysIIIb, 302.113] & psymb = [psymb, !tok.square  ] ;; broad peak
   dayob = [dayob, 5.16846] & sysIIIb = [sysIIIb, 255.749] & psymb = [psymb, !tok.square  ] ;; follow model
-  dayob = [dayob, 5.21216] & sysIIIb = [sysIIIb, 284.925] & psymb = [psymb, !tok.asterisk] ;; follow model
-  dayob = [dayob, 5.29712] & sysIIIb = [sysIIIb, 341.479] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 5.21216] & sysIIIb = [sysIIIb, 284.925] & psymb = [psymb, !tok.triangle] ;; follow model
+  dayob = [dayob, 5.29712] & sysIIIb = [sysIIIb, 341.479] & psymb = [psymb, !tok.triangle] ;;
   dayob = [dayob, 5.34082] & sysIIIb = [sysIIIb,  10.634] & psymb = [psymb, !tok.square  ] ;; two points
   dayob = [dayob, 5.38232] & sysIIIb = [sysIIIb, 38.4062] & psymb = [psymb, !tok.square  ] ;; single point?
   dayob = [dayob, 6.22852] & sysIIIb = [sysIIIb, 242.791] & psymb = [psymb, !tok.square  ] ;; follow model
@@ -128,12 +131,12 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
   dayob = [dayob, 8.23804] & sysIIIb = [sysIIIb, 143.244] & psymb = [psymb, !tok.square  ] ;; decent single-point, deep valley
   dayob = [dayob, 8.26001] & sysIIIb = [sysIIIb, 157.998] & psymb = [psymb, !tok.square  ] ;; possible broad peak
   dayob = [dayob, 8.32642] & sysIIIb = [sysIIIb, 202.100] & psymb = [psymb, !tok.square  ] ;; edge
-  dayob = [dayob, 8.43750] & sysIIIb = [sysIIIb, 276.296] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 8.43750] & sysIIIb = [sysIIIb, 276.296] & psymb = [psymb, !tok.triangle] ;;
   dayob = [dayob, 9.12061] & sysIIIb = [sysIIIb, 11.9574] & psymb = [psymb, !tok.square  ] ;; isolated 1st point
   dayob = [dayob, 9.19775] & sysIIIb = [sysIIIb, 63.3403] & psymb = [psymb, !tok.square  ] ;; possible peak, bad stats
   dayob = [dayob, 9.21973] & sysIIIb = [sysIIIb, 78.1139] & psymb = [psymb, !tok.square  ] ;; isolated point, maybe peak is here
-  dayob = [dayob, 9.29712] & sysIIIb = [sysIIIb, 129.780] & psymb = [psymb, !tok.asterisk] ;;
-  dayob = [dayob, 9.42041] & sysIIIb = [sysIIIb, 211.974] & psymb = [psymb, !tok.asterisk] ;;
+  dayob = [dayob, 9.29712] & sysIIIb = [sysIIIb, 129.780] & psymb = [psymb, !tok.triangle] ;;
+  dayob = [dayob, 9.42041] & sysIIIb = [sysIIIb, 211.974] & psymb = [psymb, !tok.triangle] ;;
   dayob = [dayob, 10.0967] & sysIIIb = [sysIIIb, 302.981] & psymb = [psymb, !tok.square  ] ;; not a sharp blob, follow model
   dayob = [dayob, 10.1843] & sysIIIb = [sysIIIb, 1.47404] & psymb = [psymb, !tok.square  ] ;; two points
   dayob = [dayob, 10.3115] & sysIIIb = [sysIIIb, 86.2841] & psymb = [psymb, !tok.square  ] ;; single point
@@ -145,7 +148,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
                  [1, 1], $
                  [0, -1], $
                  [-1, 1]]
-  usersym, usersym_def
+  usersym, usersym_def, thick=!p.thick
   dayob = [dayob, 1.37183] & sysIIIb = [sysIIIb, 243.227] & psymb = [psymb, !tok.usersym  ]
   dayob = [dayob, 5.19019] & sysIIIb = [sysIIIb, 270.262] & psymb = [psymb, !tok.usersym  ]
   dayob = [dayob, 5.25317] & sysIIIb = [sysIIIb, 312.303] & psymb = [psymb, !tok.usersym  ]
@@ -177,7 +180,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
   ;; Print table in LaTeX format
   UT = nday2date(dayo0 + dayob)
   etype = make_array(N_elements(dayob), value='peak')
-  big_idx = where(psymb eq !tok.asterisk)
+  big_idx = where(psymb eq !tok.triangle)
   etype[big_idx] = 'large peak'
   dip_idx = where(psymb eq !tok.psym_x)
   etype[dip_idx] = 'sharp dip'
@@ -235,9 +238,9 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
   ;;oplot, [5.38232], [38.4062], psym=!tok.square ;; single point?
   ;;oplot, [5.38232], [38.4062+360], psym=!tok.square ;; single point?
   ;;oplot, [5.16846], [255.749], psym=!tok.square ;; follow model
-  ;;oplot, [5.21216], [284.925], psym=!tok.asterisk ;; follow model
+  ;;oplot, [5.21216], [284.925], psym=!tok.triangle ;; follow model
   ;;;;oplot, [5.27515], [326.956], psym=!tok.square
-  ;;oplot, [5.30786], [348.870], psym=!tok.asterisk
+  ;;oplot, [5.30786], [348.870], psym=!tok.triangle
   ;;oplot, [6.22852], [242.791], psym=!tok.square ;; follow model
   ;;oplot, [6.28369], [279.612], psym=!tok.square ;; follow model
   ;;oplot, [7.38062], [291.28403], psym=!tok.square ;; first point, follow model
@@ -250,14 +253,14 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
   ;;oplot, [8.32642], [202.100], psym=!tok.square ;; edge
   ;;;;oplot, [8.38135], [238.829], psym=!tok.square ;; too small
   ;;;;oplot, [8.40332], [253.423], psym=!tok.square
-  ;;oplot, [8.43750], [276.296], psym=!tok.asterisk
+  ;;oplot, [8.43750], [276.296], psym=!tok.triangle
   ;;oplot, [9.12061], [11.9574], psym=!tok.square ;; isolated 1st point
   ;;oplot, [9.19775], [63.3403], psym=!tok.square ;; possible peak, bad stats
   ;;oplot, [9.21973], [78.113983], psym=!tok.square ;; isolated point, maybe peak is here
-  ;;oplot, [9.29712], [129.780], psym=!tok.asterisk
+  ;;oplot, [9.29712], [129.780], psym=!tok.triangle
 ;;;;  oplot, [9.33008], [151.684], psym=!tok.square ;; single perturbation
   ;;;;oplot, [9.39844], [197.321], psym=!tok.square ;; possibly just part of larger peak
-  ;;oplot, [9.42041], [211.974], psym=!tok.asterisk
+  ;;oplot, [9.42041], [211.974], psym=!tok.triangle
   ;;oplot, [10.0967], [302.981], psym=!tok.square ;; not a sharp blob, follow model
   ;;;;oplot, [10.1624], [346.820], psym=!tok.square ;; Too low sig
   ;;oplot, [10.1843], [1.47404], psym=!tok.square ;; two points
@@ -433,7 +436,7 @@ pro ssg_blob_plot, sysIV=sysIV, sys42=sys42, zero=zero, phased=phased, ps=ps, $
 
   ;; Had a horrible time trying to use usersym.  Ended up using cgsymcat
   al_legend, ['Peak', 'Large Peak', 'Sharp Dip'], $
-             psym=[!tok.square, !tok.asterisk, 11], $
+             psym=[!tok.square, !tok.triangle, 11], $
              /norm, pos=[0.65, 0.9], box=0
   al_legend, ['sysIII', 'sysIV'], linestyle=[!tok.dashed, !tok.dash_3dot], box=0, /norm, pos=[0.65, 0.75], linsize=0.5
 

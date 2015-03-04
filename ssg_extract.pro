@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_extract.pro,v 1.7 2003/06/13 03:52:20 jpmorgen Exp $
+; $Id: ssg_extract.pro,v 1.8 2015/03/04 15:51:46 jpmorgen Exp $
 
 ; ssg_extract extract 1D spectra from a directory full of SSG images.
 ; For removing cosmic ray hits, assumes that the cross-dispersion
@@ -55,7 +55,13 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
 ;  entries = dbfind("typecode=[2,5]", $
   entries = dbfind("typecode=5", $
                    dbfind("bad<2047", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir))), count=count)
+  if count eq 0 then begin
+     message, /INFORMATIONAL, 'NOTE: no object spectra recorded on ' + indir + '.  Returning without doing anything'
+     dbclose
+     return
+  endif
+
 
   dbext, entries, "fname, object, nday, date, typecode, obj_code, bad", files, objects, ndays, dates, typecodes, obj_codes, badarray
 
@@ -214,12 +220,12 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
            display, collapsed_im, hdr, /reuse
         endif
 
-        ;; Create our dispersion axes initially full length
+        ;; Create our dispersion axes full length and deal with NANs
+        ;; in the fitting software
         pix_axis = indgen(nx)
         wave_axis = fltarr(nx)
         ssg_spec_extract, collapsed_im, hdr, spec, xdisp, /TOTAL
         ssg_spec_extract, collapsed_err_im2, hdr, spec_err2, xdisp_err2, /TOTAL
-        
 
         ;; Now pick out NAN points, which will mess up curve fitting
         ;; things.  Hey, IDL has a bug where you have to specify
@@ -229,19 +235,9 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
                          finite(spec_err2) eq 1, ngood_disp, $
                          complement=bax_idx, ncomplement=nbad_disp)
 
-        ;; And close up the gaps in all the dispersion direction axes.
-        if nbad_disp gt 0 then begin
-           temp = pix_axis[good_idx] & pix_axis = temp
-           temp = wave_axis[good_idx] & wave_axis = temp
-           temp = spec[good_idx] & spec = temp
-           temp = spec_err2[good_idx] & spec_err2 = temp
-        endif
-        
         ;; Here is where the reference pixel of the dispersion axis is
-        ;; defined to be nx/2., that is the central pixel of the 
-        for dci = 0, order do begin
-           wave_axis = wave_axis + dispers[dci]*(pix_axis-nx/2.)^dci
-        endfor
+        ;; defined to be nx/2., that is the central pixel of the image
+        wave_axis = make_disp_axis(dispers, pix_axis, nx/2.)
 
         ;; Divide by exposure time, get errors out of quadradure mode
         spec = spec/exptime
@@ -250,11 +246,11 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
         xdisp_err = sqrt(xdisp_err2)/exptime
 
         ;; Put these into the array that will be loaded into the database
-        disp_pix	[0:ngood_disp-1, i] = pix_axis
+        disp_pix	[0:nx-1, i] = pix_axis
         xdisp_pix	[0:nxpts-1, i] = full_xdisp_good_idx[xdisp_SN_idx]
-        wavelengths	[0:ngood_disp-1, i] = wave_axis
-        spectra		[0:ngood_disp-1, i] = spec
-        spec_errors	[0:ngood_disp-1, i] = spec_err
+        wavelengths	[0:nx-1, i] = wave_axis
+        spectra		[0:nx-1, i] = spec
+        spec_errors	[0:nx-1, i] = spec_err
 
         ngood_xdisp = N_elements(xdisp)
         cross_disps 	[0:ngood_xdisp-1, i] = xdisp
@@ -283,7 +279,14 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
            oploterr, wave_axis, spec, spec_err, dot
         endif
 
-        ;; For Voigt fit
+        ;; For Voigt fit, close up the gaps in all the dispersion
+        ;; direction axes.
+        if nbad_disp gt 0 then begin
+           temp = pix_axis[good_idx] & pix_axis = temp
+           temp = wave_axis[good_idx] & wave_axis = temp
+           temp = spec[good_idx] & spec = temp
+           temp = spec_err[good_idx] & spec_err = temp
+        endif
         wave_axis = wave_axis - 6300
         
         temp=strmid(files[i], 0, strpos(files[i], 'r.fits'))
@@ -296,6 +299,10 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
         endfor
         close, lun
         free_lun, lun
+        ;; Quietly change the mode and group of the file to be group
+        ;; lyra writable so other people can work on this
+        spawn, string('chmod g+w ', fname), txtout, errout
+        spawn, string('chgrp lyra ', fname), txtout, errout
 
         ngood_files = ngood_files + 1
 
@@ -326,6 +333,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
      if count gt 0 then badarray[bad_idx] = badarray[bad_idx] OR 512
      
      if NOT keyword_set(write) then begin
+        answer = ''
         for ki = 0,1000 do flush_input = get_kbrd(0)
         repeat begin
            message, /CONTINUE, 'Write these spectra to the database, erasing previous versions?(Y/[N])'
@@ -334,8 +342,8 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
            answer = strupcase(answer)
         endrep until answer eq 'Y' or answer eq 'N'
         for ki = 0,1000 do flush_input = get_kbrd(0)
+        if answer eq 'Y' then write=1
      endif
-     if answer eq 'Y' then write=1
   endif ;; interactive
   
   if keyword_set(write) then begin
@@ -352,6 +360,15 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
      ;; Trying to use fancy list-building code
      for i=0, ngood_files-1 do begin
         reinit = where_nday_eq(ndays[i], COUNT=count,SILENT=silent)
+        if count gt 1 then begin
+           message, /CONTINUE,  'WARNING: more than one entry for this nday was found in the fit database.  Deleting both entries and starting over.'
+           if N_elements(delete_list) eq 0 then begin
+              delete_list = reinit
+           endif else begin
+              delete_list = [delete_list, reinit]
+           endelse
+           count = 0
+        endif
         if count eq 1 then begin
            ;; record a list of entries to reinitialize
            if N_elements(reinit_list) eq 0 then begin
@@ -381,12 +398,29 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
      ;; Build or update the fitting database with just a couple of
      ;; columns at first and prepare to pull the rest of the stuff
      ;; over from reduction database
-     dbopen, fdbname[0], 1
      if N_elements(build_list) gt 0 then begin
+        dbopen, fdbname[0], 1
+        ;; This seems to leave the database closed
         dbbuild, build_list, blnew_spec_val
      endif
      if N_elements(reinit_list) gt 0 then begin
-         dbupdate, reinit_list, 'new_spec', new_spec_val
+        dbopen, fdbname[0], 1
+        dbupdate, reinit_list, 'new_spec', new_spec_val
+     endif
+     ;; Deleting has to be last, since it changes the indices
+     if N_elements(delete_list) gt 0 then begin
+        dbopen, fdbname[0], 1
+        oldpriv=!priv
+        !priv = 3
+        dbdelete, delete_list
+        ;; Latest version of dbdelete does not need dbcompress
+        ;;dbcompress, fdbname[0]
+        ;; Quietly change the mode and group of the file to be group
+        ;; lyra writable so other people can work on this
+        dbfname = find_with_def(dbname + '.dbf','ZDBASE')
+        spawn, string('chmod g+w ', dbfname), txtout, errout
+        spawn, string('chgrp lyra ', dbfname), txtout, errout
+        !priv=oldpriv
      endif
      dbclose
      dbopen, fdbname[1], 1

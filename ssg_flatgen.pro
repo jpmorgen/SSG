@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_flatgen.pro,v 1.9 2003/06/13 03:51:40 jpmorgen Exp $
+; $Id: ssg_flatgen.pro,v 1.10 2015/03/04 15:52:43 jpmorgen Exp $
 
 ; ssg_flatgen Generate a bestflat frame from all the flat images in a
 ; given directory.  Final image is the total number of electrons
@@ -14,7 +14,11 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
   if NOT keyword_set(cr_cutval) then cr_cutval = 5
   if NOT keyword_set(dust_cutval) then dust_cutval = 7
   ;; For normalization
-  if NOT keyword_set(flat_cut) then flat_cut = 0.5
+  ;; Wed Aug 11 15:00:31 2010  jpmorgen
+  ;; With improved slicer edges, some dust flats caught a little too
+  ;; much stuff at the very edge.  Try to limit
+  ;;if NOT keyword_set(flat_cut) then flat_cut = 0.5
+  if NOT keyword_set(flat_cut) then flat_cut = 0.75
   if NOT keyword_set(sky_cut) then sky_cut = flat_cut
   if NOT keyword_set(sli_cut) then sli_cut = flat_cut
 
@@ -145,120 +149,122 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
 
         err=0
         for i=0,nf-1 do begin
-;           CATCH, err
            message, 'Processing ' + type + ' ' + subtype + ' flat ' + files[i], /CONTINUE
+           CATCH, err
            if err ne 0 then begin
               message, /NONAME, !error_state.msg, /CONTINUE
               message, 'skipping ' + files[i], /CONTINUE
               dbclose
-           endif else begin
-              im = ssgread(files[i], ihdr, eim, iehdr)
-              if N_elements(total_im) ne N_elements(im) then $
-                message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
-              temp = sxpar(ihdr, 'MEDBACK', count=count)
-              if count eq 0 then $
-                message, 'ERROR: run ssg_lightsub first'
+              CONTINUE
+           endif ;; error
 
-              
-              ;; Do a prelimiary cut to find the edges and bad
-              ;; columns.  Keep track of these in a separate array,
-              ;; edge_mask.  This gets refined as we start adding in
-              ;; other flatfield components.  Oops, if there is one
-              ;; hot pixel, that can mess up normalize, so for this
-              ;; pass, do a median filter
-              cut = flat_cut
-              if num_skyflats gt 0 then cut = sky_cut
-              edge_idx = where(normalize(median(im,4), cut) lt cut or $
-                               finite(im) eq 0, $
-                               edge_count, complement=middle_idx)
+           im = ssgread(files[i], ihdr, eim, iehdr)
+           if N_elements(total_im) ne N_elements(im) then $
+              message, 'ERROR: ' + files[i] + ' and ' + files[0] + ' are not the same size'
+           temp = sxpar(ihdr, 'MEDBACK', count=count)
+           if count eq 0 then $
+              message, 'ERROR: run ssg_lightsub first'
 
-              ;; DEBUGGING
+           
+           ;; Do a prelimiary cut to find the edges and bad
+           ;; columns.  Keep track of these in a separate array,
+           ;; edge_mask.  This gets refined as we start adding in
+           ;; other flatfield components.  Oops, if there is one
+           ;; hot pixel, that can mess up normalize, so for this
+           ;; pass, do a median filter
+           cut = flat_cut
+           if num_skyflats gt 0 then cut = sky_cut
+           edge_idx = where(normalize(median(im,4), cut) lt cut or $
+                            finite(im) eq 0, $
+                            edge_count, complement=middle_idx)
+
+           ;; DEBUGGING
 ;              middle_idx = indgen(nx*ny)
 
-              ;; COSMIC RAY REMOVAL.  Make a flat image, using any
-              ;; past products to get better contrast on the cosmic
-              ;; rays
-              cutval = cr_cutval
-              fim = im
-              if subtype eq 'dust' then begin
-                 cutval = dust_cutval
-                 ;; Slicer flat needs to be aligned to each image.
-                 saim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
-                 edge_idx = where(normalize(saim, cut) lt cut or $
-                                  finite(saim) eq 0 or $
-                                  finite(im) eq 0 or $
-                                  im le max(ssgread(im, ihdr, /bias), /NAN), $
-                                  edge_count, complement=middle_idx)
+           ;; COSMIC RAY REMOVAL.  Make a flat image, using any
+           ;; past products to get better contrast on the cosmic
+           ;; rays
+           cutval = cr_cutval
+           fim = im
+           if subtype eq 'dust' then begin
+              cutval = dust_cutval
+              ;; Slicer flat needs to be aligned to each image.
+              saim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
+              edge_idx = where(normalize(saim, cut) lt cut or $
+                               finite(saim) eq 0 or $
+                               finite(im) eq 0 or $
+                               im le max(ssgread(im, ihdr, /bias), /NAN), $
+                               edge_count, complement=middle_idx)
 
-                 fim[middle_idx] = im[middle_idx] / saim[middle_idx]
-              endif
-              if subtype eq 'source' then begin
-                 ;; Dust flat should not be re-aligned.  Also, bad
-                 ;; pixels in the dust flat should not be divided
-                 saim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
-                 edge_idx = where(normalize(saim, cut) lt cut or $
-                                  finite(saim) eq 0 or $
-                                  finite(dust_flat) eq 0 or $
-                                  finite(im) eq 0, $
-                                  edge_count, complement=middle_idx)
-                 fim[middle_idx] = im[middle_idx] / dust_flat[middle_idx]
-                 fim[middle_idx] = fim[middle_idx] / saim[middle_idx]
-              endif
-              if subtype eq 'slicer2' then begin
-                 ;; Redo slicer flat using everything
-                 slaim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
-                 sfaim = ssg_flat_align(im, ihdr, source_flat, hdr)
-                 edge_idx = where(normalize(slaim, cut) lt cut or $
-                                  finite(slaim) eq 0 or $
-                                  finite(dust_flat) eq 0 or $
-                                  finite(sfaim) eq 0 or $
-                                  finite(im) eq 0, $
-                                  edge_count, complement=middle_idx)
-                 fim[middle_idx] = im[middle_idx] / dust_flat[middle_idx]
-                 fim[middle_idx] = fim[middle_idx] / slaim[middle_idx]
-                 fim[middle_idx] = fim[middle_idx] / sfaim[middle_idx]
-              endif
-              ;; This should be the best edge mask
-              if N_elements(edge_idx) gt 1 then $
-                edge_mask[edge_idx] = !values.f_nan
+              fim[middle_idx] = im[middle_idx] / saim[middle_idx]
+           endif
+           if subtype eq 'source' then begin
+              ;; Dust flat should not be re-aligned.  Also, bad
+              ;; pixels in the dust flat should not be divided
+              saim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
+              edge_idx = where(normalize(saim, cut) lt cut or $
+                               finite(saim) eq 0 or $
+                               finite(dust_flat) eq 0 or $
+                               finite(im) eq 0, $
+                               edge_count, complement=middle_idx)
+              fim[middle_idx] = im[middle_idx] / dust_flat[middle_idx]
+              fim[middle_idx] = fim[middle_idx] / saim[middle_idx]
+           endif
+           if subtype eq 'slicer2' then begin
+              ;; Redo slicer flat using everything
+              slaim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
+              sfaim = ssg_flat_align(im, ihdr, source_flat, hdr)
+              edge_idx = where(normalize(slaim, cut) lt cut or $
+                               finite(slaim) eq 0 or $
+                               finite(dust_flat) eq 0 or $
+                               finite(sfaim) eq 0 or $
+                               finite(im) eq 0, $
+                               edge_count, complement=middle_idx)
+              fim[middle_idx] = im[middle_idx] / dust_flat[middle_idx]
+              fim[middle_idx] = fim[middle_idx] / slaim[middle_idx]
+              fim[middle_idx] = fim[middle_idx] / sfaim[middle_idx]
+           endif
+           ;; This should be the best edge mask
+           if N_elements(edge_idx) gt 1 then $
+              edge_mask[edge_idx] = !values.f_nan
 
-              ;; Display raw image, pause and display flattened image
-              ;; which we will use to spot cosmic rays
-              if keyword_set(TV) then begin
-                 display, im, ihdr, /reuse
-                 wait, 0.5
-                 display, fim, ihdr, /reuse
-              endif
+           ;; Display raw image, pause and display flattened image
+           ;; which we will use to spot cosmic rays
+           if keyword_set(TV) then begin
+              display, im, ihdr, /reuse
+              wait, 0.5
+              display, fim, ihdr, /reuse
+           endif
 
-              ;; Display histogram of Poisson statistics.  Do this
-              ;; before removal of cosmic rays so we get some high
-              ;; count rates too.
+           ;; Display histogram of Poisson statistics.  Do this
+           ;; before removal of cosmic rays so we get some high
+           ;; count rates too.
 ;              sqim = sqrt(im+edge_mask)
 ;              window,5
 ;              plot, histogram(sqim, MIN=0, MAX=100, NBINS=100, /NAN)
 ;              oplot, histogram(im+edge_mask, MIN=0, MAX=10000, NBINS=100, /NAN), linestyle=dotted
 ;
 ;              
-              ;; Now make a full 2D template against which cosmic rays
-              ;; should stand out well.  Pass ssg_spec_extract ihdr so
-              ;; it does extraction de-rotation appropriate for this
-              ;; specific image.  Use the edge_mask to get the best
-              ;; dispersion direction, but use the full image to get
-              ;; the cross-dispersion right
-              ssg_spec_extract, fim + edge_mask, ihdr, fspec, $
-                                med_spec=fmed_spec, $
-                                /AVERAGE
-              ssg_spec_extract, fim, ihdr, junk, fxdisp, $
-                                med_xdisp=fmed_xdisp, $
-                                /AVERAGE
-              template = template_create(fim, fmed_spec, fmed_xdisp)
+           ;; Now make a full 2D template against which cosmic rays
+           ;; should stand out well.  Pass ssg_spec_extract ihdr so
+           ;; it does extraction de-rotation appropriate for this
+           ;; specific image.  Use the edge_mask to get the best
+           ;; dispersion direction, but use the full image to get
+           ;; the cross-dispersion right
+           ssg_spec_extract, fim + edge_mask, ihdr, fspec, $
+                             med_spec=fmed_spec, $
+                             /AVERAGE
+           ssg_spec_extract, fim, ihdr, junk, fxdisp, $
+                             med_xdisp=fmed_xdisp, $
+                             /AVERAGE
+           template = template_create(fim, fmed_spec, fmed_xdisp)
 ; This didn't help POSSION problem
 ;           template = template_create(im, spec, xdisp)
 
-              ;; Rotate the template to overlap the original image
-              ;; rather than the other way around, so that we don't
-              ;; smear sharp features in the original images
-              template = ssg_camrot(template, cam_rots[i], nx/2., sli_cents[i])
+           ;; Rotate the template to overlap the original image
+           ;; rather than the other way around, so that we don't
+           ;; smear sharp features in the original images
+           template = ssg_camrot(template, cam_rots[i], nx/2., sli_cents[i])
 
 ; This made two peaks at around 120 sigma.  I think this is trying to
 ; tell me something about Poisson statistics, but I am just being dense!
@@ -266,142 +272,141 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
 ;           ;; normalization
 ;           template = template*mean(im,/NAN)/mean(template,/NAN)
 
-              ;; --> experiment with this again.
+           ;; --> experiment with this again.
 
-              sigma_im = template_statistic(fim, template);;, /POISSON)
+           sigma_im = template_statistic(fim, template);;, /POISSON)
 
-              ;; Need to get rid of NANs for mark_bad_pix.  Put them
-              ;; back in below
-              bad_idx = where(finite(sigma_im) eq 0, snan_count)
-              if snan_count gt 0 then sigma_im[bad_idx] = 0
+           ;; Need to get rid of NANs for mark_bad_pix.  Put them
+           ;; back in below
+           bad_idx = where(finite(sigma_im) eq 0, snan_count)
+           if snan_count gt 0 then sigma_im[bad_idx] = 0
 
-              ;; Mark high and low pixels on the dust and source
-              ;; images.  Only spot high pixels on the slicer images.
-              if subtype eq 'dust' or subtype eq 'source' then $
-                sigma_im = abs(sigma_im)
+           ;; Mark high and low pixels on the dust and source
+           ;; images.  Only spot high pixels on the slicer images.
+           if subtype eq 'dust' or subtype eq 'source' then $
+              sigma_im = abs(sigma_im)
 
-              ;; mark_bad_pix does not return NAN, but rather the number
-              ;; of times a pixel is found to be bad as a function of
-              ;; size scale
-              cr_mask = mark_bad_pix(sigma_im, cutval=cutval)
-              cr_idx = where(cr_mask gt 0, cr_count)
-              if cr_count gt 0 then cr_mask[cr_idx] = !values.f_nan
+           ;; mark_bad_pix does not return NAN, but rather the number
+           ;; of times a pixel is found to be bad as a function of
+           ;; size scale
+           cr_mask = mark_bad_pix(sigma_im, cutval=cutval)
+           cr_idx = where(cr_mask gt 0, cr_count)
+           if cr_count gt 0 then cr_mask[cr_idx] = !values.f_nan
 ;              ;; Put back in pixels that were marked as NAN above
 ;              if snan_count gt 0 then cr_mask[bad_idx] = !values.f_nan
 
-              ;; SLICER FLAT.  The first slicer flat is basically a 2D
-              ;; version of the median cross-dispersion spectrum.
-              ;; Lets flatten the image first in the spectral
-              ;; direction, though, before we take a median.
-              if subtype eq 'slicer' then begin
-                 ;; By using edge_mask here, we get a better average spectrum
-                 ssg_spec_extract, im+cr_mask+edge_mask, ihdr, spec, /AVERAGE
-                 template = template_create(im, normalize(spec))
-                 im = im/template
-                 ;; But lets leave the edges in for cross-dispersion
-                 ;; direction.  
-                 ssg_spec_extract, im+cr_mask, ihdr, med_xdisp=med_xdisp, $
-                                   /AVERAGE
-                 im = template_create(im, med_xdisp)
-                 ;; No additional marking of cosmic rays is needed
-                 ;; since we are forming the image from a template
-                 ;; Align the image with the average slicer center and
-                 ;; camera rotation remembering that as a template,it
-                 ;; is starting from a rotation of 0
-                 sxaddpar, ihdr, 'CAM_ROT', 0., 'Reset camera rotation'
-                 im = ssg_flat_align(im, hdr, im, ihdr)
-              endif ;; slicer flat
+           ;; SLICER FLAT.  The first slicer flat is basically a 2D
+           ;; version of the median cross-dispersion spectrum.
+           ;; Lets flatten the image first in the spectral
+           ;; direction, though, before we take a median.
+           if subtype eq 'slicer' then begin
+              ;; By using edge_mask here, we get a better average spectrum
+              ssg_spec_extract, im+cr_mask+edge_mask, ihdr, spec, /AVERAGE
+              template = template_create(im, normalize(spec))
+              im = im/template
+              ;; But lets leave the edges in for cross-dispersion
+              ;; direction.  
+              ssg_spec_extract, im+cr_mask, ihdr, med_xdisp=med_xdisp, $
+                                /AVERAGE
+              im = template_create(im, med_xdisp)
+              ;; No additional marking of cosmic rays is needed
+              ;; since we are forming the image from a template
+              ;; Align the image with the average slicer center and
+              ;; camera rotation remembering that as a template,it
+              ;; is starting from a rotation of 0
+              sxaddpar, ihdr, 'CAM_ROT', 0., 'Reset camera rotation'
+              im = ssg_flat_align(im, hdr, im, ihdr)
+           endif ;; slicer flat
 
-              ;; DUST FLAT.  We have already created a
-              ;; slicer-flattened image, fim.  It has the spectral
-              ;; shape in it, which we should divide out.  Divide out
-              ;; a smoothed version of the spectral shape so dust
-              ;; features don't get divided.  Smooth over the size
-              ;; scale of approximately 1/2 a slicer width for
-              ;; non-binned spectra, 4 slicer widths for binned
-              ;; spectra.  Take out the edges in the dust image.
-              if subtype eq 'dust' then begin
-                 im = fim
-                 im = im + cr_mask + edge_mask
-                 ssg_spec_extract, im, ihdr, spec, /AVERAGE
-                 smooth_scale = ny/20.
-                 ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
-                 if count gt 0 then begin
-                    if ccdsum eq '1 4' then begin
-                       smooth_scale = ny/5.
-                    endif
+           ;; DUST FLAT.  We have already created a
+           ;; slicer-flattened image, fim.  It has the spectral
+           ;; shape in it, which we should divide out.  Divide out
+           ;; a smoothed version of the spectral shape so dust
+           ;; features don't get divided.  Smooth over the size
+           ;; scale of approximately 1/2 a slicer width for
+           ;; non-binned spectra, 4 slicer widths for binned
+           ;; spectra.  Take out the edges in the dust image.
+           if subtype eq 'dust' then begin
+              im = fim
+              im = im + cr_mask + edge_mask
+              ssg_spec_extract, im, ihdr, spec, /AVERAGE
+              smooth_scale = ny/20.
+              ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
+              if count gt 0 then begin
+                 if ccdsum eq '1 4' then begin
+                    smooth_scale = ny/5.
                  endif
-
-                 spec = smooth(spec, smooth_scale, /NAN)
-                 template = template_create(im, normalize(spec))
-                 im = im/template
-                 ;; Now mark really opaque dust spots with 0
-                 template = template_create(im, median(im))
-                 sigma = template_statistic(im, template)
-                 badim = mark_bad_pix(abs(sigma))
-                 badidx = where(badim gt 0, count)
-                 if count gt 0 then im[badidx] = 0
               endif
 
-              ;; SOURCE FLAT.  We have already created a slicer-and
-              ;; dust-flattened image, fim.  Mark bad pixels and then
-              ;; translate and rotate onto the average flat
-              ;; position/rotation.  Finally, replace bad pixels with
-              ;; the median value of each cross-dispersion column
-              if subtype eq 'source' then begin
-                 im = fim
-                 im = im + cr_mask + edge_mask
-                 im = ssg_flat_align(im, hdr, im, ihdr)
-                 for di=0, nx-1 do begin
-                    bad_idx = where(finite(im[di,*]) eq 0, count)
-                    if count gt 0 and count lt ny then $
-                      im[di,bad_idx] = median(im[di,*])
-                 endfor
-              endif
+              spec = smooth(spec, smooth_scale, /NAN)
+              template = template_create(im, normalize(spec))
+              im = im/template
+              ;; Now mark really opaque dust spots with 0
+              template = template_create(im, median(im))
+              sigma = template_statistic(im, template)
+              badim = mark_bad_pix(abs(sigma))
+              badidx = where(badim gt 0, count)
+              if count gt 0 then im[badidx] = 0
+           endif
 
-              ;; SLICER2 FLAT.  This is an iteration that should be
-              ;; better than a 2D projection of the median
-              ;; cross-dispersion spectrum.  Make a better edge mask
-              ;; last thing we do so that rotation doesn't eat up too
-              ;; much of the edges
-              if subtype eq 'slicer2' then begin
-                 im = im + cr_mask
-                 im[middle_idx] = im[middle_idx] / dust_flat[middle_idx]
-                 im[middle_idx] = im[middle_idx] / sfaim[middle_idx]
-                 im = ssg_flat_align(im, hdr, im, ihdr)
-              endif ;; slicer2 flat
+           ;; SOURCE FLAT.  We have already created a slicer-and
+           ;; dust-flattened image, fim.  Mark bad pixels and then
+           ;; translate and rotate onto the average flat
+           ;; position/rotation.  Finally, replace bad pixels with
+           ;; the median value of each cross-dispersion column
+           if subtype eq 'source' then begin
+              im = fim
+              im = im + cr_mask + edge_mask
+              im = ssg_flat_align(im, hdr, im, ihdr)
+              for di=0, nx-1 do begin
+                 bad_idx = where(finite(im[di,*]) eq 0, count)
+                 if count gt 0 and count lt ny then $
+                    im[di,bad_idx] = median(im[di,*])
+              endfor
+           endif
 
-              if keyword_set(TV) then display, im, ihdr, /reuse
+           ;; SLICER2 FLAT.  This is an iteration that should be
+           ;; better than a 2D projection of the median
+           ;; cross-dispersion spectrum.  Make a better edge mask
+           ;; last thing we do so that rotation doesn't eat up too
+           ;; much of the edges
+           if subtype eq 'slicer2' then begin
+              im = im + cr_mask
+              im[middle_idx] = im[middle_idx] / dust_flat[middle_idx]
+              im[middle_idx] = im[middle_idx] / sfaim[middle_idx]
+              im = ssg_flat_align(im, hdr, im, ihdr)
+           endif ;; slicer2 flat
 
-              ;; Show spectra if user wants them
-              if keyword_set(showplots) then begin
-                 wset, 7
-                 ssg_spec_extract, im+cr_mask, ihdr, $
-                                   /showplots, /TOTAL
-              endif
+           if keyword_set(TV) then display, im, ihdr, /reuse
 
-              ;; Make sure not too much of the array is contaminated 
+           ;; Show spectra if user wants them
+           if keyword_set(showplots) then begin
+              wset, 7
+              ssg_spec_extract, im+cr_mask, ihdr, $
+                                /showplots, /TOTAL
+           endif
+
+           ;; Make sure not too much of the array is contaminated 
 ;              if cr_count gt 0.01*N_elements(im) then begin
 ;                 badarray[i] = badarray[i] OR 16384
 ;                 message, 'WARNING: Flat ' + files[i] + ' has more than 1% bright pixels.  Marking it bad in the database'
 ;              endif
 
-              ;; OK, it is safe to add this image to the total, keeping
-              ;; track of pixels lost to cosmic ray hits and the edges
-              ;; (in the case of dust flats, the edges can move)
-              good_idx = where(finite(im) eq 1, count, complement=bad_idx)
-              if count eq 0 then message, $
-                'ERROR: no good pixels left in ' + files[i]
-              count_im[good_idx] = count_im[good_idx] + 1
-              total_im[good_idx] = total_im[good_idx] + im[good_idx]
+           ;; OK, it is safe to add this image to the total, keeping
+           ;; track of pixels lost to cosmic ray hits and the edges
+           ;; (in the case of dust flats, the edges can move)
+           good_idx = where(finite(im) eq 1, count, complement=bad_idx)
+           if count eq 0 then message, $
+              'ERROR: no good pixels left in ' + files[i]
+           count_im[good_idx] = count_im[good_idx] + 1
+           total_im[good_idx] = total_im[good_idx] + im[good_idx]
 
-              message, /INFORMATIONAL, 'added ' + type + ' ' + subtype + ' flat ' + files[i]
-              print, ' rotated ' + string(flat_camrot - cam_rots[i]) + ' deg, translated ' + string(flat_sli_cen - sli_cents[i]) + ' pixles, ' + string(cr_count+edge_count) + ' bad pixels'
+           message, /INFORMATIONAL, 'added ' + type + ' ' + subtype + ' flat ' + files[i]
+           print, ' rotated ' + string(flat_camrot - cam_rots[i]) + ' deg, translated ' + string(flat_sli_cen - sli_cents[i]) + ' pixles, ' + string(cr_count+edge_count) + ' bad pixels'
 
-              ;; Make an array for the median calculation
-              stack_im[i,*,*] = im[*,*]
-              
-           endelse  ;; error condition
+           ;; Make an array for the median calculation
+           stack_im[i,*,*] = im[*,*]
+           
         endfor ;; Each flatfield file
         CATCH, /CANCEL
 
@@ -418,7 +423,7 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
            ;; Poisson statistics of the total image to get the error estimate 
            bad_idx = where(stack_im eq 0, count)
            if count gt 0 then $
-             stack_im[bad_idx] = !values.f_nan
+              stack_im[bad_idx] = !values.f_nan
            med_im=fltarr(nx,ny)
            for i=0,nx-1 do begin
               for j=0,ny-1 do begin
