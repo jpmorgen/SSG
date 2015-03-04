@@ -1,4 +1,4 @@
-;; $Id: ssg_camrot.pro,v 1.1 2003/03/10 18:27:26 jpmorgen Exp $
+;; $Id: ssg_camrot.pro,v 1.2 2015/03/04 15:58:42 jpmorgen Exp $
 
 ;; ssg_camrot  Perform camera [de]rotation for an ssg image.  This is
 ;; a little bit of a misnomer, since effects other than the
@@ -10,7 +10,7 @@
 ;; lots and lots of NANs floating around.  At least it does return
 ;; missing values as 0s, so they are relatively easy to put back to NAN.
 
-function ssg_camrot, in_im, cam_rot, xc, yc, nopivot=nopivot
+function ssg_camrot, in_im, cam_rot, xc, yc, nopivot=nopivot, quiet=quiet
 
   im = in_im
   pivot=1
@@ -29,7 +29,8 @@ function ssg_camrot, in_im, cam_rot, xc, yc, nopivot=nopivot
 
   bad=0
   bad_idx = where(im eq bad, count)
-  if count ne 0 then message, /CONTINUE, 'WARNING: ' + string(count) + ' pixels=0--these will be replaced with NAN'
+  if count ne 0 and NOT keyword_set(quiet) then $
+    message, /CONTINUE, 'WARNING: ' + string(count) + ' pixels=0--these will be replaced with NAN'
   im = rot(im, cam_rot, 1., xc, yc, PIVOT=PIVOT, $
            cubic=-0.5, missing=bad)
 

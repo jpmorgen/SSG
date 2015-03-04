@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.8 2014/07/02 14:46:56 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.9 2015/03/04 15:50:27 jpmorgen Exp $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
 ; pattern and the center in the image in the dispersion direction
@@ -76,7 +76,9 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      ;; Read in a file to get the size of the cross-dispersion array
      im = ssgread(files[0], hdr, eim, ehdr, /DATA, /TRIM)
      asize = size(im) & nx = asize(1) & ny = asize(2)
+     ;; Save both 2nd derivative and value
      xdisps_d2 = fltarr(ny, nf)
+     xdisps = xdisps_d2
      for ifile=0,nf-1 do begin
         im = ssgread(files[good_idx[ifile]], hdr, eim, ehdr, /DATA, /TRIM)
         ssg_spec_extract, im, hdr, spec, xdisp, med_xdisp=y, /total 
@@ -100,6 +102,7 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
            wait, wait
         endif
         xdisps_d2[*,ifile] = d2y
+        xdisps[*,ifile] = y
      endfor
      ;; histeq scaling works nicely.
      ;;atv, xdisps_d2
@@ -229,8 +232,11 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      ;; Make an "ueber flat"
      xdisp_axis = indgen(ny)
 
-     ;; Here is where we line all our flats up with each other.
-     shifted_flats = fltarr(ny, ngood_flats)
+     ;; Here is where we line all our flats up with each other.  
+     ;; Wed Jul  2 10:48:43 2014  jpmorgen@snipe
+     ;; Do this in both second derivative space and regular value space
+     shifted_flats_d2 = fltarr(ny, ngood_flats)
+     shifted_flats = shifted_flats_d2
      for iflat=0, ngood_flats-1 do begin
         ;; Slicers with large shifts don't appear to be lining
         ;; up well.  See e.g.:
@@ -240,24 +246,31 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
         ;; be with the quality of the correlation.  I guess it is a
         ;; slicer illumination effect.
         this_xdisp_d2 = xdisps_d2[*, flat_idx[good_flat_idx[iflat]]]
+        this_xdisp = xdisps[*, flat_idx[good_flat_idx[iflat]]]
         ;; Peak_meds applies only to flats.  Don't forget to unwrap!
         to_shift = peak_meds[good_flat_idx[iflat]]
         if abs(to_shift) gt 1 then begin
            this_xdisp_d2 = shift(this_xdisp_d2, -to_shift)
+           this_xdisp = shift(this_xdisp, -to_shift)
            to_shift = to_shift - fix(to_shift)
         endif
         
-        shifted_flats[*, iflat] = $
+        shifted_flats_d2[*, iflat] = $
         interpol(this_xdisp_d2, xdisp_axis, $
-                 xdisp_axis + to_shift)
+                    xdisp_axis + to_shift)
+        shifted_flats[*, iflat] = $
+        interpol(this_xdisp, xdisp_axis, $
+                    xdisp_axis + to_shift)
      endfor
 
      if keyword_set(TV) then $
-       display, shifted_flats, zoom=4, title='Shifted flats 2nd derivative'
+       display, shifted_flats_d2, zoom=4, title='Shifted flats 2nd derivative'
 
      best_flat_d2 = fltarr(ny)
+     best_flat = fltarr(ny)
      for ixdisp=0, ny-1 do begin
-        best_flat_d2[ixdisp] = median(shifted_flats[ixdisp, *])
+        best_flat_d2[ixdisp] = median(shifted_flats_d2[ixdisp, *])
+        best_flat[ixdisp] = median(shifted_flats[ixdisp, *])
      endfor
 
      if keyword_set(plot) then begin
@@ -335,10 +348,20 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      ;; the best flat second derivative is asymmetric enough to cause
      ;; first_peak_find to look at the entire flat execpt the left
      ;; peak as noise.  The signal on the flats tends to be very good
-     best_flat_left  = first_peak_find(best_flat_d2, 'left', threshold=0.1, contrast=0.03)
-     best_flat_right = first_peak_find(best_flat_d2, 'right', threshold=0.1, contrast=0.03)
+
+	flat_left_bound = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /left)
+     ;best_flat_left  = first_peak_find(best_flat_d2, 'left', threshold=0.1, contrast=0.03)
+	best_flat_left = flat_left_bound[0]
+	flat_right_bound = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /right)
+	best_flat_right = flat_right_bound[0]
+     ;best_flat_right = first_peak_find(best_flat_d2, 'right', threshold=0.1, contrast=0.03)
      if best_flat_right - best_flat_left lt ny/10 then $
        message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)
+ 
+     if best_flat_right - best_flat_left lt ny/10 then $
+       message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)
+
+	if best_flat_left LT 0 THEN best_flat_left=0
 
      m_sli_bots[good_idx]  = best_flat_left + best_xdisp_peaks
      e_sli_bots[good_idx]  = best_xdisp_peaks_errors

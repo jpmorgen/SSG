@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_select.pro,v 1.4 2014/03/24 15:43:51 jpmorgen Exp $
+; $Id: ssg_select.pro,v 1.5 2015/03/04 15:50:11 jpmorgen Exp $
 
 ; ssg_select.  Displays relevant information from the databases to try
 ; to help a user select one or more spectra to fit, grab parameters
@@ -8,7 +8,8 @@
 ;-
 
 
-function ssg_select, nday_start_or_range, count=count, title=title, _EXTRA=extra
+function ssg_select, nday_start_or_range, count=count, non_interactive=non_interactive, title=title, $
+                     full_fnames=full_fnames, _EXTRA=extra
 
 ;  ON_ERROR, 2
 
@@ -49,8 +50,6 @@ function ssg_select, nday_start_or_range, count=count, title=title, _EXTRA=extra
   rdbname = 'ssg_reduce'
   fdbname = 'oi_6300_fit'
 
-  window, 7
-
   ;; Extract list of valid ndays from the fitting database 
   dbclose                       ; Just in case
   dbopen, fdbname, 0
@@ -75,7 +74,8 @@ function ssg_select, nday_start_or_range, count=count, title=title, _EXTRA=extra
 
   endif
 
-  dbext, rentries, "fname, date, typecode, bad, nbad, ncr", files, dates, typecodes, badarray, nbads, ncrs
+  dbext, rentries, "dir, fname, date, typecode, bad, nbad, ncr", dirs, files, dates, typecodes, badarray, nbads, ncrs
+  full_fnames = strtrim(dirs, 2) + path_sep() + strtrim(files, 2)
 
   dbext, rentries, "med_spec, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross", med_specs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps
   dbclose
@@ -83,6 +83,18 @@ function ssg_select, nday_start_or_range, count=count, title=title, _EXTRA=extra
   ;; Prepare nday range.  IDL handles UT for plotting better, so
   ;; keep a parallel variable around
   nday_range = [min(ndays), max(ndays)]
+
+  ;; In the non-interactive case, just exit with our ndays
+  if keyword_set(non_interactive) then begin
+     r_idx = where(nday_range[0] le ndays and ndays le nday_range[1], $
+                   count)
+     return, ndays[r_idx]
+  endif
+
+  ;; If we made it here, we are in the interactive case
+
+  window, 7
+
   uts = ndays + (julday(1,1,1990,0))
   ut_range = nday_range + (julday(1,1,1990,0))
 
@@ -112,7 +124,7 @@ function ssg_select, nday_start_or_range, count=count, title=title, _EXTRA=extra
      oplot, uts, fit_vers*10, psym=triangle
      oplot, uts, redchisqs, psym=square
 
-     legend, ['Median spectral value', 'Average spectral value', 'NEW SPECTRUM (0=no, 10=yes)', 'Fit version(*10)', 'Reduced Chi Square of fit'], psym=[plus, asterisk, diamond, triangle, square]
+     al_legend, ['Median spectral value', 'Average spectral value', 'NEW SPECTRUM (0=no, 10=yes)', 'Fit version(*10)', 'Reduced Chi Square of fit'], psym=[plus, asterisk, diamond, triangle, square]
 
      ;; Steal code from ssg_mark_bad.  -->  Some day I might unify
      ;; these, but I am in a hurry right now + they do have somewhat

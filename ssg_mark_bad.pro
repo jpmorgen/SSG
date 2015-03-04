@@ -1,4 +1,4 @@
-; $Id: ssg_mark_bad.pro,v 1.4 2008/06/13 11:50:26 jpmorgen Exp $
+; $Id: ssg_mark_bad.pro,v 1.5 2015/03/04 15:45:14 jpmorgen Exp $
 
 ; ssg_mark_bad.pro.  displays a graph like jpm_polyfit + allows the
 ; user to display images + spectra and mark them as bad
@@ -6,12 +6,13 @@
 
 function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=winnum, spec_winnum=spec_winnum, xtitle=xtitle, ytitle=ytitle, xtickunits=xtickunits, measure_errors=measure_errors, legend=legend_text, reuse=reuse, MJD=MJD
 
+  init = {ssg_sysvar}
   if NOT keyword_set(winnum) then winnum=7
   if NOT keyword_set(spec_winnum) then spec_winnum=6
   ;; check to see if y is a set of axes to plot
 
   x_save = x
-  bad_stack = intarr(N_elements(x))
+  bad_stack = intarr(N_elements(x)+1)
   bad_stack[*] = -1
 
   ;; I am not sure if this fiddling is necessary, but I do want to
@@ -92,7 +93,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
           oploterr, x[good_idx], py[good_idx,pi], measure_errors[good_idx,pi]
      endfor
      if keyword_set(legend_text) then $
-       legend, legend_text, psym=psymlist
+       al_legend, legend_text, psym=psymlist
 
      ;; User selects a bad point
      message, /CONTINUE, 'Use left button to select a single point; lots of information will be displayed.  If you left drag over may points, they will be selected without displaying information.  Middle button brings up menu that lets you exit, delete selected points, or resurrect all deleted points.   Right button resurrects points one-by-one that were marked as bad in this session.'
@@ -203,7 +204,7 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
      if !MOUSE.button eq 2 and nmarked gt 0 then begin
         if keyword_set(measure_errors) then begin
            message, /CONTINUE, 'Preparing to mark ' + string(nmarked) + ' point(s) as bad'
-           print, '(M) bad Measurement in an otherwise good file (multiplies error bars by -1 so point(s) will be replaced by a polynomial fit, (you decide later if you want to exclude these points from the polynomial fit)'
+           print, '(M) bad Measurement in an otherwise good file (point _will_ be replaced by polynominal fit by jpm_polyfit _but_ you will see the point there and it will weight the fit unless you explicitly mark it in jpm_polyfit.)'
            print, '(F) bad File (will be excluded from all subsequent analysis)'
            print, '(Q) quit menu with no changes'
            for ki = 0,1000 do flush_input = get_kbrd(0)
@@ -242,7 +243,6 @@ function ssg_mark_bad, x, y, title=title, noninteractive=noninteractive, window=
            for ki = 0,1000 do flush_input = get_kbrd(0)
            if answer eq 'Y' then begin
               x[marked_idx] = !values.f_nan
-              nmarked = get_kbrd(1)
            endif
         endelse ;; without error bars
 

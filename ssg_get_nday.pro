@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_nday.pro,v 1.5 2003/06/11 18:16:50 jpmorgen Exp $
+; $Id: ssg_get_nday.pro,v 1.6 2015/03/04 15:53:44 jpmorgen Exp $
 
 ; ssg_get_nday 
 ;
@@ -15,18 +15,20 @@
 ; at the _midpoint_ of the exposure.
 ;
 ; Julian date would be a fine reference, but they are a bit large at
-; this point (start at 1/1/4713 BC), so define our own system, before
-; which none of our observations were recorded.  Someone has beat us
-; to this idea, by making reduced Julian day, which is the output of
-; some handy ASTROLIB functions.  Reduced Julian days start on
-; 11/16/1858 (JD=2400000), which is still a little large for us at
-; this point.
+; this point (start at noon, GMT, 1/1/4713 BC), so define our own
+; system, before which none of our observations were recorded.
+; Someone has beat us to this idea, by making reduced Julian day,
+; which is the output of some handy ASTROLIB functions.  Reduced
+; Julian days start at noon on 11/16/1858 (JD=2400000), which is still
+; a little large for us at this point.
 
-; So, Let's define our nday=0 to be 1/1/1990 00:00UT = JD 2447892.5
+; So, Let's define our nday=0 to be 1/1/1990 00:00UT = JD 2447892.5,
+; since all our observations occur within a few hours from 0UT.
 
 ; Note, julian days begin at noon.  Also, IDL julday, though handy as
 ; a function, returns real Julian Day.  ASTROLIB's juldate returns
 ; reduced Julian day, which is JD-2400000, or Julian day starting from
+; 11/16/1858
 
 ; Newer files:
 ; DATE-OBS= '2002-03-17T01:42:42'  /  Y2K compliant (yyyy-mm-ddThh:mm:ss)
@@ -40,6 +42,8 @@
 ;-
 function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
 
+  init = {ssg_sysvar}
+
   nday = 0.D
   ;; If we are not regenerating, do a quick header read
   if NOT keyword_set(regenerate) then begin
@@ -51,6 +55,17 @@ function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
   endif
 
   sxaddhist, string('(ssg_get_nday.pro) ', systime(/UTC), ' UT'), hdr
+  ;; Starting in 1998, DATE-NEW was added to the header as a Y2K
+  ;; transition measure.  
+  newdate = strtrim(sxpar(hdr,'DATE-NEW',COUNT=count))
+  if count ne 0 then begin
+     rawdate_obs = strtrim(sxpar(hdr,'DATE-OBS',COUNT=count))
+     if count eq 1 then begin
+        sxaddhist, string('(ssg_get_nday.pro) copying DATE-NEW to DATE-OBS'), hdr
+        sxaddpar, hdr, 'ODATEOBS', rawdate_obs, 'Old DATE-OBS'
+        sxaddpar, hdr, 'DATE-OBS', newdate, 'Y2K compliant (yyyy-mm-ddThh:mm:ss)'
+     endif
+  endif
   rawdate_obs = strtrim(sxpar(hdr,'DATE-OBS',COUNT=count))
   ;; Just in case HEASARC conventions of _ instead of - are being followed
   if count eq 0 then begin
@@ -96,7 +111,9 @@ function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
   if NOT strcmp(temp[1], raw_ut) then $
        message, /CONTINUE, 'WARNING: DATE-OBS and UT times do not agree, using DATE-OBS version'
 
-  juldate, float(datearr), rawjd 
+  ;; juldate returns reduced Julian Day
+  juldate, double(datearr), rawjd
+  rawjd = rawjd + !eph.jd_reduced
 
   darktime = sxpar(hdr, 'DARKTIME',COUNT=count)
   if count eq 0 then begin
@@ -108,7 +125,7 @@ function ssg_get_nday, hdr, REGENERATE=regenerate, formatted=formatted
      endif
   endif
 
-  nday = rawjd + (darktime/2.)/3600./24. - (julday(1,1,1990,0)-2400000.)
+  nday = rawjd + (darktime/2.d)/3600.d/24.d - !ssg.JDnday0
   sxaddpar, hdr, 'NDAY', nday, 'Decimal days of obs. midpoint since 1990-1-1T12:00:00 UT'
 
   ;; ssg_exceptions should not modify nday, since that is what

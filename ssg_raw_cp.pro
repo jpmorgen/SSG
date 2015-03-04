@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_raw_cp.pro,v 1.6 2003/06/11 18:08:19 jpmorgen Exp $
+; $Id: ssg_raw_cp.pro,v 1.7 2015/03/04 15:49:52 jpmorgen Exp $
 
 ; ssg_raw_cp.  Copies ssg FITS files from indir to outdir.  Only
 ; copies files that are registered as good files in the database (see
@@ -12,12 +12,13 @@
 
 pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
+  init={ssg_sysvar}
   ON_ERROR, 2
   silent=1
   if keyword_set(verbose) then silent = 0
   cd, indir
   if NOT keyword_set(outdir) then message, 'ERROR: outdir must be supplied'
-  writefits, string(outdir, '/test_ssg_raw_cp_writable'), [0]
+  writefits, outdir + '/test_ssg_raw_cp_writable', [0]
   spawn, string('rm ', outdir, '/test_ssg_raw_cp_writable')
 
   ;; Cut off trailing / from outdir so it looks pretty in database
@@ -30,7 +31,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
   ;; Find all files in the directory, matching ndays and pulling over
   ;; the correct file name
-  files = findfile(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = file_search(string(indir, '/*')) ; Doesn't matter if <dir>//*
   files = strtrim(files)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
@@ -45,6 +46,9 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
   err=0
 
+  ;; Prepare to skip files that we know raise frequent errors
+  skip_files = make_array(N_elements(!ssg.non_fits), value=0)
+
   for i=0,nf-1 do begin
      shortinfile= strmid(files[i], $
                        strpos(files[i], '/', /REVERSE_SEARCH) + 1)
@@ -54,7 +58,16 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         message, 'skipping ' + shortinfile, /CONTINUE
      endif else begin
         message,'Checking file '+ shortinfile, /INFORMATIONAL
-        
+
+        ;; Quietly skip known non-fits files
+        for inf=0,N_elements(!ssg.non_fits)-1 do begin
+           skip_files[inf] = strmatch(shortinfile, !ssg.non_fits[inf])
+        endfor
+        if total(skip_files) ne 0 then begin
+           message, /INFORMATIONAL, 'NOTE: ' + shortinfile + ' is probably not a FITS file, skipping'
+           CONTINUE
+        endif
+
         ;; We have to get the nday from the file so we aren't confused
         ;; by multiple filenames.  This will raise an error if not
         ;; FITS, which is fine, since entries[i] will be left=-1
@@ -72,7 +85,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         ;; In case there is a name change or the like.
         ssg_exceptions, im, hdr
 
-        dbext, db_entry, 'raw_fname, db_date, typecode', raw_fname, db_date, typecode
+        dbext, db_entry, 'raw_fname, db_date, typecode, obj_code', raw_fname, db_date, typecode, obj_code
 
         raw_fname = strtrim(raw_fname)
         ;; Make sure we don't copy any bogus files
@@ -112,11 +125,12 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
         sxaddpar, hdr, 'DB_DATE', db_date[0], 'FIRST database entry date (yyyy-mm-dd UT)'
         sxaddpar, hdr, 'TYPECODE', fix(typecode[0]), '0=bias,1=dark,2=comp,3=flat,4=sky flat,5=object'
+        sxaddpar, hdr, 'OBJ_CODE', fix(obj_code[0]), '0=jup,1=io,2=eur,3=gan,4=call'
 
         files[i] = shortoutfile
 
-        outfile = string(outdir, '/', shortoutfile)
-        checkout = findfile(outfile, COUNT=count)
+        outfile = outdir + '/' + shortoutfile
+        checkout = file_search(outfile, COUNT=count)
         if count ne 0 and NOT keyword_set(overwrite) then begin
            message, 'WARNING: file ' + shortoutfile + ' found in ' + outdir + ' use /OVERWRITE keyword to replace'
         endif

@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_sysiv_search.pro,v 1.2 2013/07/18 17:08:47 jpmorgen Exp $
+; $Id: ssg_sysiv_search.pro,v 1.3 2015/03/04 15:45:20 jpmorgen Exp $
 ;
 ; $Log: ssg_sysiv_search.pro,v $
+; Revision 1.3  2015/03/04 15:45:20  jpmorgen
+; Summary: Last checkin before git
+;
 ; Revision 1.2  2013/07/18 17:08:47  jpmorgen
 ; Basic version.  Hope units of PSD are correct on plot
 ;
@@ -64,6 +67,7 @@
 pro ssg_sysiv_search, $
    ps=ps, $
    jpeg=jpeg, $
+   nday_range=nday_range, $
    _EXTRA=extra ; args to plot
 
   init = {tok_sysvar}
@@ -90,6 +94,12 @@ pro ssg_sysiv_search, $
       device, /portrait, filename=ps, /encap
    endif
 
+  if N_elements(nday_range) eq 0 then $
+     nday_range = [0,36500] ; Somewhat generous :-)
+  if N_elements(nday_range) ne 2 then $
+     message, 'ERROR: nday_range must have two elements'
+
+
    dbclose ;; just in case
    dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
 
@@ -104,17 +114,31 @@ pro ssg_sysiv_search, $
 
    dbclose
 
+   good_idx = where(nday_range[0] le mnday and mnday le nday_range[1], count)
+   print, count, ' [OI] points in nday_range = ', nday_range
+   if count eq 0 then $
+      message, 'ERROR: no data in range'
+
    ;; scargle input is time, signal, output is power spectral density
    ;; as a function of angular frequency, omega.  Convert mnday to
    ;; hours, so omega, reads in 1/hour
 
-   scargle, mnday/24., mintensity, omega, psd
+   scargle, mnday[good_idx]/24., mintensity[good_idx], omega, psd, $
+            multiple=1000, signi=signi, simsigni=simsigni, psdpeaksort=psdpeaksort
 
+wset,0
    ;; plot frequency, rather than angular frequency.
    plot, omega/(2.*!pi), psd*(2.*!pi), $
          xtitle='Frequency (hr!u-1!n)', $
-         ytitle='Power Spectral density'
+         ytitle='Power Spectral density', $
+         xrange=[0,1.5]
 
+wset, 1
+   plot, (2.*!pi)/omega, (2.*!pi)*psd, $
+         xtitle='Period (hr)', $
+         ytitle='Power Spectral density', $
+         xrange=[0,12], $
+         _EXTRA=extra
      
   if keyword_set(ps) then begin
      device,/close
@@ -132,6 +156,7 @@ pro ssg_sysiv_search, $
   !P.charthick = oPcharthick
   !X.thick     = oXthick    
   !Y.thick     = oYthick    
+stop
 
 
 end

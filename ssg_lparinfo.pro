@@ -1,7 +1,7 @@
 ; +
-;; $Id: ssg_lparinfo.pro,v 1.1 2004/06/10 01:51:29 jpmorgen Exp $
+;; $Id: ssg_lparinfo.pro,v 1.2 2015/03/04 15:45:32 jpmorgen Exp $
 
-;; ssg_build_lparinfo
+;; ssg_lparinfo
 ;;
 ;; Build the initial line parinfo for ssg observations from line
 ;; catalogs.  At the moment, this assumes no instrument profile is
@@ -56,7 +56,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   if N_elements(inwave) eq 1 then begin
      if N_elements(wdelta) eq 0 then begin
         wdelta = 50
-        message, 'WARNING: no wavelength range specified.  Using  ' + strtrim(wdelta, 2) + ' about ' + strtrim(inwave, 2) , CONTINUE
+        message, 'WARNING: no wavelength range specified.  Using  ' + strtrim(wdelta, 2) + ' about ' + strtrim(inwave, 2), /CONTINUE
      endif
      inwave = [inwave - wdelta/2., inwave + wdelta/2.]
   endif
@@ -126,7 +126,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   endif ;; not rebuilding
 
   ;; BUILD LINE LIST and put it into an ssg parinfo array.  Since the
-  ;; sun and atmosphere lines have different widths build them
+  ;; sun and atmosphere lines have different widths, build them
   ;; separately.
   message, 'NOTE: Building a line list for [' + strtrim(inwave[0],2) + strtrim(inwave[1],2) + ']', /CONTINUE
 
@@ -147,12 +147,17 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   par = !values.d_nan
   idx = where(sso.src eq !eph.sun, count)
   if count gt 0 then begin
-     par = lc2sso(sso, !pfo.voigt, idx=idx, value=[0,0,150,10], $
+     par = sso_lc2sso(sso, !pfo.voigt, idx=idx, value=[0,0,150,10], $
                   path=[!eph.sun, !eph.obj, !eph.earth], step=mpstep, $
                   format=format, eformat=eformat, $
                   parinfo_template=!ssg.parinfo, /no_check)
-     idx = where(par.sso.ttype eq !sso.width)
+     ;; Set limits on Gausian widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.3)
      par[idx].limits = [80,200]
+     par[idx].limited = [1,1]
+     ;; Set limits on Lorentizan widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.4)
+     par[idx].limits = [0,100]
      par[idx].limited = [1,1]
      ;; Seems to converge fine when fixed.  Save degrees of freedom this
      ;; way + it goes faster
@@ -165,13 +170,18 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   par = !values.d_nan
   idx = where(sso.src eq !eph.earth, count) ;;  !! reusing count
   if count gt 0 then begin
-     par = lc2sso(sso, !pfo.voigt, idx=idx, /no_lc_width, $
-                  value=[0,0,50,10], $
-                  path=[!eph.earth, !eph.earth], step=mpstep, $
-                  format=format, eformat=eformat, $
-                  parinfo_template=!ssg.parinfo, /no_check)
-     idx = where(par.sso.ttype eq !sso.width)
-     par[idx].limits = [40,100]
+     par = sso_lc2sso(sso, !pfo.voigt, idx=idx, /no_lc_width, $
+                      value=[0,0,50,10], $
+                      path=[!eph.earth, !eph.earth], step=mpstep, $
+                      format=format, eformat=eformat, $
+                      parinfo_template=!ssg.parinfo, /no_check)
+     ;; Set limits on Gausian widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.3)
+     par[idx].limits = [20,100]
+     par[idx].limited = [1,1]
+     ;; Set limits on Lorentizan widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.4)
+     par[idx].limits = [0,50]
      par[idx].limited = [1,1]
      ;; Seems to converge fine when fixed.  Save degrees of freedom
      ;; this way + it goes faster
@@ -208,12 +218,19 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
      idx = where(par.sso.ttype eq !sso.ew)
      par[idx].limits[0] = 0
      par[idx].limited[0] = 1
-     idx = where(par.sso.ttype eq !sso.width)
+     ;; Set limits on Gausian width
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.3)
      par[idx].limits = [40,100]
+     par[idx].limited = [1,1]
+     ;; Set limits on Lorentizan widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.4)
+     par[idx].limits = [0,50]
      par[idx].limited = [1,1]
      lparinfo = array_append(par, lparinfo)
   endif ;; some airglow lines
 
+
+  ;; Object lines.  This assumes Voigts (not good for Sodium)
   par = !values.d_nan
   good_idx = where(inwave[0] le !ssg.obj_lines and $
                    !ssg.obj_lines le inwave[1], nlines)
@@ -235,11 +252,16 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
      idx = where(par.sso.ttype eq !sso.ew)
      par[idx].limits[0] = 0
      par[idx].limited[0] = 1
-     idx = where(par.sso.ttype eq !sso.width)
-     par[idx].limits = [80,200]
+     ;; Set limits on Gausian widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.3)
+     par[idx].limits = [20,200]
+     par[idx].limited = [1,1]
+     ;; Set limits on Lorentizan widths
+     idx = where(par.sso.pfo.pfo.ftype eq !pfo.voigt + 0.4)
+     par[idx].limits = [0,50]
      par[idx].limited = [1,1]
      lparinfo = array_append(par, lparinfo)
-  endif
+  endif ;; some object lines
 
   if N_elements(lparinfo) eq 0 then $
     message, 'ERROR: no catalog lines found in input wavelength range'

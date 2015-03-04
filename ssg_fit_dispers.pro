@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_dispers.pro,v 1.4 2003/06/13 03:52:32 jpmorgen Exp $
+; $Id: ssg_fit_dispers.pro,v 1.5 2015/03/04 15:58:58 jpmorgen Exp $
 
 ; ssg_fit_dispers.  find the rotation of the camera relative to the
 ; flatfield pattern
@@ -38,7 +38,7 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   entries = dbfind(string("dir=", indir))
-  dbext, entries, "fname, nday, date, m_dispers, wavelen", files, ndays, dates, m_dispers, dispers
+  dbext, entries, "fname, nday, date, m_dispers, dispers", files, ndays, dates, m_dispers, dispers
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990,0)
   ;; Use the last file of the day since if you take biases in the
@@ -48,12 +48,11 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   this_nday = median(fix(ndays))     ; presumably this will throw out anything taken at an odd time
   
   files=strtrim(files)
+  dispers[*] = !values.f_nan
 
   refit=1
   if keyword_set(noninteractive) then $
-    refit = 0 $
-  else $
-    window,7
+    refit = 0
 
   asize = size(m_dispers)
   if asize[0] lt 2 then message, 'ERROR: improperly formatted database--make this code and ssg_db_create consistent'
@@ -93,8 +92,8 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
            answer = strupcase(answer)
         endrep until answer eq 'Y' or answer eq 'N'
         for ki = 0,1000 do flush_input = get_kbrd(0)
+        if answer eq 'Y' then write=1
      endif
-     if answer eq 'Y' then write=1
   endif
 
   ;; Now write the information to the FITS headers
@@ -102,7 +101,7 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
      oldpriv=!priv
      !priv = 2
      dbopen, dbname, 1
-     dbupdate, entries, 'wavelen', dispers
+     dbupdate, entries, 'dispers', dispers
      dbclose
      !priv=oldpriv
      message, /INFORMATIONAL, 'Updated dispersion coefs in ' + dbname
