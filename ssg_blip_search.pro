@@ -33,9 +33,12 @@
 ;
 ; MODIFICATION HISTORY:
 ;
-; $Id: ssg_blip_search.pro,v 1.7 2014/11/04 17:49:07 jpmorgen Exp $
+; $Id: ssg_blip_search.pro,v 1.8 2015/03/04 15:50:32 jpmorgen Exp $
 ;
 ; $Log: ssg_blip_search.pro,v $
+; Revision 1.8  2015/03/04 15:50:32  jpmorgen
+; Summary: Last checkin before git
+;
 ; Revision 1.7  2014/11/04 17:49:07  jpmorgen
 ; About to keep track of UT of blips to enable construction of a periodogram
 ;
@@ -288,6 +291,7 @@ pro ssg_blip_search, $
                          sqrt(2*merr_intensity[idx[i+1]]^2. +  $
                               merr_intensity[idx[i]]^2. + $
                               merr_intensity[idx[i+2]]^2.)
+
            endfor
         endelse
 
@@ -328,6 +332,8 @@ pro ssg_blip_search, $
         ;; each day (-->and eventually each continuous interval) for
         ;; blips,
         pfo_array_append, parent_long_3s, mlong_3[idx[1:N_in_gap-2]]
+        ;; Accumulate all of our mndays
+        pfo_array_append, parent_mndays, mnday
 
 ;;     plot, mnday, mintensity, psym=!tok.plus, yrange=[-20,20]
 ;;     oplot, mnday[1:N_nday-2], diff2, psym=!tok.diamond
@@ -339,7 +345,7 @@ pro ssg_blip_search, $
            gap_left_idx = gap_right_idx[igap] + 1
      endfor ;; time segments
 
-  endfor
+  endfor ;; each nday
 
   dbclose
 
@@ -429,11 +435,46 @@ print, long_3_hist
      write_jpeg, jpeg, tvrd(true=1), quality=75, true=1
   endif
 
+  ;; Create a time line that marks the positions of the blips
+  blipy = parent_mndays*0.
+  tidx = where(ndays eq parent_mndays)
+  for i=0,N_elements(ndays)-1 do begin
+     idx = where(ndays[i] eq parent_mndays, count)
+     if count gt 0 then $
+        pfo_array_append, blipy_idx, idx
+  endfor
+  nblips = N_elements(blipy_idx)
+  if nblips eq 0 then begin
+     message, /CONTINUE, 'WARNING: no blips found'
+     return
+  endif
+  print, 'Number of blips found: ', nblips
+
+  ;; If we made it here, we have some points on which to do a periodogram
+  blipy[blipy_idx] = 1
+  ;; Do a periodogram with the ndays array, which records when the
+  ;; blips occur
+  scargle, parent_mndays/24., blipy, omega, psd
+
+wset,0
+   ;; plot frequency, rather than angular frequency.
+   plot, omega/(2.*!pi), psd*(2.*!pi), $
+         xtitle='Frequency (hr!u-1!n)', $
+         ytitle='Power Spectral density', $
+         xrange=[0,0.6], xstyle=!tok.exact
+
+wset, 1
+   plot, (2.*!pi)/omega, (2.*!pi)*psd, $
+         xtitle='Period (hr)', $
+         ytitle='Power Spectral density', $
+         xrange=[0,12], xstyle=!tok.exact, $
+         _EXTRA=extra
+
+
   !P.thick     = oPthick    
   !P.charsize  = oPcharsize 
   !P.charthick = oPcharthick
   !X.thick     = oXthick    
   !Y.thick     = oYthick    
-
 
 end

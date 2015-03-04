@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_db_init.pro,v 1.8 2014/03/05 03:21:31 jpmorgen Exp $
+; $Id: ssg_db_init.pro,v 1.9 2015/03/04 15:49:59 jpmorgen Exp $
 
 ; ssg_db_init initializes database enties for all FITS files in a
 ; given directory.  The idea is to have each file entered once and
@@ -33,7 +33,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
   dbname = 'ssg_reduce'
   ;; Find all files in the directory.
   message,'looking for FITS file in '+ indir, /CONTINUE
-  files = findfile(string(indir, '/*'))
+  files = file_search(string(indir, '/*'))
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
        message, 'No files found in '+indir 
@@ -75,6 +75,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
   ;; Open database for inspection only.  
   dbopen, dbname, 0
   for i=0,N_elements(files)-1 do begin
+     ;;file_test(shortfile, /directory)
      shortfile= strmid(files[i], $
                        strpos(files[i], '/', /REVERSE_SEARCH) + 1)
 
@@ -85,10 +86,11 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
      endif else begin
         message,'Checking '+ shortfile, /INFORMATIONAL
 
-        ;; Quietly skip known non-fits files
+        ;; Quietly skip known non-fits files and directories
         for inf=0,N_elements(!ssg.non_fits)-1 do begin
            skip_files[inf] = strmatch(shortfile, !ssg.non_fits[inf])
         endfor
+        
         if total(skip_files) ne 0 then begin
            message, /INFORMATIONAL, 'NOTE: ' + shortfile + ' is probably not a FITS file, skipping'
            CONTINUE
@@ -222,23 +224,56 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
         if typecode[ngood] eq 255 then $
           message, 'WARNING: unknown IMAGETYP keyword ' + imagetype[ngood] + ' Please make a typecode for this', /CONTINUE
 
+        
         ;; obj_code.  Assume type is unknown and see if we end up with
         ;; something
         obj_code[ngood] = 255
-        if strpos(strlowcase(object[ngood]), 'jup') ne -1 then $
-          obj_code[ngood] = 0
-        if strpos(strlowcase(object[ngood]), 'io')  ne -1 then $
-          obj_code[ngood] = 1
-        if strpos(strlowcase(object[ngood]), 'eur') ne -1  then $
-          obj_code[ngood] = 2
-        if strpos(strlowcase(object[ngood]), 'gan') ne -1 then $
-          obj_code[ngood] = 3
-        if strpos(strlowcase(object[ngood]), 'call') ne -1 then $
-           obj_code[ngood] = 4
+
+        ;; Try to do a little bit of intelligent parsing of the object
+        ;; string to figure out what object we are looking at when we
+        ;; mention more than one object.  For instance,  2002-03-16
+        ;; OBJECT "Io-West Series (Europa safely past)".  The right
+        ;; answer tends to be the object named first
+        obj_regexps = ['jup','io', 'eur', 'gan', 'call']
+        N_regexp = N_elements(obj_regexps)
+        ;; Store the positions of the object names in the OBJECT
+        ;; string in an array
+        obj_strposes = make_array(N_regexp, value=-1)
+        for ire=0, N_regexp-1 do begin
+           obj_strposes[ire] = strpos(strlowcase(object[ngood]), $
+                                      obj_regexps[ire])
+        endfor ;; each regexp
+        ;; stropos returns -1 when a string is not found.  Set those
+        ;; to the highest value
+        bad_idx = where(obj_strposes eq -1, count)
+        if count gt 0 then $
+           obj_strposes[bad_idx] = max(obj_strposes) + 1
+        ;; Find the minimum subscript (usually 0), which will end up
+        ;; being the obj_code we want.  NOTE: we have to extract the
+        ;; subscript with a variable, since obj_code[ngood] is passed
+        ;; by value, not reference
+        junk = min(obj_strposes, obj_regexp_idx)
+        obj_code[ngood] = obj_regexp_idx
+
+        ;; The above code replaces this, which got confused when
+        ;; multiple objects were mentioned
+        ;; if strpos(strlowcase(object[ngood]), 'jup') ne -1 then $
+        ;;   obj_code[ngood] = 0
+        ;; if strpos(strlowcase(object[ngood]), 'io')  ne -1 then $
+        ;;   obj_code[ngood] = 1
+        ;; if strpos(strlowcase(object[ngood]), 'eur') ne -1  then $
+        ;;   obj_code[ngood] = 2
+        ;; if strpos(strlowcase(object[ngood]), 'gan') ne -1 then $
+        ;;   obj_code[ngood] = 3
+        ;; if strpos(strlowcase(object[ngood]), 'call') ne -1 then $
+        ;;    obj_code[ngood] = 4
+
+        ;; Night sky
         if typecode[ngood] ne 4 then begin ;; Not a sky flat
            if (strpos(strlowcase(object[ngood]), 'sky') ne -1) then $
              obj_code[ngood] = 5
         endif
+
         ;; I don't really need to assign object codes to these, but
         ;; might as well for completeness
         if typecode[ngood] eq 0 then $

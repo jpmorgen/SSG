@@ -1,51 +1,12 @@
-;+
-; NAME:
-;
-; PURPOSE: This script will take an array of data points and return the points
-; that are closest to the acceptable deviation. The default is 1 and 10% of max.
-; it will return an array of (1%, 10%)
-;
-; CATEGORY:
-;
-; CALLING SEQUENCE:
-;
-; DESCRIPTION:
-;
-; INPUTS:
-;
-; OPTIONAL INPUTS:
-;
-; KEYWORD PARAMETERS:
-;
-; OUTPUTS:
-;
-; OPTIONAL OUTPUTS:
-;
-; COMMON BLOCKS:  
-;   Common blocks are ugly.  Consider using package-specific system
-;   variables.
-;
-; SIDE EFFECTS:
-;
-; RESTRICTIONS:
-;
-; PROCEDURE:
-;
-; EXAMPLE:
-;
-; MODIFICATION HISTORY:
-;
-; $Id: slicer_bottom_find.pro,v 1.2 2014/06/26 15:44:24 jpmorgen Exp $
-;
-; $Log: slicer_bottom_find.pro,v $
-; Revision 1.2  2014/06/26 15:44:24  jpmorgen
-; Received updated version
-;
-;-
-FUNCTION SLICER_BOTTOM_FIND, data_in, Xdata=xdata, LowEnd=lowEnd, HighEnd=highEnd, Narrow=narrow, All=all
+FUNCTION SLICER_BOTTOM_FIND, data_in, Xdata=xdata, LowEnd=lowEnd, HighEnd=highEnd, Narrow=narrow, All=all, Error=error, Right=right
 
-;; Protect data_in
+;This script will take an array of data points and return the points
+;that are closest to the acceptable deviation. The default is 1 and 10% of max.
+;it will return an array of (1%, 10%)
+
 data = data_in
+
+IF KEYWORD_SET(right) THEN data=REVERSE(data)
 
 If KEYWORD_SET(lowEnd) EQ 0 THEN lowEnd = .01
 If KEYWORD_SET(highEnd) EQ 0 THEN highEnd = .1
@@ -53,7 +14,7 @@ size = N_ELEMENTS(data)
 
 ;if xdata isn't given then create a set of integers assuming it is in order
 IF N_ELEMENTS(xdata) EQ 0 THEN BEGIN
-	xdata=FINDGEN(size)
+	xdata=DINDGEN(size)
 ENDIF
 
 ;make sure the data is ordered by x coordinate, probably time 
@@ -66,7 +27,7 @@ EndFOR
 
 IF notInOrder EQ 1 THEN BEGIN
 	Print, 'Sort data first'
-	Return, 'Sort data first'
+	return, 'sort data first'
 ENDIF
 
 ;adjust the data down so that it will always return a useable result.
@@ -81,10 +42,13 @@ high=max*highEnd
 xTen = 0
 xOne = 0
 
+big_idx = where(data ge high, count)
+xten = big_idx[0]
+
+
 ;find the first x coordinate that corresponds with the high end guess
 WHILE data(xTen) LE high DO BEGIN
 	xTen = xTen+1
-        ;; If we happen to hit on low, set our xOne here 
 	IF data(xTen) EQ low THEN xOne = xTen
 ENDWHILE
 
@@ -96,7 +60,7 @@ IF data(xOne) NE low THEN BEGIN
 	ENDWHILE
 ENDIF
 
-;Establish dirst and second ordere derivatives of the data
+;Establish first and second ordere derivatives of the data
 dData = DERIV(data)
 d2Data = DERIV(dData)
 d2x2 = 0
@@ -110,30 +74,55 @@ d2firstPeak = FIRST_PEAK_FIND(d2Data, 'left')
 ;this works throgh the data to find the first instance of the max
 ;the idea here being that the first peak might be a local max
 ;that is throwing off the data
-WHILE d2Data(d2x) LT MAX(d2Data) DO BEGIN
+WHILE d2Data(d2x) LT (MAX(d2Data)*.9) DO BEGIN
 	d2x = d2x+1
 ENDWHILE 
 
 ;This search is basically looking for the first overly drastic change.
 ;In the first derivative the initial turn on point should be a huge leap.
-; --> Should this be dData?  Not sure if I understand exactly how this works
 WHILE d2data(d2x2 + 1) LE d2data(d2x2)*2 DO BEGIN
 	d2x2 = d2x2+1
 ENDWHILE
 
 ;FIlters out the data and only returns the desired data.
+;also calculate precision
+precision = 0.0
+sum = 2.0
+
 IF KEYWORD_SET(Narrow) THEN BEGIN
-	IF dfirstpeak LE xTen and dfirstpeak GE xOne THEN bounds=dfirstpeak
+	IF dfirstpeak LE xTen and dfirstpeak GE xOne THEN Begin
+		bounds=dfirstpeak
+		precision = (xTen+dfrirstpeak)
+		sum=sum+1
+	ENDIF
 ENDIF ELSE BEGIN
 	bounds=xTen
-	IF d2x2 LE xTen and d2x2 GE xOne THEN bounds=d2x2
-	IF d2x LE xTen and d2x GE xOne THEN bounds=d2x
-	IF dfirstpeak LE xTen and dfirstpeak GE xOne THEN bounds=dfirstpeak
-	IF d2firstpeak LE xTen and d2firstpeak GE xOne THEN bounds=d2firstpeak
+	precision = (xTen-xOne)
+	IF d2x2 LE xTen and d2x2 GE xOne THEN BEGIN
+		bounds=d2x2
+		precision = precision+(d2x2-xOne)
+		sum=sum+1
+	ENDIF
+	IF d2x LE xTen and d2x GE xOne THEN BEGIN
+		bounds=d2x
+		precision = precision+(d2x-xOne)
+		sum=sum+1
+	ENDIF
+	IF dfirstpeak LE xTen and dfirstpeak GE xOne THEN BEGIN
+		bounds=dfirstpeak
+		precision=precision+(dfirstpeak-xOne)
+		sum=sum+1
+	ENDIF	
+	IF d2firstpeak LE xTen and d2firstpeak GE xOne THEN BEGIN
+		bounds=d2firstpeak
+		precision = precision+(d2firstpeak-xOne)
+		sum=sum+1
+	ENDIF
 ENDELSE
 
-IF KEYWORD_SET(All) THEN bounds = [xOne, d2x, dfirstpeak, d2firstPeak, d2x2, xTen]
+deviation=(precision/sum)
+IF KEYWORD_SET(All) THEN bounds = [xOne, d2x, dfirstpeak, d2firstPeak, d2x2, xTen, deviation]
+IF KEYWORD_SET(error) THEN bound = [bounds, deviation] ELSE bound = bounds
 
-RETURN, bounds
+RETURN, bound
 END
-

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_biasgen.pro,v 1.8 2014/03/11 17:04:25 jpmorgen Exp $
+; $Id: ssg_biasgen.pro,v 1.9 2015/03/04 15:52:22 jpmorgen Exp $
 
 ; ssg_biasgen Generate a bestbias frame from all the bias images in a
 ; given directory
@@ -175,7 +175,6 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
         ;; Average: exclude bad pixels from average calculation by
         ;; setting them to 0 before adding AND keeping track of how
         ;; many good pixels were collected at each location
-;;--> mask_im is reading 1,2,3, not NAN!
         badidx = where(finite(mask_im) eq 0, count)
 ;;        badidx = where(mask_im gt 1, count)
 ;        if count gt badpix then $
