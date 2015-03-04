@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_fit_slicer.pro,v 1.6 2009/07/01 22:00:34 jpmorgen Exp $
+; $Id: ssg_fit_slicer.pro,v 1.7 2015/03/04 15:58:27 jpmorgen Exp $
 
 ; ssg_fit_slicer.  Fit J-shaped or tilted slices
 
@@ -39,9 +39,6 @@ pro ssg_fit_slicer, indir, VERBOSE=verbose, order=order, $
   asize = size(m_slicers)
   if asize[0] lt 2 then message, 'ERROR: improperly formatted database--make this code and ssg_db_create consistent'
   max_npxd = asize[1]
-  ;; --> Square test does not give me what I think it does.  Array is
-  ;; 100 elements long from the database, so it is always 10.
-  ;; --> fix this by adding npxd,npd to database or by some other means.
   square_test = sqrt(max_npxd)
   if square_test ne fix(square_test) then message, 'ERROR: I can only deal with a square array of coefficients'
 
