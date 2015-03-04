@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_cr_replace.pro,v 1.1 2003/06/11 18:11:56 jpmorgen Exp $
+; $Id: ssg_cr_replace.pro,v 1.1 2003/06/11 18:11:56 jpmorgen Exp jpmorgen $
 
 ; ssg_cr_replace  Replace NAN values with best-fit cross-dispersion
 ; spectrum.  Assumes cross-dispersion spectrum is the same for every
@@ -62,7 +62,12 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
 ;  entries = dbfind("typecode=[2,5]", $
   entries = dbfind("typecode=5", $
                    dbfind("bad<2047", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir))), count=count)
+  if count eq 0 then begin
+     message, /INFORMATIONAL, 'NOTE: no object spectra recorded on ' + indir + '.  Returning without doing anything'
+     dbclose
+     return
+  endif
 
   dbext, entries, "fname, nday, date, typecode, bad, nbad, ncr, nbad_col", files, ndays, dates, typecodes, badarray, nbads, ncrs, bad_cols
 

@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_raw_cp_debug.pro,v 1.1 2015/02/17 23:07:32 jpmorgen Exp $
+; $Id: ssg_raw_cp.pro,v 1.6 2003/06/11 18:08:19 jpmorgen Exp jpmorgen $
 
 ; ssg_raw_cp.  Copies ssg FITS files from indir to outdir.  Only
 ; copies files that are registered as good files in the database (see

@@ -13,12 +13,20 @@
 function where_nday_eq,in_nday,listin,SILENT=silent,fullstring = Fullstring,      $
         errmsg=errmsg, count=count, tolerance=tolerance
 
+  init = {ssg_sysvar}
+
   ON_ERROR, 2
   npts = N_elements(in_nday)
   if npts eq 0 then return, -1
   nday = dblarr(npts)
   nday[*] = in_nday[*]
-  if NOT keyword_set(tolerance) then tolerance = 0.00001
+  ;; Some experimentation was necessary to find the smallest tolerance
+  ;; that worked with dbfind to find multiple entries in the database
+  ;; This is about 4.3 seconds, which is faster than the TI4/5 can
+  ;; read out.  0.00004 worked too.  --> Be careful if we get a new
+  ;; camera.  --> This tolerance is also expressed in ssg_db_init
+  if NOT keyword_set(tolerance) then $
+    tolerance = !ssg.tolerance
   if N_elements(tolerance) eq 1 then $
     tolerance = replicate(tolerance, npts)
   if N_elements(tolerance) ne npts then $
@@ -27,7 +35,7 @@ function where_nday_eq,in_nday,listin,SILENT=silent,fullstring = Fullstring,    
   ;; the IDL model suggests, so let's do it by hand here
 
   for i=0,npts-1 do begin
-      findstring=string(format='("nday = ", f11.5, "(", f11.5, ")")', $
+      findstring=string(format='("nday = ", f15.5, "(", f15.5, ")")', $
                         nday[i], tolerance[i])
       if n_params() gt 1 then begin
           entry = dbfind(findstring[i],listin,SILENT=silent, $

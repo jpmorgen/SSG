@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_exceptions.pro,v 1.2 2003/06/11 18:12:51 jpmorgen Exp $
+; $Id: ssg_exceptions.pro,v 1.2 2003/06/11 18:12:51 jpmorgen Exp jpmorgen $
 
 ; ssg_exceptions Make unusual modifications to the image, FITS header,
 ; or database that would otherwise be too difficult to program in to
@@ -57,6 +57,31 @@ pro ssg_exceptions, in_im, in_hdr
 ;   endif ;; TI5
   ;; BEGIN AUTOMATIC SECTION
   ;; END AUTOMATIC SECTION
+
+  ;; Fix a spelling error
+  object = strtrim(sxpar(hdr, 'OBJECT'))
+  if object eq 'To west series' then begin
+     modified = 1
+     sxaddpar, hdr, 'OOBJECT', object, after='OBJECT'
+     object = 'Io west series'
+     sxaddpar, hdr, 'OBJECT', object
+  endif
+
+  ;; Ron and Ed changed the number of columns on 2007-06-04
+  ;; --> still working on this
+  if fix(nday) eq 6363 then begin
+     dims = size(im, /dimensions)
+     if dims[0] ne 189 then begin
+        modified = 1
+        im = im[dims[0]-189:dims[0]-1,*]
+        ccdsec = sxpar(hdr, 'CCDSEC')
+        sxaddpar, hdr, 'OCCDSEC', ccdsec, after='CCDSEC'
+        datasec = sxpar(hdr, 'DATASEC')
+        sxaddpar, hdr, 'ODATASE', ccdsec, after='DATASEC'
+        ccdsec = sxpar(hdr, 'TRIMSEC')
+        sxaddpar, hdr, 'OTRIMSE', ccdsec, after='TRIMSEC'
+     endif ;; One of the extra-wide flats
+  endif ;; 2007-06-04
 
 
   if keyword_set(modified) then begin

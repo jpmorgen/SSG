@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_cr_mark.pro,v 1.1 2003/06/11 18:12:17 jpmorgen Exp $
+; $Id: ssg_cr_mark.pro,v 1.1 2003/06/11 18:12:17 jpmorgen Exp jpmorgen $
 
 ; ssg_cr_mark marks cosmic rays in an SSG image and writes a derotated
 ; image with NANs where the cosmic rays were.  Works best for images
@@ -25,7 +25,13 @@ pro ssg_cr_mark, indir, flat_cut=flat_cut, tv=tv, showplots=showplots, cr_rate=c
   dbopen, dbname, 0
   entries = dbfind("typecode=5", $
                    dbfind("bad<2047", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir))), count=count)
+  if count eq 0 then begin
+     message, /INFORMATIONAL, 'NOTE: no object spectra recorded on ' + indir + '.  Returning without doing anything'
+     dbclose
+     return
+  endif
+
 
   dbext, entries, "fname, typecode, cr_cut, ncr, nbad", files, typecodes, cr_cuts, num_crs, num_bads
   dbclose

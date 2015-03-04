@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_overclock.pro,v 1.7 2003/06/11 19:57:20 jpmorgen Exp $
+; $Id: ssg_get_overclock.pro,v 1.7 2003/06/11 19:57:20 jpmorgen Exp jpmorgen $
 
 ; ssg_get_overclock.  collects information on the CCD overclock region
 ; to put into the reduction database.
@@ -33,6 +33,10 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
+  dbclose ;; Just in case
+  dbname = 'ssg_reduce'
+  dbopen, dbname, 0
+  
   entries = dbfind(string("dir=", indir))
   dbext, entries, "fname, nday, date, bad, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias, stdev_bias", files, ndays, dates, badarray, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias, stdev_bias
 
