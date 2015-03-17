@@ -1,5 +1,5 @@
 ;+
-; $Id: ssg_get_sliloc.pro,v 1.9 2015/03/04 15:50:27 jpmorgen Exp $
+; $Id: ssg_get_sliloc.pro,v 1.8 2014/07/02 14:46:56 jpmorgen Exp jpmorgen $
 
 ; ssg_get_sliloc.  Find the top and bottom pixels (in Y) of the slicer
 ; pattern and the center in the image in the dispersion direction
@@ -9,7 +9,7 @@
 pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoom, pos=pos, write=write, noninteractive=noninteractive, review=review, window=winnum, rwindow=rwinnum, plot=plot, limits=in_limits, nflat_steps=nflat_steps, ndata_steps=ndata_steps, wait=wait, bad_flat_threshold=bad_flat_threshold
 
 ;  ON_ERROR, 2
-  init = {ssg_sysvar}
+  ;init = {ssg_sysvar}
   cd, indir
 
   silent = 1
@@ -267,15 +267,26 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
        display, shifted_flats_d2, zoom=4, title='Shifted flats 2nd derivative'
 
      best_flat_d2 = fltarr(ny)
-     best_flat = fltarr(ny)
      for ixdisp=0, ny-1 do begin
         best_flat_d2[ixdisp] = median(shifted_flats_d2[ixdisp, *])
-        best_flat[ixdisp] = median(shifted_flats[ixdisp, *])
      endfor
 
      if keyword_set(plot) then begin
         window, 1, xs=640,ys=512
         plot, best_flat_d2, title='Best flat second derivative'
+     endif
+
+ if keyword_set(TV) then $
+       display, shifted_flats_d2, zoom=4, title='Shifted flats 2nd derivative'
+
+     best_flat = fltarr(ny)
+     for ixdisp=0, ny-1 do begin
+        best_flat[ixdisp] = median(shifted_flats[ixdisp, *])
+     endfor
+
+     if keyword_set(plot) then begin
+        window, 1, xs=640,ys=512
+        plot, best_flat, title='Best flat second derivative'
      endif
 
 
@@ -357,10 +368,6 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      ;best_flat_right = first_peak_find(best_flat_d2, 'right', threshold=0.1, contrast=0.03)
      if best_flat_right - best_flat_left lt ny/10 then $
        message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)
- 
-     if best_flat_right - best_flat_left lt ny/10 then $
-       message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)
-
 	if best_flat_left LT 0 THEN best_flat_left=0
 
      m_sli_bots[good_idx]  = best_flat_left + best_xdisp_peaks
