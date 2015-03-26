@@ -168,7 +168,8 @@ pro ssg_blob_search, $
   
 
   ;; Handle each nday one at a time
-  for inday=2730,4000 do begin
+;;  for inday=0,4000 do begin
+    for inday=2809,2809 do begin
      ;; Create the strings necessary to query the ZDBASE for nday
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
@@ -231,6 +232,10 @@ pro ssg_blob_search, $
         ;; Don't bother for gaps that have less than 3 points
         if N_in_gap lt 3 then begin
            message, /INFORMATIONAL, 'NOTE: skipping gap with only ' + strtrim(N_in_gap, 2) + ' points'
+           ;; Move the left side of our gap forward if we have any more
+           ;; gaps to process
+           if igap lt ntime_segments then $
+              gap_left_idx = gap_right_idx[igap] + 1
            CONTINUE
         endif
 
@@ -238,7 +243,7 @@ pro ssg_blob_search, $
         print, 'new segment: ', idx
         ;; Check to see if the sampling in this gap is close enough to
         ;; our desired minimum cadence (in minutes)
-        cadence = mean(nday_diff[0:idx[N_in_gap-2]]) * 24.*60.
+        cadence = mean(nday_diff[gap_left_idx:gap_right_idx[igap]-1]) * 24.*60.
         if cadence gt min_cadence then begin
            message, /INFORMATIONAL, 'NOTE: skipping gap which has cadence of ' + strtrim(cadence, 2) + ' minutes'
            CONTINUE
@@ -256,7 +261,7 @@ pro ssg_blob_search, $
         ;; first_peak_find
         blob_pos = 'None' ;; reinitialize for each segment
         ;; Index into idx which will move along from peak to peak
-        last_blob_idx = 0
+        last_left_idx = 0
         sign = 1.
         if keyword_set(negative) then $
            sign = -1.
@@ -264,16 +269,17 @@ pro ssg_blob_search, $
         mintensity[idx] = mintensity[idx] - min(mintensity[idx])
         ;; Use consistent maximum intensity for each peak in this
         ;; segment.  We have to do this because the code below
-        ;; erodes mintensity as it goes along.
+        ;; erodes mintensity as it goes along. --> significance
+        ;; calculation ends up making this not so important
         max_mintensity = max(mintensity[idx])
         repeat begin
            ;; Get the position in index space of the (next) blob in
            ;; mintensity
            this_blob_pos = $
               first_peak_find( $
-              sign * mintensity[idx[last_blob_idx:N_in_gap-1]], $
+              sign * mintensity[idx[last_left_idx:N_in_gap-1]], $
               'left', $
-              yerr=merr_intensity[idx[last_blob_idx:N_in_gap-1]], $
+              yerr=merr_intensity[idx[last_left_idx:N_in_gap-1]], $
               $;;max_y=max_mintensity, $
               left_idx=left_idx, right_idx=right_idx, $
               _EXTRA=extra)
@@ -281,36 +287,25 @@ pro ssg_blob_search, $
            this_blob_pos = float(this_blob_pos)
            ;; Make all idx reference to beginning of the index into
            ;; this gap idx (still need an additional unwrap to idx,
-           ;; done below) Note that last_blob_idx should be integer
-           this_blob_pos += last_blob_idx
-           left_idx += last_blob_idx
-           right_idx += last_blob_idx
-           ;; Check to see if we are finding the same peak again, or
-           ;; never found one to begin with.  This means we are done.
-           done = (floor(this_blob_pos) eq last_blob_idx and $
-                   last_blob_idx ne 0)
-
-           ;; Move our last_blob_idx INTEGER forward past our
-           ;; floating point blob position so we can start a fresh
-           ;; search for the next blob.  --> we could use right_idx to
-           ;; move forward even more.  For now, use round, to make
-           ;; sure we don't fall back to the peak we just found
-           last_blob_idx = min([round(this_blob_pos+1), N_in_gap-1])
+           ;; done below) Note that last_left_idx is an integer
+           this_blob_pos += last_left_idx
+           left_idx += last_left_idx
+           right_idx += last_left_idx
            ;; Collect valid blob positions, which are floats
            ;; referenced to idx of this segment and their statistical
-           ;; significances.  Make sure we don't get first and last points
-           if NOT done and $
-              this_blob_pos ne 0 and $
+           ;; significances.  We want fully formed peaks, so check for
+           ;; the cases where first_peak_find finds the first or last
+           ;; point in the data (where these are the highest).
+           if this_blob_pos ne last_left_idx and $
               this_blob_pos ne (N_in_gap-1) then begin
               ;; Here is where we make sure blob_pos is referenced to
               ;; idx
               pfo_array_append, blob_pos, this_blob_pos+idx[0]
               ;; --> calculate significance
            endif
-           ;; Make sure we have enough points to run again
-           done = done or N_in_gap - last_blob_idx lt 3
-
-        endrep until done
+           ;; Move our last_left_idx forward past this peak
+           last_left_idx = right_idx
+        endrep until N_in_gap - last_left_idx lt 3
         units = 'sigma'
 
         count = N_elements(blob_pos) 
