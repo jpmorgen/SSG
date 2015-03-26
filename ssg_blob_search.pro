@@ -168,7 +168,7 @@ pro ssg_blob_search, $
   
 
   ;; Handle each nday one at a time
-  for inday=0,4000 do begin
+  for inday=2730,4000 do begin
      ;; Create the strings necessary to query the ZDBASE for nday
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
@@ -179,6 +179,8 @@ pro ssg_blob_search, $
      ;; Don't bother with ndays unless they have at least 3 points
      if count lt 3 then $
         CONTINUE
+
+     print, 'NDAY = ', ndayl
 
      ;; Extract quantities we care about.
      dbext, OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
@@ -272,7 +274,7 @@ pro ssg_blob_search, $
               sign * mintensity[idx[last_blob_idx:N_in_gap-1]], $
               'left', $
               yerr=merr_intensity[idx[last_blob_idx:N_in_gap-1]], $
-              max_y=max_mintensity, $
+              $;;max_y=max_mintensity, $
               left_idx=left_idx, right_idx=right_idx, $
               _EXTRA=extra)
            ;; Make sure this_blob_pos it is a float
@@ -283,19 +285,20 @@ pro ssg_blob_search, $
            this_blob_pos += last_blob_idx
            left_idx += last_blob_idx
            right_idx += last_blob_idx
-           ;; Check to see if we have moved beyond the last peak
-           ;; (which should not be at 0) or if we are about to run out
-           ;; of points.
+           ;; Check to see if we are finding the same peak again, or
+           ;; never found one to begin with.  This means we are done.
            done = (floor(this_blob_pos) eq last_blob_idx and $
-                   last_blob_idx ne 0) $
-                  or N_in_gap - last_blob_idx lt 3
+                   last_blob_idx ne 0)
 
            ;; Move our last_blob_idx INTEGER forward past our
-           ;; floating point blob position
-           last_blob_idx = min([floor(this_blob_pos+1), N_in_gap-1])
+           ;; floating point blob position so we can start a fresh
+           ;; search for the next blob.  --> we could use right_idx to
+           ;; move forward even more.  For now, use round, to make
+           ;; sure we don't fall back to the peak we just found
+           last_blob_idx = min([round(this_blob_pos+1), N_in_gap-1])
            ;; Collect valid blob positions, which are floats
            ;; referenced to idx of this segment and their statistical
-           ;; significances.  
+           ;; significances.  Make sure we don't get first and last points
            if NOT done and $
               this_blob_pos ne 0 and $
               this_blob_pos ne (N_in_gap-1) then begin
@@ -304,6 +307,9 @@ pro ssg_blob_search, $
               pfo_array_append, blob_pos, this_blob_pos+idx[0]
               ;; --> calculate significance
            endif
+           ;; Make sure we have enough points to run again
+           done = done or N_in_gap - last_blob_idx lt 3
+
         endrep until done
         units = 'sigma'
 
