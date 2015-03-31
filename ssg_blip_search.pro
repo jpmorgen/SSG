@@ -128,6 +128,7 @@ pro ssg_blip_search, $
   long_3s = 'None'
 
 
+
   dbclose ;; just in case
   dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
 
@@ -231,15 +232,18 @@ pro ssg_blip_search, $
         ;; Don't bother for gaps that have less than 3 points
         if N_in_gap lt 3 then begin
            message, /INFORMATIONAL, 'NOTE: skipping gap with only ' + strtrim(N_in_gap, 2) + ' points'
+           ;; Move the left side of our gap forward if we have any more
+           ;; gaps to process
+           if igap lt ntime_segments then $
+              gap_left_idx = gap_right_idx[igap] + 1
            CONTINUE
         endif
 
         idx = indgen(N_in_gap) + gap_left_idx
         print, 'new segment: ', idx
-
         ;; Check to see if the sampling in this gap is close enough to
         ;; our desired minimum cadence (in minutes)
-        cadence = mean(nday_diff[0:idx[N_in_gap-2]]) * 24.*60.
+        cadence = mean(nday_diff[gap_left_idx:gap_right_idx[igap]-1]) * 24.*60.
         if cadence gt min_cadence then begin
            message, /INFORMATIONAL, 'NOTE: skipping gap which has cadence of ' + strtrim(cadence, 2) + ' minutes'
            CONTINUE
@@ -456,20 +460,20 @@ print, long_3_hist
   ;; blips occur
   scargle, parent_mndays/24., blipy, omega, psd
 
-wset,0
-   ;; plot frequency, rather than angular frequency.
-   plot, omega/(2.*!pi), psd*(2.*!pi), $
-         xtitle='Frequency (hr!u-1!n)', $
-         ytitle='Power Spectral density', $
-         xrange=[0,0.6], xstyle=!tok.exact
-
-wset, 1
-   plot, (2.*!pi)/omega, (2.*!pi)*psd, $
-         xtitle='Period (hr)', $
-         ytitle='Power Spectral density', $
-         xrange=[0,12], xstyle=!tok.exact, $
-         _EXTRA=extra
-
+;;wset,0
+;;   ;; plot frequency, rather than angular frequency.
+;;   plot, omega/(2.*!pi), psd*(2.*!pi), $
+;;         xtitle='Frequency (hr!u-1!n)', $
+;;         ytitle='Power Spectral density', $
+;;         xrange=[0,0.6], xstyle=!tok.exact
+;;
+;;wset, 1
+;;   plot, (2.*!pi)/omega, (2.*!pi)*psd, $
+;;         xtitle='Period (hr)', $
+;;         ytitle='Power Spectral density', $
+;;         xrange=[0,12], xstyle=!tok.exact, $
+;;         _EXTRA=extra
+;;
 
   !P.thick     = oPthick    
   !P.charsize  = oPcharsize 
