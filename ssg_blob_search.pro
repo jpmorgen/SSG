@@ -72,6 +72,7 @@ pro ssg_blob_search, $
    ndays=ndays, $
    long_3s=long_3s, $
    phis=phis, $
+   sides=sides, $
    sigmas=sigmas, $
    widths=widths, $
    plot=plot, $
@@ -135,6 +136,7 @@ pro ssg_blob_search, $
   widths = 'None'
   long_3s = 'None'
   phis = 'None'
+  sides = 'None'
 
   ;; Read in the model results
   if keyword_set(model_sub) then begin
@@ -160,7 +162,7 @@ pro ssg_blob_search, $
 
   ;; Handle each nday one at a time
   for inday=0,4000 do begin
-  ;;for inday=3572,3572 do begin
+  ;;for inday=2839,2839 do begin
   ;; Create the strings necessary to query the ZDBASE for nday
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
@@ -177,7 +179,7 @@ pro ssg_blob_search, $
      ;; Extract quantities we care about.
      dbext, OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
      dbext, OI, 'nrows, numlines, deldot, deldot_m, err_deldot_m', mnrows, mnumlines, mdeldot, mdeldot_m, merr_deldot_m
-     dbext, OI, 'phi', mphi
+     dbext, OI, 'phi, side', mphi, mside
 
      if keyword_set(model_sub) then begin
         ;; Find our overlap between the model and this nday
@@ -208,6 +210,7 @@ pro ssg_blob_search, $
            mwc            = mwc           [align_idx]
            merr_wc        = merr_wc       [align_idx]
            mphi           = mphi          [align_idx]
+           mside          = mside         [align_idx]
         endif
         ;; Make a new variable, scaled_model, which is the raw model
         ;; multiplied by the scale factor which we will compare to the
@@ -378,6 +381,7 @@ pro ssg_blob_search, $
            pfo_array_append, ndays, these_mnday
            pfo_array_append, long_3s, these_mlong_3
            pfo_array_append, phis, these_mphis
+           pfo_array_append, sides, mside
         endif 
 
         
