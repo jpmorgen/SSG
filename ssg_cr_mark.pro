@@ -149,25 +149,6 @@ pro ssg_cr_mark, indir, flat_cut=flat_cut, tv=tv, showplots=showplots, cr_rate=c
 ;        ;; Strong cosmic ray hits seem to take out about 4 pixels total
 ;        sxaddpar, hdr, 'NUMCR', pix_per_cr, 'assumed number of bad pixels per cosmic ray hits'
 
-        ;; Now that we are bias subtracted, flattened and cosmic ray
-        ;; removed, there is no reason to have the file in anything
-        ;; but its best form, all centered up and everything.  But
-        ;; write to a new name...
-        im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
-        eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
-
-        sxaddhist, "(ssg_cr_mark.pro) Derotating im and eim, modified CAM_ROT keyword", hdr
-        sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated by ssg_cr_mark.pro'
-
-        im = ssg_slicer(im, hdr, /EXTRACT, /DELETE)
-        sxaddhist, "(ssg_cr_mark.pro) Fixing distortions in slicer shape caused by optics", hdr
-        sxaddhist, "(ssg_cr_mark.pro) Deleted non-zero SLICER* keywords", hdr
-
-;; Leave in place
-;        im = ssg_camrot(im, 0., nx/2., sli_cent, /NOPIVOT)
-;        sxaddhist, "(ssg_cr_mark.pro) Centering slicer pattern in image", hdr
-;        sxaddpar, hdr, 'SLI_CENT', 0, 'Centered by ssg_cr_mark.pro'
-
         if keyword_set(TV) then display, im, hdr, /reuse
 
         if keyword_set(showplots) then begin

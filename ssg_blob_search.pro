@@ -253,7 +253,8 @@ pro ssg_blob_search, $
         ;; Plot basic data to search for correlations between intensity
         ;; and blips
         if keyword_set(plot) then begin
-           plot, mnday, mfcont/5, psym=!tok.triangle
+           yrange = [min([mintensity, mfcont/5]), max([mintensity, mfcont/5])]
+           plot, mnday, mfcont/5, yrange=yrange, psym=!tok.triangle
            oploterr, mnday, mfcont/5, merr_fcont/5, !tok.triangle
            oplot, mnday, mintensity, psym=!tok.plus
            oploterr, mnday, mintensity, merr_intensity, !tok.plus
@@ -299,14 +300,28 @@ pro ssg_blob_search, $
         sign = 1.
         if keyword_set(negative) then $
            sign = -1.
-        ;; Subtract minimum in this segment to get better contrast
-        mintensity[idx] = mintensity[idx] - min(mintensity[idx])
+        ;; Subtract minimum in this segment to get better contrast in
+        ;; the raw data case.  Leave residuals alone in the model_sub case
+        if NOT keyword_set(model_sub) then $
+           mintensity[idx] = mintensity[idx] - min(mintensity[idx])
+
         ;; Use consistent maximum intensity for each peak in this
         ;; segment.  We have to do this because the code below
         ;; erodes mintensity as it goes along. --> significance
         ;; calculation ends up making this not so important
         max_mintensity = max(mintensity[idx])
         repeat begin
+           ;; In the model_sub case, we sometimes have negative
+           ;; residuals.  first_peak_find has trouble with that and
+           ;; moves the values positive.  We want to just admit that
+           ;; there is no peak there
+           pos_idx = where(mintensity[idx[last_left_idx:N_in_gap-1]] gt 0, count)
+           if count lt 3 then begin
+              message, 'NOTE: segment has less than 3 positive elements.  Skipping', /CONTINUE
+              last_left_idx = N_in_gap-1
+              CONTINUE
+           endif
+
            ;; Get the position in index space of the (next) blob in
            ;; mintensity
            this_blob_pos = $
@@ -365,8 +380,8 @@ pro ssg_blob_search, $
            these_mlong_3 = interpol(mlong_3[idx], idx, blob_pos)
            these_mphis = interpol(mphi[idx], idx, blob_pos)
            if keyword_set(blob_plot) then begin
-              ymax = max([mfcont/5, mintensity])
-              plot, mnday, mfcont/5, psym=!tok.triangle, yrange=[0, ymax]
+              ;;ymax = max([mfcont/5, mintensity])
+              plot, mnday, mfcont/5, psym=!tok.triangle, yrange=yrange
               oploterr, mnday, mfcont/5, merr_fcont/5, !tok.triangle
               oplot, mnday, mintensity, psym=!tok.plus
               oploterr, mnday, mintensity, merr_intensity, !tok.plus

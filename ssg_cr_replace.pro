@@ -127,6 +127,11 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         ;; estimate.  Things can then be added up between sli_bot and
         ;; sli_top for the final spectrum.
 
+
+        ;; Do ssg_extract even though we are not perfectly lined up.
+        ;; Doing derotation to line up perfectly makes cosmic ray NANs
+        ;; grow in area too much.  We have also made the assumption
+        ;; so far that keeping the image rotated is good enough
         ssg_spec_extract, im, hdr, rough_spec, xdisp, /AVERAGE
         ssg_spec_extract, err_im2, hdr, rough_err2, xdisp_err2, /AVERAGE
 
@@ -209,11 +214,49 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         sxaddhist, string('(ssg_cr_replace.pro) Replaced NAN pixels with best-fit xdisp values'), hdr        
         sxaddpar, hdr, 'BAD_COLS', bad_cols[i], 'number of columns that had dubious fits '
 
+        ;; --> Might get moved to ssg_column_replace vvv
+        ;; Now that we are bias subtracted, flattened and cosmic ray
+        ;; removed AND REPLACED, we can finally do the derotation and
+        ;; un-distortion
+        im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
+        eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
+
+        sxaddhist, "(ssg_cr_replace.pro) Derotating im and eim, modified CAM_ROT keyword", hdr
+        sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated by ssg_cr_replace.pro'
+
+        im = ssg_slicer(im, hdr, /EXTRACT, /DELETE)
+        sxaddhist, "(ssg_cr_replace.pro) Fixing distortions in slicer shape caused by optics", hdr
+        sxaddhist, "(ssg_cr_replace.pro) Deleted non-zero SLICER* keywords", hdr
+
+;; Leave in place
+;        im = ssg_camrot(im, 0., nx/2., sli_cent, /NOPIVOT)
+;        sxaddhist, "(ssg_cr_replace.pro) Centering slicer pattern in image", hdr
+;        sxaddpar, hdr, 'SLI_CENT', 0, 'Centered by ssg_cr_replace.pro'
+        ;; --> Might get moved to ssg_column_replace ^^^
+
         message, /INFORMATIONAL, 'Writing ' + fname
         ssgwrite, fname, im, hdr, eim, ehdr
 
         if keyword_set(TV) then $
           display, im, title=fname, /reuse
+
+        ;; Write flat check
+        ;; recalculate full_norm_xdisp now that we are rotated (code
+        ;; copied from above)
+        ssg_spec_extract, im, hdr, rough_spec, xdisp, /AVERAGE
+        ssg_spec_extract, err_im2, hdr, rough_err2, xdisp_err2, /AVERAGE
+
+        ;; Get the good portion of the cross-dispersion spectrum and
+        ;; normalize it.  
+        full_xdisp_good_idx = where(finite(xdisp) eq 1 $
+                                    and finite(xdisp_err2) eq 1, nxpts, $
+                                    complement=bad_idx, ncomplement=nbad)
+        ;; Note that the pixel in norm_xdisp are relative to
+        ;; full_xdisp_good_idx
+        norm_xdisp = normalize(xdisp[full_xdisp_good_idx], factor=factor)
+        full_norm_xdisp = xdisp*factor
+        norm_xdisp_err2 = xdisp_err2[full_xdisp_good_idx]*factor^2
+        full_norm_xdisp_err2 = xdisp_err2*factor^2
 
         sxaddhist, string('(ssg_cr_replace.pro) Divided by xdisp spectrum'), hdr        
         norm_xdisp_im = template_create(im, full_norm_xdisp)

@@ -160,7 +160,10 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
         ;; a cross-dispersion spectrum that is fit to each column.
         ;; Missing pixels are replaced with the fit value and an error
         ;; estimate.  Things can then be added up between sli_bot and
-        ;; sli_top for the final spectrum.
+        ;; sli_top for the final spectrum. [This seems to be left-over
+        ;; documentation for what became ssg_cr_replace.  Below is
+        ;; calculating center of gravity of slicer pattern and
+        ;; choosing the set of rows with the best S/N]
 
         ssg_spec_extract, im, hdr, rough_spec, xdisp, /AVERAGE
         ssg_spec_extract, err_im2, hdr, rough_err2, xdisp_err2, /AVERAGE
