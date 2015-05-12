@@ -99,9 +99,18 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         endif
         im = ssgread(fname, hdr, eim, ehdr, /DATA, /TRIM)
 
+        cam_rot = sxpar(hdr, 'CAM_ROT', count=count)
+        if count eq 0 then message, 'ERROR: file '+ files[i] + ' does not have a CAM_ROT keyword.  You should run ssg_[get&fit]_camrot first'
+
         cr_cut = sxpar(hdr, 'CR_CUT', count=count)
         if count eq 0 then $
           message, 'ERROR: You must first run ssg_cr_mark'
+
+        sli_cent = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
+        if count eq 0 then begin
+           message, 'WARNING: SLI_CENT keyword missing.  Using center of image.  Try running ssg_[get & fit]_sliloc for better results.  Using the center of the image for now', /CONTINUE
+           sli_cent = ny/2.
+        endif
 
         sxaddhist, string('(ssg_cr_replace.pro) ', systime(/UTC), ' UT'), hdr
 
