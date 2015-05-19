@@ -271,6 +271,11 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         norm_xdisp_im = template_create(im, full_norm_xdisp)
         ;; Things have been de-rotated, so there should be no need to
         ;; rotate the template
+
+	;Rotate image
+        im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
+        eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
+
         fim = im/norm_xdisp_im
         feim = fim*sqrt((eim/im)^2 + $
                         template_create(im, full_norm_xdisp_err2) / $
