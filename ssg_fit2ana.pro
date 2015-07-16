@@ -6,10 +6,11 @@
 
 ;-
 
-pro ssg_fit2ana, nday_start_or_range, interactive=interactive
+pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar_lines
 
 
   init = {ssg_sysvar}
+  init = {tok_sysvar}
 
 ;  ON_ERROR, 2
   oldpriv=!priv
@@ -101,7 +102,19 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive
   err_alf       [*] = !values.d_nan
   intensity     [*] = !values.d_nan
   err_intensity	[*] = !values.d_nan
+  
+  ;; Create array into which we save our solar Fraunhofer line stuff.
+  ;; The array will have one row per nday and the following structure:
 
+  ;; nday, Io OWL, err_OWL, Io EW, Io err_EW, Io Width, Io err_width, AG err_OWL, AG EW, AG err_EW, AG width, AG err_width, for each solar line: (RWL, OWL, err_OWL, EW, err_EW, GW, err_GW, LW, err_LW)
+
+  if keyword_set(solar_lines) then begin
+     if size(/type, solar_lines) ne !tok.string then $
+        message, 'ERROR: solar_lines keyword must be a string indicating a .sav file to store solar line array in'
+     fh_array = make_array(adays, 1 + 6 + 5 +100*9, value=!values.d_NAN)
+     
+  endif
+  
   CATCH,/CANCEL
   
   ;; This is basically pop_flux and friends.  Use Melanie's variable
@@ -117,7 +130,7 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive
         message, 'skipping ' + string(ndays[inday]), /CONTINUE
         CONTINUE
      endif
-
+     
      ;; Read in a file if we need to
      if dirs[inday] ne this_dir then begin
         this_dir = dirs[inday]
@@ -159,7 +172,8 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive
      ;; Make sure we have dgs assigned consistently
      sso_dg_assign, sparinfo, idx
      io_dg = sso_path_dg(sso_path_create([!eph.io, !eph.earth]))
-     ag_dg = sso_path_dg(sso_path_create([!eph.earth, !eph.earth]))
+     ag_dg = sso_path_dg(sso_path_create([!eph.earth, !eph.earth])) ;; this includes telluric absorption too
+     fh_dg = sso_path_dg(sso_path_create([!eph.sun, !eph.io, !eph.earth]))
 
      ;; Run model to get owls and set up to calculate chisq stuff
      model_spec = pfo_funct(disp_pix, parinfo=sparinfo, $
@@ -311,10 +325,10 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive
      ag_err[inday] = 0.
      ag_idx = where(sparinfo[idx].sso.dg eq ag_dg and $
                     sparinfo[idx].sso.ttype eq !sso.ew and $
-                    sparinfo[idx].value gt 0, count)
-     if count gt 1 then $
+                    sparinfo[idx].value gt 0, ag_count)
+     if ag_count gt 1 then $
         message, 'ERROR: ' + strtrim(count, 2) + ' airglow equivalent width paramemters found.  This database can only handle 1'
-     if count eq 1 then begin
+     if ag_count eq 1 then begin
         ;; unnest
         ag_idx = idx[ag_idx]
         ag[inday] = sparinfo[ag_idx].value
@@ -380,7 +394,63 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive
                          ((1e6)*((io_dia[inday]/2.)^2.)))/1000.
      err_intensity[inday] = (err_alf[inday]*intensity[inday])/alf[inday]
 
+     ;; SOLAR FRAUNHOFER LINES
+     ;; Fri Jun 26 09:41:37 2015  jpmorgen@snipe
+     ;; Make a database of Fraunhofer lines so I decide how to lock
+     ;; down parameters.  Use an IDL .sav file for now
+     fh_idx = where(sparinfo[idx].sso.dg eq fh_dg and sparinfo[idx].sso.ptype eq !sso.line, nfh)
+     if nfh gt 0 and keyword_set(solar_lines) then begin
+        ;; unwrap fh_idx
+        fh_idx = idx[fh_idx]
+        ;; Fill fh_array
+        ;; Nday
+        fh_array[inday,0] = ndays[inday]			;; nday
+        ;; Io values
+        fh_array[inday,1] = sparinfo[io_idx[1]].sso.owl 	;; Io OWL
+        fh_array[inday,2] = err_dv[inday] / c                   ;; Io err_OWL
+        fh_array[inday,3] = weq[inday]                          ;; Io EW
+        fh_array[inday,4] = err_weq[inday]                      ;; Io err_EW
+        fh_array[inday,5] = wc[inday]                           ;; Io convolved width (WC)
+        fh_array[inday,6] = err_wc[inday]                       ;; Io error convolved width (err_WC)
+        ;; Airglow always RWL = OWL = 6300.304A or so
+        if ag_count gt 0 then begin
+           ;; This is a total hack using the knowledge the the AG
+           ;; should be a Voigt and the parameter before the EW
+           ;; (which is what ag_idx was derived for above) is the center
+           ag_idx -= 1
+           fh_array[inday,7] = sparinfo[ag_idx].error	;; AG err_OWL
+           fh_array[inday,8] = ag[inday]                ;; AG EW
+           fh_array[inday,9] = ag_err[inday]            ;; AG err_EW
+           ag_idx = where(sparinfo[idx].sso.dg eq ag_dg and $
+                          sparinfo[idx].sso.ttype eq !sso.width)
+           ;; unwrap
+           ag_idx = idx[ag_idx]
+           fh_array[inday,10] = sparinfo[ag_idx[0]].value	;; AG convolved width
+           fh_array[inday,11] = sparinfo[ag_idx[0]].error	;; AG error convolved width
+        endif                                                   ;; airglow found
+        ;; Handle the solar Fraunhofer lines one at a time
+        if nfh mod 4 ne 0 then $
+           message, 'ERROR: parameters for solar lines aren''t Voigts or something else is messed up'
+        ;; From above, look at the index of the first Fraunhofer line parameter in fh_array
+        fh0 = 12
+        nfhp = 9 ;; number of parameters to store per Fraunhofer line
+        for ifh=0, nfh / 4 - 1 do begin
+           ;; Extract indices into sparinfo for the Voigt parameters for this particular solar line
+           fh1_idx = fh_idx[indgen(4) + ifh*4]
+           ;; Put solar line parameters into fh_array
+           fh_array[inday, fh0 + ifh*nfhp + 0] = sparinfo[fh1_idx[0]].sso.rwl	;; RWL
+           fh_array[inday, fh0 + ifh*nfhp + 1] = sparinfo[fh1_idx[0]].sso.owl	;; OWL
+           fh_array[inday, fh0 + ifh*nfhp + 2] = sparinfo[fh1_idx[0]].error/c  ;; err_OWL  (these are all turning out 0
+           fh_array[inday, fh0 + ifh*nfhp + 3] = sparinfo[fh1_idx[1]].value    ;; EW
+           fh_array[inday, fh0 + ifh*nfhp + 4] = sparinfo[fh1_idx[1]].error    ;; err_EW
+           fh_array[inday, fh0 + ifh*nfhp + 5] = sparinfo[fh1_idx[2]].value    ;; DW
+           fh_array[inday, fh0 + ifh*nfhp + 6] = sparinfo[fh1_idx[2]].error    ;; err_DW
+           fh_array[inday, fh0 + ifh*nfhp + 7] = sparinfo[fh1_idx[3]].value    ;; LW
+           fh_array[inday, fh0 + ifh*nfhp + 8] = sparinfo[fh1_idx[3]].error    ;; err_LW
+        endfor                                                                 ;; each Fraunhofer line
 
+     endif ;; Fraunhoffer lines
+     
   endfor  ;; For each file
   CATCH, /CANCEL
 
@@ -400,6 +470,12 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive
 
   dbclose
   !priv = oldpriv
+
+  ;; Write Fraunhofer array
+  if keyword_set(solar_lines) then begin
+     message, /INFORMATIONAL, 'NOTE: saving solar lines in ' + solar_lines
+     save, fh_array, filename=solar_lines
+  endif
 
 end
 
