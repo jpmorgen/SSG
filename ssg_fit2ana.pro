@@ -6,7 +6,7 @@
 
 ;-
 
-pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar_lines
+pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close_lines
 
 
   init = {ssg_sysvar}
@@ -103,16 +103,16 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar
   intensity     [*] = !values.d_nan
   err_intensity	[*] = !values.d_nan
   
-  ;; Create array into which we save our solar Fraunhofer line stuff.
-  ;; The array will have one row per nday and the following structure:
-
-  ;; nday, Io OWL, err_OWL, Io EW, Io err_EW, Io Width, Io err_width, AG err_OWL, AG EW, AG err_EW, AG width, AG err_width, for each solar line: (RWL, OWL, err_OWL, EW, err_EW, GW, err_GW, LW, err_LW)
-
-  if keyword_set(solar_lines) then begin
-     if size(/type, solar_lines) ne !tok.string then $
-        message, 'ERROR: solar_lines keyword must be a string indicating a .sav file to store solar line array in'
-     fh_array = make_array(adays, 1 + 6 + 5 +100*9, value=!values.d_NAN)
-     
+  ;; If we want, save off a structure with our close lines calculations
+  if keyword_set(close_lines) then begin
+     if size(/type, close_lines) ne !tok.string then $
+        message, 'ERROR: close_lines keyword must be a string indicating a .sav file to store solar line array in'
+     ;; Create a single parinfo element with the right tags to store
+     ;; our analysis stuff.  For now, just make it a regular
+     ;; ssg_parinfo plus ssg_ana_struct.  I could pare it down if I
+     ;; wanted
+     ssg_ana_struct__define, parinfo=ssg_ana_parinfo1
+     N_close_lines = N_elements(ssg_ana_parinfo1.sso_ana.RWL)
   endif
   
   CATCH,/CANCEL
@@ -137,8 +137,10 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar
         sparinfo_fname = strtrim(dirs[inday], 2) + '/sparinfo_' + $
                          strtrim(round(ndays[inday]), 2) + '.sav'
         restore, sparinfo_fname, /relaxed_structure_assignment
-        if N_elements(sparinfo) eq 0 then $
-           message, 'ERROR: no saved parinfo found for this entire nday'
+        if N_elements(sparinfo) eq 0 then begin
+           message, 'WARNING: no saved parinfo found for this entire nday', /CONTINUE
+           CONTINUE
+        endif
         f_idx = where(sparinfo.pfo.status eq !pfo.active, npar)
         if npar eq 0 then $
            message, 'ERROR: no active parameters in this sparinfo set'
@@ -339,6 +341,9 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar
      ;; sun, bouncing off of Io and ending up at the Earth
      dist_mag = 5*alog10(r[inday]*delta[inday])
 
+     ;; I think this is from Jason Corliss' thesis, where he
+     ;; looked at Galileo data.  --> There is an old reference
+     ;; somewhere of Io's brightness to which this can be compared
      case 1 of
         (phi[inday] ge 355) and (phi[inday] lt 5)   : phi_cor =.04
         (phi[inday] ge 5)   and (phi[inday] lt 15)  : phi_cor =.03
@@ -394,64 +399,111 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar
                          ((1e6)*((io_dia[inday]/2.)^2.)))/1000.
      err_intensity[inday] = (err_alf[inday]*intensity[inday])/alf[inday]
 
-     ;; SOLAR FRAUNHOFER LINES
-     ;; Fri Jun 26 09:41:37 2015  jpmorgen@snipe
-     ;; Make a database of Fraunhofer lines so I decide how to lock
-     ;; down parameters.  Use an IDL .sav file for now
-     fh_idx = where(sparinfo[idx].sso.dg eq fh_dg and sparinfo[idx].sso.ptype eq !sso.line, nfh)
-     if nfh gt 0 and keyword_set(solar_lines) then begin
-        ;; unwrap fh_idx
-        fh_idx = idx[fh_idx]
-        ;; Fill fh_array
-        ;; Nday
-        fh_array[inday,0] = ndays[inday]			;; nday
-        ;; Io values
-        fh_array[inday,1] = sparinfo[io_idx[1]].sso.owl 	;; Io OWL
-        fh_array[inday,2] = err_dv[inday] / c                   ;; Io err_OWL
-        fh_array[inday,3] = weq[inday]                          ;; Io EW
-        fh_array[inday,4] = err_weq[inday]                      ;; Io err_EW
-        fh_array[inday,5] = wc[inday]                           ;; Io convolved width (WC)
-        fh_array[inday,6] = err_wc[inday]                       ;; Io error convolved width (err_WC)
-        ;; Airglow always RWL = OWL = 6300.304A or so
-        if ag_count gt 0 then begin
-           ;; This is a total hack using the knowledge the the AG
-           ;; should be a Voigt and the parameter before the EW
-           ;; (which is what ag_idx was derived for above) is the center
-           ag_idx -= 1
-           fh_array[inday,7] = sparinfo[ag_idx].error	;; AG err_OWL
-           fh_array[inday,8] = ag[inday]                ;; AG EW
-           fh_array[inday,9] = ag_err[inday]            ;; AG err_EW
-           ag_idx = where(sparinfo[idx].sso.dg eq ag_dg and $
-                          sparinfo[idx].sso.ttype eq !sso.width)
-           ;; unwrap
-           ag_idx = idx[ag_idx]
-           fh_array[inday,10] = sparinfo[ag_idx[0]].value	;; AG convolved width
-           fh_array[inday,11] = sparinfo[ag_idx[0]].error	;; AG error convolved width
-        endif                                                   ;; airglow found
-        ;; Handle the solar Fraunhofer lines one at a time
-        if nfh mod 4 ne 0 then $
-           message, 'ERROR: parameters for solar lines aren''t Voigts or something else is messed up'
-        ;; From above, look at the index of the first Fraunhofer line parameter in fh_array
-        fh0 = 12
-        nfhp = 9 ;; number of parameters to store per Fraunhofer line
-        for ifh=0, nfh / 4 - 1 do begin
-           ;; Extract indices into sparinfo for the Voigt parameters for this particular solar line
-           fh1_idx = fh_idx[indgen(4) + ifh*4]
-           ;; Put solar line parameters into fh_array
-           fh_array[inday, fh0 + ifh*nfhp + 0] = sparinfo[fh1_idx[0]].sso.rwl	;; RWL
-           fh_array[inday, fh0 + ifh*nfhp + 1] = sparinfo[fh1_idx[0]].sso.owl	;; OWL
-           fh_array[inday, fh0 + ifh*nfhp + 2] = sparinfo[fh1_idx[0]].error/c  ;; err_OWL  (these are all turning out 0
-           fh_array[inday, fh0 + ifh*nfhp + 3] = sparinfo[fh1_idx[1]].value    ;; EW
-           fh_array[inday, fh0 + ifh*nfhp + 4] = sparinfo[fh1_idx[1]].error    ;; err_EW
-           fh_array[inday, fh0 + ifh*nfhp + 5] = sparinfo[fh1_idx[2]].value    ;; DW
-           fh_array[inday, fh0 + ifh*nfhp + 6] = sparinfo[fh1_idx[2]].error    ;; err_DW
-           fh_array[inday, fh0 + ifh*nfhp + 7] = sparinfo[fh1_idx[3]].value    ;; LW
-           fh_array[inday, fh0 + ifh*nfhp + 8] = sparinfo[fh1_idx[3]].error    ;; err_LW
-        endfor                                                                 ;; each Fraunhofer line
+     ;; CLOSE LINES
+     if keyword_set(close_lines) then begin
+        ;; Thu Jul 30 14:39:32 2015  jpmorgen@snipe
+        ;; Fill up an ssg_ana_parinfo with information on the parameters of
+        ;; the <N_close_lines> closest lines to each line.  We have
+        ;; already checked to make sure that there are lines found up in
+        ;; the NUMLINES code
+        ;; We want to fill in an ssg_ana_parinfo.  Make it a duplicate
+        ;; of our particular segment of sparinfo, we will eventually
+        ;; concatenate the ssg_ana_parinfo into an sssg_ana_parinfo for
+        ;; saving on disk
+        ;; At this point, idx points to our fit, including endpoints
+        ssg_ana_parinfo = replicate(ssg_ana_parinfo1, N_elements(idx))
+        struct_assign, sparinfo[idx], ssg_ana_parinfo, /verbose
+        ;; Get our lc_idx again, since we have a subset of the
+        ;; original sparinfo
+        lc_idx = where(ssg_ana_parinfo.sso.ttype eq !sso.center and $
+                       ssg_ana_parinfo.sso.ptype eq !sso.line)
 
-     endif ;; Fraunhoffer lines
-     
-  endfor  ;; For each file
+        for iline=0, numlines[inday]-1 do begin
+           ;; Delta observed wavelength
+           dowl = ssg_ana_parinfo[lc_idx[iline]].sso.owl - $
+                  ssg_ana_parinfo[lc_idx].sso.owl
+           err_dowl = sqrt(ssg_ana_parinfo[lc_idx[iline]].error^2 + $
+                           ssg_ana_parinfo[lc_idx].error^2)
+           ;; Sort DOWL by the absolute value, so we get our true
+           ;; closest lines
+           dowl_sort_idx = sort(abs(dowl))
+           ;; Before we unwrap, save DOWL and err_DOWL in the line
+           ;; center parameter.  The 0th line is always the line
+           ;; itself
+           ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL = $
+              dowl[dowl_sort_idx[1:N_close_lines]]
+           ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL = $
+              err_dowl[dowl_sort_idx[1:N_close_lines]]
+           
+           ;; Unwrap, dropping off the 0th idx, since that is the line itself
+           dowl_sort_idx = lc_idx[dowl_sort_idx[1:N_close_lines]]
+
+           ;; Now we can get RWLs, dgs, and paths of our close lines
+           ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL = $
+              ssg_ana_parinfo[dowl_sort_idx].sso.RWL
+           ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg = $
+              ssg_ana_parinfo[dowl_sort_idx].sso.dg
+           ;; I don't think IDL would get the implicit array
+           ;; dimensions right, so copy paths explicitly, close line
+           ;; by close line
+           for icline=0, N_close_lines-1 do begin
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.path[icline,*] = $
+                 ssg_ana_parinfo[dowl_sort_idx[icline]].sso.path
+           endfor ;; copy path for each close line
+
+           ;; Get indices into all parameters of our iline
+           iline_idx = where(ssg_ana_parinfo.sso.RWL eq $
+                             ssg_ana_parinfo[lc_idx[iline]].sso.RWL and $
+                             ssg_ana_parinfo.sso.dg eq $
+                             ssg_ana_parinfo[lc_idx[iline]].sso.dg, npar)
+           if npar eq !pfo.fnpars[!pfo.voigt] and floor(ssg_ana_parinfo[lc_idx[iline]].sso.pfo.pfo.ftype) ne !pfo.voigt then $
+              message, 'ERROR: I really only know how to deal with Voigts right now'
+
+           ;; Now we need to move to the other parameters.  Use RWL
+           ;; and DG as a handle to pull up all the parametes of a
+           ;; particular line
+           for icline=0, N_close_lines-1 do begin
+              clidx = where(ssg_ana_parinfo.sso.RWL eq $
+                           ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL[icline] and $
+                           ssg_ana_parinfo.sso.dg eq $
+                           ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg[icline], count)
+              if count eq 0 then $
+                 message, 'ERROR: not able to pull up line parameters by RWL/dg.  Something is really wrong.'
+              ;; I am fairly confident that all lines are Voigts and
+              ;; the parameters are in order, so I don't need
+              ;; to write general code, but check to make sure
+
+              bad_idx = where(ssg_ana_parinfo[iline_idx].pfo.ftype ne $
+                              ssg_ana_parinfo[clidx].pfo.ftype, count)
+              if count ne 0 then $
+                 message, 'ERROR: Line ftype mismatch.  It is going to take some additional coding to line up the parameters'
+              ;; Now just assume everything is a Voigt.  Copy over
+              ;; RWL, dg, DOWL, and err_DOWL from the line center 
+              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.RWL[icline] = $
+                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL[icline]
+              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.dg[icline] = $
+                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg[icline]
+              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.DOWL[icline] = $
+                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL[icline]
+              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.err_DOWL[icline] = $
+                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL[icline]
+              ;; Value and error are copied from the close lines themselves
+              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.value[icline] = $
+                 ssg_ana_parinfo[clidx].value
+              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.error[icline] = $
+                 ssg_ana_parinfo[clidx].error
+              ;; path requires a little more work to copy from the
+              ;; line center parameter, because of implicit array
+              ;; index confusion
+              for ipar=1,!pfo.fnpars[!pfo.voigt]-1 do begin
+                 ssg_ana_parinfo[lc_idx[iline]+ipar].sso_ana.path[icline,*] = $
+                    ssg_ana_parinfo[lc_idx[iline]].sso.path
+              endfor ;; each parameter
+           endfor ;; handle parameters for each close line           
+        endfor    ;; each line
+        sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
+     endif ;; close_lines
+  endfor  ;; for each file
   CATCH, /CANCEL
 
   message, /INFORMATIONAL, 'NOTE: updating analysis database'
@@ -471,10 +523,10 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, solar_lines=solar
   dbclose
   !priv = oldpriv
 
-  ;; Write Fraunhofer array
-  if keyword_set(solar_lines) then begin
-     message, /INFORMATIONAL, 'NOTE: saving solar lines in ' + solar_lines
-     save, fh_array, filename=solar_lines
+  ;; Write ssg_ana_parinfo
+  if keyword_set(close_lines) then begin
+     message, /INFORMATIONAL, 'NOTE: saving solar lines in ' + close_lines
+     save, sssg_ana_parinfo, filename=close_lines
   endif
 
 end
