@@ -487,7 +487,9 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
                  ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL[icline]
               ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.err_DOWL[icline] = $
                  ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL[icline]
-              ;; Value and error are copied from the close lines themselves
+              ;; Value and error for the parameters are copied from
+              ;; the close lines themselves.  The line center
+              ;; parameters are tweaked handled below
               ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.value[icline] = $
                  ssg_ana_parinfo[clidx].value
               ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.error[icline] = $
@@ -498,7 +500,55 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
               for ipar=1,!pfo.fnpars[!pfo.voigt]-1 do begin
                  ssg_ana_parinfo[lc_idx[iline]+ipar].sso_ana.path[icline,*] = $
                     ssg_ana_parinfo[lc_idx[iline]].sso.path
-              endfor ;; each parameter
+              endfor ;; each parameter for path
+
+              ;; Now calculate the anatomically correct wavelength
+              ;; difference and error for each line.  This is the
+              ;; combination of the difference between the fitted
+              ;; Doppler shift and the expected Doppler shift and the
+              ;; delta wavelength, which is the parameter being fitted
+              ;; (which I have typically started out fixed at 0).  In
+              ;; other words, for now, this will primarily indicate
+              ;; any Doppler shift tweaks.  Get indices to our Doppler
+              ;; parameters.  We may or may not be part of the same
+              ;; Doppler group.
+              iline_dop_idx = where(ssg_ana_parinfo.sso.ptype eq !sso.dop and $
+                                    ssg_ana_parinfo.sso.dg eq ssg_ana_parinfo[lc_idx[iline]].sso.dg, ndop)
+              if ndop ne 1 then $
+                 message, 'ERROR: expected Doppler parameter for primary line not found for this spectrum'
+              icline_dop_idx = where(ssg_ana_parinfo.sso.ptype eq !sso.dop and $
+                                     ssg_ana_parinfo.sso.dg eq ssg_ana_parinfo[clidx[0]].sso.dg, ndop)
+              if ndop ne 1 then $
+                 message, 'ERROR: expected Doppler parameter for close line not found for this spectrum'
+              ;; Calculate the expected Doppler shift for our line and
+              ;; the particular close line we are on
+              iline_eph_deldot = sso_eph_dop(nday2date(ndays[inday]), $
+                                             ssg_ana_parinfo[iline_dop_idx].sso.path, $
+                                             !ssg.mmp_xyz)
+              icline_eph_deldot = sso_eph_dop(nday2date(ndays[inday]), $
+                                              ssg_ana_parinfo[icline_dop_idx].sso.path, $
+                                              !ssg.mmp_xyz)
+              ;; Put the combination of delta wavelengths all together
+              ;; into the close line value.  For now, do this with
+              ;; absolute value to spot any problems.  Be precise and
+              ;; use the average wavelength of the host and close
+              ;; lines for the conversion
+              ;; Save some writing
+              v2c = !ssg.c * (ssg_ana_parinfo[lc_idx[iline]].sso.OWL $
+                              + ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL[icline] / 2.)
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.value[icline] += $
+                 + abs(ssg_ana_parinfo[lc_idx[iline]].value) $
+                 + (abs(ssg_ana_parinfo[iline_dop_idx].value - iline_eph_deldot) + $
+                    abs(ssg_ana_parinfo[icline_dop_idx].value - icline_eph_deldot)) $
+                 / v2c
+
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.error[icline] = $
+                 sqrt(ssg_ana_parinfo[lc_idx[iline]].sso_ana.error[icline]^2 $
+                      + ssg_ana_parinfo[lc_idx[iline]].error^2 $
+                      + (ssg_ana_parinfo[iline_dop_idx].error^2 $
+                         + ssg_ana_parinfo[icline_dop_idx].error^2) $
+                      / v2c^2)
+
            endfor ;; handle parameters for each close line           
         endfor    ;; each line
         sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
