@@ -184,7 +184,6 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
            message, 'ERROR: line not found in lparinfo'
 
         ;; Plot all parameters together
-        ;;erase
         !p.multi = [0, 1, 4]
         !P.charsize = 2
         ;; They all share one X-axis.  Start out with our closest line
@@ -203,12 +202,17 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
            ;; DOWL to the 0th closest line
            par_values = sssg_ana_parinfo[tl_lc_idx+ipar].value
            err_values = sssg_ana_parinfo[tl_lc_idx+ipar].error
-           ;; In the case of the line center, pull up the combined
-           ;; Doppler and wavelength uncertainty
+           ;; Replace dw with Doppler shift
            if ipar eq 0 then begin
-              par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0]
-              err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.error[0]
+              par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.delta_dop
+              err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.err_delta_dop
            endif
+           ;;;; In the case of the line center, pull up the combined
+           ;;;; Doppler and wavelength uncertainty
+           ;;if ipar eq 0 then begin
+           ;;   par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0]
+           ;;   err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.error[0]
+           ;;endif
            ;; Cycle through the dgs of the close lines to plot each
            ;; one in a different color.  Start by making the plot axes
            ytitle = parnames[ipar] + ' (m'+string("305B)+')' ;"
@@ -257,7 +261,7 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
         ;; Make a nice menu for paging through the lines
         answer = ''
         if NOT keyword_set(noninteractive) then begin
-           line_id = string(format='(a, " ", f9.4, " A", a)', $
+           line_id = string(format='(a, " ", f9.4, " A ", a)', $
                             path_names, $
                             RWLs[il], $
                             sssg_ana_parinfo[tl_lc_idx[0]+1].parname)
