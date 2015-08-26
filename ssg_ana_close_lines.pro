@@ -42,6 +42,14 @@
 pro ssg_ana_close_lines, fname, noninteractive=noninteractive
   init = {ssg_sysvar}
   init = {tok_sysvar}
+  opcolor = !p.color
+  color
+  ;; Be polite with the color table
+  tvlct, user_r, user_g, user_b, /get
+  tek_color
+  ;; Make parameter names for Y-axes, since these are not stored in
+  ;; the .parnames anywhere (see pfo_sso_funct.pro)
+  parnames = ['dw', 'ew', 'Gw', 'Lw']
   ;; Restore our sssg_ana_parinfo.  Let IDL raise the error if file
   ;; not found
   restore, fname, /relaxed_structure_assignment
@@ -179,36 +187,65 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
         ;;erase
         !p.multi = [0, 1, 4]
         !P.charsize = 2
-        ;; They all share one X-axis
+        ;; They all share one X-axis.  Start out with our closest line
         xaxis = sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0]
+        line_id = string(format='(a, " ", f9.4, " ", a, a)', $
+                         path_names, $
+                         RWLs[il], $
+                         string("305B), $ ;"
+                         sssg_ana_parinfo[tl_lc_idx[0]+1].parname)
+        xtitle = string(format='("Delta observed wavelength (", a, ") from ", a)', $
+                        string("305B), $ ;"
+                        line_id)
         
         for ipar=0,!pfo.fnpars[!pfo.voigt]-1 do begin
-           ;; Establish the delta and error in the value of the
-           ;; observed wavelength (0th parameter).  The delta is a
-           ;; combination of the Doppler shift and the line center
-           ;; parameter (delta wavelength).  Save off the parameter
-           ;; and error values for non line center parameters
-
-           ;; Start out with just the closest line           
-           par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0]
-           err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.error[0]
-           xtitle = string(format='("Delta observed wavelength (A) from ", a, " ", f9.4, " A ", a)', $
-                           path_names, $
-                           RWLs[il], $
-                           sssg_ana_parinfo[tl_lc_idx[0]+1].parname)
-           plot, xaxis, par_values, $
+           ;; Plot the value and error of our host line as a function
+           ;; DOWL to the 0th closest line
+           par_values = sssg_ana_parinfo[tl_lc_idx+ipar].value
+           err_values = sssg_ana_parinfo[tl_lc_idx+ipar].error
+           ;; In the case of the line center, pull up the combined
+           ;; Doppler and wavelength uncertainty
+           if ipar eq 0 then begin
+              par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0]
+              err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.error[0]
+           endif
+           ;; Cycle through the dgs of the close lines to plot each
+           ;; one in a different color.  Start by making the plot axes
+           ytitle = parnames[ipar] + ' (m'+string("305B)+')' ;"
+           plot, xaxis, par_values, /nodata, $
                  xtitle=xtitle, $
-                 ytitle=sssg_ana_parinfo[tl_lc_idx[0]+ipar].sso.pfo.parname, $
+                 ytitle=ytitle, $
                  psym=!tok.plus, $
                  xrange=xrange, xstyle=!tok.exact+!tok.extend, $
                  ystyle=!tok.extend
-           oploterr, xaxis, par_values, err_values, !tok.dot
+           for ipdg=0, N_elements(dgs)-1 do begin
+              clp_idx = where(sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.dg[0] $
+                              eq dgs[ipdg], count)
+              ;;;; Avoid trouble with not enough points
+              if count lt 2 then $
+                 CONTINUE
+              ;; Don't unwrap.  clp_idx is the index into
+              ;; tl_lc_idx+ipar, which is what xaxis and par_values
+              ;; were created from
+              oplot, xaxis[clp_idx], $
+                     par_values[clp_idx], $
+                     psym=!tok.plus, $
+                     color=dgs[ipdg]
+              errplot, xaxis[clp_idx], $
+                       par_values[clp_idx] + err_values[clp_idx]/2, $
+                       par_values[clp_idx] - err_values[clp_idx]/2, $
+                       color=dgs[ipdg], width=0.001
+              ;;oploterr, xaxis[clp_idx], $
+              ;;          par_values[clp_idx], $
+              ;;          err_values[clp_idx], !tok.dot
+           endfor ;; plotting each close line Doppler group by color
+
            ;; Plot lparinfo value
            oplot, !x.crange, $
                   replicate(lparinfo[lp_lc_idx+ipar].value, 2), $
                   linestyle=!tok.solid
-           med = median(sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0])
-           stdev = stdev(sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0])
+           med = median(par_values)
+           stdev = stdev(par_values)
            oplot, !x.crange, replicate(med, 2), $
                   linestyle=!tok.dashed
            oplot, !x.crange, replicate(med + stdev, 2), $
@@ -220,14 +257,22 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
         ;; Make a nice menu for paging through the lines
         answer = ''
         if NOT keyword_set(noninteractive) then begin
+           line_id = string(format='(a, " ", f9.4, " A", a)', $
+                            path_names, $
+                            RWLs[il], $
+                            sssg_ana_parinfo[tl_lc_idx[0]+1].parname)
+
+           print, line_id
+
            message, /CONTINUE, 'Menu:'
            print, 'Next'
            print, 'Previous'
            print, 'free-Run'
+           print, 'Quit in mid-run'
            answer = ''
            for ki = 0,1000 do flush_input = get_kbrd(0)
            repeat begin
-              message, /CONTINUE, '[N], P, R?'
+              message, /CONTINUE, '[N], P, R, Q?'
               answer = get_kbrd(1)
               if byte(answer) eq 10 then answer = 'N'
               for ki = 0,1000 do flush_input = get_kbrd(0)
@@ -235,7 +280,8 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
            endrep until $
               answer eq 'N' or $
               answer eq 'P' or $
-              answer eq 'R'
+              answer eq 'R' or $
+              answer eq 'Q'
            case answer of
               'N' : going_backward = 0 ;; Just let for loop continue
               'P' : begin
@@ -263,7 +309,12 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
               'R' : begin
                  noninteractive = 1
                  going_backward = 0
-                 end
+              end
+              'Q' : begin
+                 ;; Kick out the loops to finish
+                 il = N_elements(RWLs)-1
+                 idg = N_elements(dgs)-1
+              end              
            endcase
         endif ;; Interactive
      endfor ;; each line
@@ -272,4 +323,7 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
         lparinfo[lparinfo_dg_idx].sso.dg = lparinfo_dg
      endif ;; translate lparinfo dg back to generic value
   endfor ;; each Doppler group
+  ;; Return color table to its original value
+  tvlct, user_r, user_g, user_b
+  opcolor = !p.color
 end

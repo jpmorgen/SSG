@@ -419,11 +419,12 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
                        ssg_ana_parinfo.sso.ptype eq !sso.line)
 
         for iline=0, numlines[inday]-1 do begin
-           ;; Delta observed wavelength
-           dowl = ssg_ana_parinfo[lc_idx[iline]].sso.owl - $
-                  ssg_ana_parinfo[lc_idx].sso.owl
-           err_dowl = sqrt(ssg_ana_parinfo[lc_idx[iline]].error^2 + $
-                           ssg_ana_parinfo[lc_idx].error^2)
+           ;; Delta observed wavelength = close line minus host line
+           ;; gets delta observed wavelegnth lined up sensibly in ssg_ana_close_lines
+           dowl = ssg_ana_parinfo[lc_idx].sso.owl - $
+                  ssg_ana_parinfo[lc_idx[iline]].sso.owl
+           err_dowl = sqrt(ssg_ana_parinfo[lc_idx].error^2 + $
+                           ssg_ana_parinfo[lc_idx[iline]].error^2)
            ;; Sort DOWL by the absolute value, so we get our true
            ;; closest lines
            dowl_sort_idx = sort(abs(dowl))
@@ -511,7 +512,8 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
               ;; other words, for now, this will primarily indicate
               ;; any Doppler shift tweaks.  Get indices to our Doppler
               ;; parameters.  We may or may not be part of the same
-              ;; Doppler group.
+              ;; Doppler group.  Note that this is going to be stored
+              ;; in the close line value and error slot
               iline_dop_idx = where(ssg_ana_parinfo.sso.ptype eq !sso.dop and $
                                     ssg_ana_parinfo.sso.dg eq ssg_ana_parinfo[lc_idx[iline]].sso.dg, ndop)
               if ndop ne 1 then $
@@ -534,13 +536,23 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
               ;; use the average wavelength of the host and close
               ;; lines for the conversion
               ;; Save some writing
-              v2c = !ssg.c * (ssg_ana_parinfo[lc_idx[iline]].sso.OWL $
+              v2c = !ssg.c / (ssg_ana_parinfo[lc_idx[iline]].sso.OWL $
                               + ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL[icline] / 2.)
+              ;;ssg_ana_parinfo[lc_idx[iline]].sso_ana.value[icline] = $
+              ;;   abs(ssg_ana_parinfo[lc_idx[iline]].sso_ana.value[icline]) + $
+              ;;   abs(ssg_ana_parinfo[lc_idx[iline]].value) + $
+              ;;   (abs(ssg_ana_parinfo[iline_dop_idx].value - iline_eph_deldot) + $
+              ;;    abs(ssg_ana_parinfo[icline_dop_idx].value - icline_eph_deldot)) $
+              ;;   / v2c / !sso.dwcvt ;; convert from real wavelength to display wavelength
+
+              ;; Try the full +/- value to see what happens, since in
+              ;; reality, the telluric features have no Doppler shift
+              ;; and we can ignore Io for now.  Seems reasonable for now
               ssg_ana_parinfo[lc_idx[iline]].sso_ana.value[icline] += $
-                 + abs(ssg_ana_parinfo[lc_idx[iline]].value) $
-                 + (abs(ssg_ana_parinfo[iline_dop_idx].value - iline_eph_deldot) + $
-                    abs(ssg_ana_parinfo[icline_dop_idx].value - icline_eph_deldot)) $
-                 / v2c
+                 ssg_ana_parinfo[lc_idx[iline]].value + $
+                 (ssg_ana_parinfo[iline_dop_idx].value - iline_eph_deldot + $
+                  ssg_ana_parinfo[icline_dop_idx].value - icline_eph_deldot) $
+                 / v2c / !sso.dwcvt ;; convert from real wavelength to display wavelength
 
               ssg_ana_parinfo[lc_idx[iline]].sso_ana.error[icline] = $
                  sqrt(ssg_ana_parinfo[lc_idx[iline]].sso_ana.error[icline]^2 $
