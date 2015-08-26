@@ -180,26 +180,26 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
      ;; Run model to get owls and set up to calculate chisq stuff
      model_spec = pfo_funct(disp_pix, parinfo=sparinfo, $
                             idx=idx, xaxis=wavelengths)
-     good_pix = where(finite(disp_pix[*,0]) eq 1 and $
-                      finite(wavelengths[*,0]) eq 1 and $
-                      finite(spectra[*,0]) eq 1 and $
-                      finite(spec_errors[*,0]) eq 1, n_pix)
+     good_pix = where(finite(disp_pix[*,inday]) eq 1 and $
+                      finite(wavelengths[*,inday]) eq 1 and $
+                      finite(spectra[*,inday]) eq 1 and $
+                      finite(spec_errors[*,inday]) eq 1, n_pix)
      if n_pix eq 0 then $
         message, 'ERROR: no good data found for this particular nday.  Hey!  ssg_fit1spec should have complained'
 
      temp = disp_pix[*,0]
      temp[0:left_pix] = !values.f_nan
-     temp[right_pix:N_elements(disp_pix[*,0])-1] = !values.f_nan
+     temp[right_pix:N_elements(disp_pix[*,inday])-1] = !values.f_nan
      pix_axis = where(finite(temp) eq 1 and $
-                      finite(wavelengths[*,0]) eq 1 and $
-                      finite(spectra[*,0]) eq 1 and $
-                      finite(spec_errors[*,0]) eq 1, n_pix)
+                      finite(wavelengths[*,inday]) eq 1 and $
+                      finite(spectra[*,inday]) eq 1 and $
+                      finite(spec_errors[*,inday]) eq 1, n_pix)
      if n_pix eq 0 then $
         message, 'ERROR: no good data found in selected range.  Hey!  ssg_fit1spec should have complained'
 
      ;; CHISQ
-     spec = spectra[pix_axis, 0]
-     err_spec = spec_errors[pix_axis, 0]
+     spec = spectra[pix_axis, inday]
+     err_spec = spec_errors[pix_axis, inday]
      model_spec = pfo_funct(pix_axis, parinfo=sparinfo, idx=idx)
      residual = spec - model_spec
      chisq = total((residual/err_spec)^2, /NAN)

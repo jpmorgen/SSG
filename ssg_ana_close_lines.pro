@@ -47,9 +47,10 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
   ;; Be polite with the color table
   tvlct, user_r, user_g, user_b, /get
   tek_color
-  ;; Make parameter names for Y-axes, since these are not stored in
-  ;; the .parnames anywhere (see pfo_sso_funct.pro)
-  parnames = ['dw', 'ew', 'Gw', 'Lw']
+  ;; Make array of Y-axes titles.  These are not stored in the
+  ;; .parnames anywhere (see pfo_sso_funct.pro)
+  ytitles = ['abs(Dop+dw)', 'ew', 'Gw', 'Lw'] + ' (m'+string("305B)+')' ;"
+  ytitles = ['Red chi!U2!D', ytitles]
   ;; Restore our sssg_ana_parinfo.  Let IDL raise the error if file
   ;; not found
   restore, fname, /relaxed_structure_assignment
@@ -184,7 +185,7 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
            message, 'ERROR: line not found in lparinfo'
 
         ;; Plot all parameters together
-        !p.multi = [0, 1, 4]
+        !p.multi = [0, 1, 5]
         !P.charsize = 2
         ;; They all share one X-axis.  Start out with our closest line
         xaxis = sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0]
@@ -196,34 +197,47 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
         xtitle = string(format='("Delta observed wavelength (", a, ") from ", a)', $
                         string("305B), $ ;"
                         line_id)
-        
-        for ipar=0,!pfo.fnpars[!pfo.voigt]-1 do begin
-           ;; Plot the value and error of our host line as a function
-           ;; DOWL to the 0th closest line
-           par_values = sssg_ana_parinfo[tl_lc_idx+ipar].value
-           err_values = sssg_ana_parinfo[tl_lc_idx+ipar].error
-           ;; Replace dw with Doppler shift
-           if ipar eq 0 then begin
-              par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.delta_dop
-              err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.err_delta_dop
-           endif
-           ;;;; In the case of the line center, pull up the combined
-           ;;;; Doppler and wavelength uncertainty
-           ;;if ipar eq 0 then begin
-           ;;   par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.value[0]
-           ;;   err_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.error[0]
-           ;;endif
+                        
+        for iplot=0,1+!pfo.fnpars[!pfo.voigt]-1 do begin
+           ipar = 0
+           ylog = 0
+           case iplot of
+              0 : begin
+                 ;; Reduced chi2.  Plot it on a log scale
+                 par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.redchisq
+                 err_values = 0
+                 ylog = 1
+              end
+              1 : begin
+                 ;; Combine Delta Doppler + dw
+                 par_values = $
+                    abs(sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.delta_dop) + $
+                    abs(sssg_ana_parinfo[tl_lc_idx+ipar].value)
+                 err_values = $
+                    sqrt(sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.err_delta_dop^2 + $
+                         sssg_ana_parinfo[tl_lc_idx+ipar].error^2)
+                 ylog = 1
+              end
+              else : begin
+                 ;; Generic Voigt parameter 
+                 ipar = iplot - 1
+                 ;; Plot the value and error of our host line as a function
+                 ;; DOWL to the 0th closest line
+                 par_values = sssg_ana_parinfo[tl_lc_idx+ipar].value
+                 err_values = sssg_ana_parinfo[tl_lc_idx+ipar].error
+              end
+           endcase
            ;; Cycle through the dgs of the close lines to plot each
            ;; one in a different color.  Start by making the plot axes
-           ytitle = parnames[ipar] + ' (m'+string("305B)+')' ;"
-           plot, xaxis, par_values, /nodata, $
+           plot, xaxis, par_values, /nodata, ylog=ylog, $
+                 xmargin=[12,3], $
                  xtitle=xtitle, $
-                 ytitle=ytitle, $
+                 ytitle=ytitles[iplot], $
                  psym=!tok.plus, $
                  xrange=xrange, xstyle=!tok.exact+!tok.extend, $
                  ystyle=!tok.extend
            for ipdg=0, N_elements(dgs)-1 do begin
-              clp_idx = where(sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.dg[0] $
+              clp_idx = where(sssg_ana_parinfo[tl_lc_idx].sso_ana.dg[0] $
                               eq dgs[ipdg], count)
               ;;;; Avoid trouble with not enough points
               if count lt 2 then $
@@ -330,4 +344,5 @@ pro ssg_ana_close_lines, fname, noninteractive=noninteractive
   ;; Return color table to its original value
   tvlct, user_r, user_g, user_b
   opcolor = !p.color
+  !p.multi = 0
 end
