@@ -91,9 +91,9 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
         ;; Loop through the files looking for the one with the closest
         ;; match to inwave.  Figure of merit is the sum of the
         ;; distance between the endpoints.
-        underscore = strpos(files[ifi], '_', /reverse_search)
-        dash = strpos(files[ifi], '-', /reverse_search)
-        dot = strpos(files[ifi], '.', /reverse_search)
+        underscore = strpos(files[ifi], '_');, /reverse_search)
+        dash = strpos(files[ifi], '-');, /reverse_search)
+        dot = strpos(files[ifi], '.') ;, /reverse_search)
         wstart[ifi] = $
           double(strmid(files[ifi], underscore+1, dash-underscore))
         wstop[ifi] = $
@@ -299,7 +299,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
      ;; Put back Doppler groups
      sso_dg_assign, /clear
      !sso.dgs = save_sso_dgs
-     ;; Delete Doppler info from lparinfo
+     ;; Delete small lines from lparinfo
      good_idx = where(lparinfo.pfo.status ne !pfo.delete)
      lparinfo = lparinfo[good_idx]
   endif ;; Equivalent width testing

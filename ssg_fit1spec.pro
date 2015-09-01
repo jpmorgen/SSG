@@ -198,19 +198,26 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   sun_obj_path = sso_path_create([!eph.sun, obj, !eph.earth])
   sun_obj_dop = sso_eph_dop(nday2date(nday+delta_nday), sun_obj_path, !ssg.mmp_xyz)
 
+
+  ;; Fri Aug 28 07:48:47 2015  jpmorgen@snipe
+  ;; Processed all of the data and found that Sun-Io-Earth Doppler
+  ;; shifts are consistently within 0.100 km/s.  So instead of letting
+  ;; those float, fix them and let the line wavelengths float
   value = obj_dop
   deldot_par = $
     pfo_fcreate(!pfo.sso_funct, ptype=!sso.dop, path=obj_path, $
-                step=mpstep, value=value, limited=[1,1], $
-                limits=[value-5, value+5], $
+                step=mpstep, value=value, $
+                fixed=1, $
+                $;; limited=[1,1], limits=[value-5, value+5], $
                 format=['f8.3'], eformat=['f6.2'], $
                 parinfo_template=!ssg.parinfo)
 
   value = sun_obj_dop
   rdot_par   = $
     pfo_fcreate(!pfo.sso_funct, ptype=!sso.dop, path=sun_obj_path, $
-                step=mpstep, value=value, limited=[1,1], $
-                limits=[value-5, value+5], $
+                step=mpstep, value=value, $
+                fixed=1, $
+                $;; limited=[1,1], limits=[value-5, value+5], $
                 format=['f8.3'], eformat=['f6.2'], $
                 parinfo_template=!ssg.parinfo)
 
@@ -1232,6 +1239,10 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               ;; Assume we are starting a fresh sparinfo 
               tparinfo.ssg.nday = ndays[0]
               tparinfo.ssg.fver = 1
+              save_date = systime(/Julian, /UT)
+              tparinfo.ssg.fdate = save_date
+              caldat, save_date, month, day, year, hour, minute, second
+              datestr = string(format='(I4, 2("-", I02), "T", 3(I02, :, ":") )', year, month, day, hour, minute, second)
               if N_elements(sparinfo) gt 0 then begin
                  ;; check for our nday and increment fver if necessary
                  our_nday_idx = where(abs(ndays[0] - sparinfo.ssg.nday) lt 0.0001, count)
@@ -1243,7 +1254,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               endif
               sparinfo = array_append(tparinfo, sparinfo)
               save, sparinfo, filename=sparinfo_fname
-              message, /CONTINUE, 'Saved version ' + strtrim(tparinfo[0].ssg.fver, 2) + ' parameters for ' +  shortfile + ',nday = ' + strtrim(nday, 2) + ' in ' + sparinfo_fname
+              message, /CONTINUE, 'Saved version ' + strtrim(tparinfo[0].ssg.fver, 2) + ' parameters for ' +  shortfile + ', nday = ' + strtrim(nday, 2) + ' in ' + sparinfo_fname + ' on ' + datestr
               saved = 1
 
               ;; For old time sake, put some stuff into the fit db
@@ -1324,7 +1335,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
            endif ;; User wanted to restore from a different nday
 
            if rnday[0] ne -1 and fit_vers ne 0 then begin
-              ;; We really have a set of paramters to restore
+              ;; We really have a set of paramters to restore.  New
+              ;; regime.  Fix Doppler rather than having it float at
+              ;; +/-5 km/s
               tidx = where(sparinfo[our_nday_idx].ssg.fver eq fit_vers, count)
               if count eq 0 then $
                 message, 'ERROR: this should not happen'
@@ -1337,7 +1350,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                  idx = dop_idx[obj_dop_idx]
                  value = obj_dop[0]
                  parinfo[idx].value = value
-                 parinfo[idx].limits = [value - 5, value + 5]
+                 parinfo[idx].fixed = 1
+                 ;;parinfo[idx].limits = [value - 5, value + 5]
               endif
               sun_obj_dop_idx = where(parinfo[dop_idx].sso.dg eq sun_obj_dg, $
                                       count)
@@ -1345,7 +1359,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                  idx = dop_idx[sun_obj_dop_idx]
                  value = sun_obj_dop[0]
                  parinfo[idx].value = value
-                 parinfo[idx].limits = [value - 5, value + 5]
+                 parinfo[idx].fixed = 1
+                 ;;parinfo[idx].limits = [value - 5, value + 5]
               endif
            endif ;; Restored parameters
 

@@ -20,13 +20,14 @@
 ;; Tag		Meaning
 ;; nday		nday of observation
 ;; fver		fit version
-
+;; fdate	fit save date (JD)
 
 pro ssg_struct__define, ssg_struct=ssg_struct
   ssg_struct $
     = {ssg_struct, $
        nday		: 0D, $
-       fver		: 0}
+       fver		: 0, $
+       fdate		: 0D}
   ssg_struct.nday = !values.d_nan
   ssg_struct.fver = -1 ;; Version not initialized
   

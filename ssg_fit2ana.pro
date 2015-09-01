@@ -6,8 +6,11 @@
 
 ;-
 
-pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close_lines
-
+pro ssg_fit2ana, $
+   nday_start_or_range, $
+   before=before_in, $ ;; UT date or JD before which the maximum fit version will be used
+   interactive=interactive, $ ;; ssg_select date range interactive
+   close_lines=close_lines ;; filename for output of close lines database
 
   init = {ssg_sysvar}
   init = {tok_sysvar}
@@ -15,16 +18,32 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
 ;  ON_ERROR, 2
   oldpriv=!priv
   !priv = 2
-  ;;CATCH, err
-  ;;if err ne 0 then begin
-  ;;   message, /NONAME, !error_state.msg, /CONTINUE
-  ;;   message, 'Closing database(s) and exiting gracefully',/CONTINUE
-  ;;   dbclose
-  ;;   !priv = oldpriv
-  ;;   return
-  ;;endif
+  CATCH, err
+  if err ne 0 then begin
+     message, /NONAME, !error_state.msg, /CONTINUE
+     message, 'Closing database(s) and exiting gracefully',/CONTINUE
+     dbclose
+     !priv = oldpriv
+     return
+  endif
 
   if NOT keyword_set(nday_start_or_range) then nday_start_or_range=0
+
+  ;; Default to the latest fit, which is hopefully guaranteed to be
+  ;; before now
+  before = systime(/Julian, /UT)
+  ;; Check to see if an earlier date is specified
+  if N_elements(before_in) ne 0 then begin
+     ;; Assume date is in JD
+     before = before_in
+     ;; Check to see if it is in string form of YYYY-MM-DDTHH:MM:SS
+     if size(/type, before) eq !tok.string then begin
+        datearr=strsplit(before_in,'-T:',/extract)
+        ;; juldate returns reduced Julian Day
+        juldate, double(datearr), before
+        before += !eph.jd_reduced
+     endif
+  endif
 
   c = 299792.458 ;; km/s
 
@@ -71,7 +90,10 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
 
   ;; Possibly phasing out the fit database in favor of parinfo.sav files
   dbopen, rdbname
-  entries = where_nday_eq(ndays, count=N_ndays, tolerance=0.001)
+  entries = where_nday_eq(ndays, count=N_ndays)
+
+  if N_ndays ne adays then $
+     message, 'ERROR: adb and fitdb nday missmatch'
 
   dbext, entries, 'dir, disp_pix, spectrum, spec_err', $
          dirs, disp_pix, spectra, spec_errors
@@ -154,8 +176,29 @@ pro ssg_fit2ana, nday_start_or_range, interactive=interactive, close_lines=close
         message, 'ERROR: no saved parinfo found for this particular nday'
      ;; unnest
      our_nday_idx = f_idx[our_nday_idx]
+
+     ;; Handle the before keyword so that we can go backward in our
+     ;; analysis if we need to
+     fdate = sparinfo[our_nday_idx].ssg.fdate
+     ;; Handle the case of before=0 separately, since that is our
+     ;; first fit before we had .fdate and easy to get to by saying
+     ;; before=0.  For subsequent calls, before might be the actual
+     ;; first fdate of the run you want to exclude.
+     if before eq 0 then begin
+        before_idx = where(fdate eq 0, count)
+     endif else begin
+        before_idx = where(fdate lt before, count)
+     endelse
+     if count eq 0 then begin
+        caldat, before, month, day, year, hour, minute, second
+        datestr = string(format='(I4, 2("-", I02), "T", 3(I02, :, ":") )', year, month, day, hour, minute, second)
+        message, 'ERROR: no parinfo were saved before ' + datestr
+     endif
+     ;; unnest back into our_nday_idx
+     our_nday_idx = our_nday_idx[before_idx]
+     
+     ;; Assume the best fit is the last one
      fvers = sparinfo[our_nday_idx].ssg.fver
-     ;; --> Assume the best fit is the last one
      best_fver = max(fvers)
      idx = where(sparinfo[our_nday_idx].ssg.fver eq best_fver)
      ;; unnest
