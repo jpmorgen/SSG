@@ -237,12 +237,12 @@ pro ssg_ana_close_lines, $
         print, 'il =', il, '  idg = ', idg
         ;; Grab only the matching line centers
         tl_lc_idx = where(sssg_ana_parinfo[lc_idx].sso.dg eq dgs[idg] and $
-                          sssg_ana_parinfo[lc_idx].sso.RWL eq RWLs[il], count)
+                          sssg_ana_parinfo[lc_idx].sso.RWL eq RWLs[il], N_tlines)
         ;; Do our sanity checks
-        if count eq 0 then $
+        if N_tlines eq 0 then $
            message, 'ERROR: not finding things I just found!'
         ;; Check to see if there are enough points to plot.
-        if count lt 2 then begin
+        if N_tlines lt 2 then begin
            ;;;; Check to see if we are going backward
            if keyword_set(going_backward) then $
               goto, go_backward
@@ -272,7 +272,9 @@ pro ssg_ana_close_lines, $
 
         ;; Plot all parameters together
         !p.multi = [0, 1, 5]
+        opcharsize = !p.charsize
         !P.charsize = 2
+
         ;; They all share one X-axis.  Start out with our closest line
         xaxis = sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt
         
@@ -291,6 +293,12 @@ pro ssg_ana_close_lines, $
               CONTINUE
            ipar = 0
            ylog = 0
+           ;; Create the default ptl_lc_idx, the indices into
+           ;; sssg_ana_parinfo that we will actually plot.
+           ;; plot_pts_idx points into tl_lc_idx.
+           plot_pts_idx = lindgen(N_tlines)
+           ptl_lc_idx = plot_pts_idx[plot_pts_idx]
+           
            case iplot of
               0 : begin
                  ;; Reduced chi2.
@@ -311,8 +319,10 @@ pro ssg_ana_close_lines, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
 
-                 print, 'ndays with chi2 gt ', chi2_cut
-                 print, sssg_ana_parinfo[tl_lc_idx[bad_pts_idx]].ssg.nday
+                 print, 'ndays with reduced chi2 gt ', chi2_cut
+                 for ijunk=0,N_elements(bad_pts_idx)-1 do begin
+                    print, sssg_ana_parinfo[tl_lc_idx[bad_pts_idx[ijunk]]].ssg.nday, sssg_ana_parinfo[tl_lc_idx[bad_pts_idx[ijunk]]].sso_ana.redchisq
+                 endfor
 
               end
               1 : begin
@@ -341,6 +351,9 @@ pro ssg_ana_close_lines, $
                     good_pts_idx=good_pts_idx, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
+                 plot_pts_idx = good_pts_idx
+
+
                  ;;;; Now that we have our filter set, plot the actual
                  ;;;; Doppler value
                  ;;par_values = dpar_values
@@ -406,7 +419,7 @@ pro ssg_ana_close_lines, $
               print, $
                  format='(a16, " = ", f6.1, " +/-", f6.1)', $
                  'Doppler (km/s)', dmed*v2c*!sso.dwcvt, dstdev*v2c*!sso.dwcvt
-           endif
+           endif ;; print Doppler value
            ;; Record our meaningful median and stdev values into the
            ;; .value and .limits of the new_lparinfo.  We will display
            ;; and finalize this below.
@@ -422,10 +435,11 @@ pro ssg_ana_close_lines, $
               ;; Cycle through the dgs of the close lines to plot each
               ;; one in a different color.  Start by making the plot
               ;; axes
-              yrange = minmax(par_values)
+              yrange = minmax(par_values[plot_pts_idx])
               if iplot eq 1 then $
                  yrange[0] = 0.01
-              plot, xaxis, par_values, /nodata, ylog=ylog, $
+              plot, xaxis[plot_pts_idx], par_values[plot_pts_idx], $
+                    /nodata, ylog=ylog, $
                     xmargin=[12,3], $
                     xtitle=xtitle, $
                     ytitle=ytitles[iplot], $
@@ -452,10 +466,6 @@ pro ssg_ana_close_lines, $
                           color=dgs[ipdg], width=0.001
               endfor ;; plotting each close line Doppler group by color
 
-              ;; Plot lparinfo value
-              oplot, !x.crange, $
-                     replicate(lparinfo[lp_lc_idx+ipar].value, 2), $
-                     linestyle=!tok.solid
               ;; Plot cut values used to exclude bad events
               case iplot of
                  0 : oplot, !x.crange, replicate(chi2_cut, 2), $
@@ -475,6 +485,18 @@ pro ssg_ana_close_lines, $
                      linestyle=!tok.dotted
               oplot, !x.crange, replicate(med - stdev, 2), $
                      linestyle=!tok.dotted
+              ;; Plot lparinfo value for ew, Gw, Lw
+              if iplot gt 0 then begin
+                 lval = lparinfo[lp_lc_idx+ipar].value
+                 llimit0 = lparinfo[lp_lc_idx+ipar].limits[0]
+                 llimit1 = lparinfo[lp_lc_idx+ipar].limits[1]
+                 oplot, !x.crange, replicate(lval, 2), $
+                        linestyle=!tok.solid
+                 oplot, !x.crange, replicate(llimit0, 2), $
+                        linestyle=!tok.dash_3dot
+                 oplot, !x.crange, replicate(llimit1, 2), $
+                        linestyle=!tok.dash_3dot
+              endif ;;
            endif ;; interactive
 
         endfor   ;; Each parameter
@@ -602,8 +624,17 @@ pro ssg_ana_close_lines, $
                linestyle=!tok.dotted
         oplot, 10^!x.crange, replicate(av - stdev, 2), $
                linestyle=!tok.dotted
-        oplot, 10^!x.crange, replicate(median(lparinfo[lp_lc_idx+ipar].value), 2), $
+        ;; all lparinfo values should be the same, but do median just
+        ;; in case
+        lval = median(lparinfo[lp_lc_idx+ipar].value)
+        llimit0 = median(lparinfo[lp_lc_idx+ipar].limits[0])
+        llimit1 = median(lparinfo[lp_lc_idx+ipar].limits[1])
+        oplot, 10^!x.crange, replicate(lval, 2), $
                linestyle=!tok.solid
+        oplot, 10^!x.crange, replicate(llimit0, 2), $
+               linestyle=!tok.dash_3dot
+        oplot, 10^!x.crange, replicate(llimit1, 2), $
+               linestyle=!tok.dash_3dot
         print, av, '+/-', stdev
         ;; Following discussion around
         ;; Thu Aug 27 21:28:14 2015  jpmorgen@snipe
@@ -668,6 +699,11 @@ pro ssg_ana_close_lines, $
         ;; Make sure widths are >= 0
         limits[0] = max([0, limits[0]])
         new_lparinfo[lp_lc_idx+ipar].limits = limits
+        ;; Tue Sep  1 10:36:11 2015  jpmorgen@snipe
+        ;; Thinking I went too far with limiting Lw to non-zero values
+        ;; Let Lw go to 0
+        if ipar eq 3 then $
+           new_lparinfo[lp_lc_idx+ipar].limits[0] = 0
      endfor ;; ipar
 
      ;; For ew, put telluric limits back to original values, since
@@ -724,6 +760,8 @@ pro ssg_ana_close_lines, $
   ;; For solar lw, try re-fitting with minimum at 30mA, which I get
   ;; from the telluric lines and maximum at 200mA so I get a good
   ;; measurement from the large lines
+  ;; Tue Sep  1 09:57:20 2015  jpmorgen@snipe
+  ;; I am not sure that worked too well.  Set them back to previous limit
   sun_lc_idx = where(new_lparinfo.pfo.status eq !pfo.active and $
                      new_lparinfo.sso.ttype eq !sso.center and $
                      new_lparinfo.sso.ptype eq !sso.line and $
@@ -733,8 +771,10 @@ pro ssg_ana_close_lines, $
      message, 'ERROR: no solar lines found!'
   
   new_lparinfo[sun_lc_idx+3].fixed = 0
-  new_lparinfo[sun_lc_idx+3].value = 90
-  new_lparinfo[sun_lc_idx+3].limits = [30, 200]
+  ;;new_lparinfo[sun_lc_idx+3].value = 90
+  ;;new_lparinfo[sun_lc_idx+3].limits = [30, 200]
+  new_lparinfo[sun_lc_idx+3].value = 10
+  new_lparinfo[sun_lc_idx+3].limits = [0, 100]
            
 
   if keyword_set(new_lparinfo_fname) then begin
@@ -745,7 +785,7 @@ pro ssg_ana_close_lines, $
   finish:
   ;; Return color table to its original value
   tvlct, user_r, user_g, user_b
-  opcolor = !p.color
+  !p.charsize = opcharsize
   !p.multi = 0
 end
 

@@ -88,7 +88,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                   grave_report=grave_report, nprint=nprint, min_ew=min_ew, $
                   xtol=xtol, ftol=ftol, gtol=gtol, resdamp=resdamp, $
                   mpstep=mpstep, landscape=landscape, autofit=autofit, $
-                  delta_nday=delta_nday, dispers=dispers_in
+                  delta_nday=delta_nday, dispers=dispers_in, $
+                  min_redchisq=min_redchisq, $
+                  min_final_redchisq=min_final_redchisq
 
   init = {ssg_sysvar}
 
@@ -116,6 +118,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if N_elements(auto_dd_numlines) eq 0 then auto_dd_numlines = 8
   ;; 4 gives 7 A of coverage for Io on the east
   if N_elements(final_numlines) eq 0 then final_numlines = 4
+  if N_elements(min_redchisq) eq 0 then min_redchisq = 100
+  if N_elements(min_final_redchisq) eq 0 then min_final_redchisq = 10
 
   if N_elements(N_continuum_in) eq 0 then N_continuum_in = 3
   N_continuum_orig = N_continuum_in
@@ -162,7 +166,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   ;; of the fitting database.  I think I want to call it ssg_fit
   fdbname = 'oi_6300_fit'
 
-  message, /INFO, 'fitting spectrum nday = ' + strtrim(nday, 2)
+  nday_str = string(format='(f10.4)', nday)
+  message, /INFO, 'fitting spectrum nday = ' + nday_str
 
   ;; Check my ephemeris code against what Melanie and Divia downloaded
   dbopen,'io6300_integrated',0  
@@ -742,6 +747,14 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         ;; range
 
         ;; Check to see if the fitting algorithm got stuck
+        ;; Wed Sep  2 10:04:58 2015  jpmorgen@snipe
+        ;; Check to see if we can use redchisq as a figure of merit to
+        ;; reject bad spectra and spectra which have misidentified
+        ;; objects during the autofit process
+        if autofit eq 6 and redchisq gt min_redchisq then $
+           message, 'ERROR: bad spectrum or object code for nday = ' + nday_str + '  Dispersion and Doppler autofit gives redchisq = ' + strtrim(redchisq, 2) + ' for object code ' + strtrim(obj, 2) + ' (' + !eph.names[obj] + ')'
+
+        ;; This is old and may never trigger
         if autofit eq 6 and status ne 1 then begin
            if auto_dd_numlines le 1 then $
              message, 'ERROR: fit is just not converging'
@@ -820,7 +833,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         endif
 
         ;; Check to see if the fitting algorithm got stuck
-        if autofit eq 9 and status ne 1 then begin
+        if autofit eq 9 and (status ne 1 or redchisq gt min_final_redchisq) then begin
            if final_numlines le 1 then $
              message, 'ERROR: fit is just not converging'
            message, /CONTINUE, 'WARNING: narrowing wavelength range to try to get fit to converge'
@@ -1087,7 +1100,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
            fparinfo = parinfo[f_idx]
            functargs = {parinfo:fparinfo}
            iterargs = {Xorig:pix_axis, spec:spec, err_spec:err_spec, $
-                       iterstop:1}
+                       iterstop:~keyword_set(autofit)}
            params = $
              mpfitfun('pfo_funct', pix_axis, spec, err_spec, $
                       parinfo=fparinfo, functargs=functargs, $
@@ -1096,7 +1109,6 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                       quiet=quiet, nprint=nprint, iterproc=!pfo.iterproc, $ $
                       iterargs=iterargs, perror=perror, $
                       status=status, niter=niter, bestnorm=chisq)
-
 
            ;; mpfitfun is usually robust with its errors, so if we
            ;; made it here, it has something useful to say in the
@@ -1254,7 +1266,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               endif
               sparinfo = array_append(tparinfo, sparinfo)
               save, sparinfo, filename=sparinfo_fname
-              message, /CONTINUE, 'Saved version ' + strtrim(tparinfo[0].ssg.fver, 2) + ' parameters for ' +  shortfile + ', nday = ' + strtrim(nday, 2) + ' in ' + sparinfo_fname + ' on ' + datestr
+              message, /CONTINUE, 'Saved version ' + strtrim(tparinfo[0].ssg.fver, 2) + ' parameters for ' +  shortfile + ', nday = ' + nday_str + ' in ' + sparinfo_fname + ' on ' + datestr
               saved = 1
 
               ;; For old time sake, put some stuff into the fit db

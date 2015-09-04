@@ -9,6 +9,7 @@
 pro ssg_fit2ana, $
    nday_start_or_range, $
    before=before_in, $ ;; UT date or JD before which the maximum fit version will be used
+   after=after_in, $ ;; UT date or JD after which the maximum fit version will be used
    interactive=interactive, $ ;; ssg_select date range interactive
    close_lines=close_lines ;; filename for output of close lines database
 
@@ -38,12 +39,26 @@ pro ssg_fit2ana, $
      before = before_in
      ;; Check to see if it is in string form of YYYY-MM-DDTHH:MM:SS
      if size(/type, before) eq !tok.string then begin
-        datearr=strsplit(before_in,'-T:',/extract)
+        datearr=strsplit(before,'-T:',/extract)
         ;; juldate returns reduced Julian Day
         juldate, double(datearr), before
         before += !eph.jd_reduced
      endif
   endif
+  after = 0
+  ;; Check to see if a later date is specified
+  if N_elements(after_in) ne 0 then begin
+     ;; Assume date is in JD
+     after = after_in
+     ;; Check to see if it is in string form of YYYY-MM-DDTHH:MM:SS
+     if size(/type, after) eq !tok.string then begin
+        datearr=strsplit(after,'-T:',/extract)
+        ;; juldate returns reduced Julian Day
+        juldate, double(datearr), after
+        after += !eph.jd_reduced
+     endif
+  endif
+  
 
   c = 299792.458 ;; km/s
 
@@ -168,9 +183,10 @@ pro ssg_fit2ana, $
            message, 'ERROR: no active parameters in this sparinfo set'
      endif ;; Read in a new sparinfo file
 
+     ;; Get in the indices into our nday
      ;; IDL doesn't deal well with the structure in where statements
      test = sparinfo[f_idx].ssg.nday
-     our_nday_idx = where(abs(ndays[inday] - test) lt 0.001, $
+     our_nday_idx = where(abs(ndays[inday] - test) lt !ssg.tolerance, $
                           count)
      if count eq 0 then $
         message, 'ERROR: no saved parinfo found for this particular nday'
@@ -196,7 +212,20 @@ pro ssg_fit2ana, $
      endif
      ;; unnest back into our_nday_idx
      our_nday_idx = our_nday_idx[before_idx]
-     
+
+     ;; Handle our after keyword so that we can exclude earlier
+     ;; results
+     if after gt 0 then begin
+        after_idx = where(fdate[our_nday_idx] gt after, count)
+        if count eq 0 then begin
+           caldat, after, month, day, year, hour, minute, second
+           datestr = string(format='(I4, 2("-", I02), "T", 3(I02, :, ":") )', year, month, day, hour, minute, second)
+           message, 'ERROR: no parinfo were saved after ' + datestr
+        endif
+        ;; unnest back into our_nday_idx
+        our_nday_idx = our_nday_idx[after_idx]
+     endif
+
      ;; Assume the best fit is the last one
      fvers = sparinfo[our_nday_idx].ssg.fver
      best_fver = max(fvers)
@@ -573,7 +602,7 @@ pro ssg_fit2ana, $
         endfor    ;; each line
         sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
      endif ;; close_lines
-  endfor  ;; for each file
+  endfor   ;; for each nday
   CATCH, /CANCEL
 
   message, /INFORMATIONAL, 'NOTE: updating analysis database'
