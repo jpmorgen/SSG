@@ -294,15 +294,13 @@ pro ssg_ana_close_lines, $
            ipar = 0
            ylog = 0
            ;; Create the default ptl_lc_idx, the indices into
-           ;; sssg_ana_parinfo that we will actually plot.
-           ;; plot_pts_idx points into tl_lc_idx.
-           plot_pts_idx = lindgen(N_tlines)
-           ptl_lc_idx = plot_pts_idx[plot_pts_idx]
-           
+           ;; sssg_ana_parinfo that we will actually plot.  Default to
+           ;; plot everything
+           ptl_lc_idx = tl_lc_idx
            case iplot of
               0 : begin
-                 ;; Reduced chi2.
-                 par_values = sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.redchisq
+                 ;; Reduced chi2.  Plot everything
+                 par_values = sssg_ana_parinfo[ptl_lc_idx+ipar].sso_ana.redchisq
                  err_values = 0
                  ;; Plot it on a log scale
                  ylog = 1
@@ -321,22 +319,23 @@ pro ssg_ana_close_lines, $
 
                  print, 'ndays with reduced chi2 gt ', chi2_cut
                  for ijunk=0,N_elements(bad_pts_idx)-1 do begin
-                    print, sssg_ana_parinfo[tl_lc_idx[bad_pts_idx[ijunk]]].ssg.nday, sssg_ana_parinfo[tl_lc_idx[bad_pts_idx[ijunk]]].sso_ana.redchisq
+                    print, sssg_ana_parinfo[ptl_lc_idx[bad_pts_idx[ijunk]]].ssg.nday, sssg_ana_parinfo[ptl_lc_idx[bad_pts_idx[ijunk]]].sso_ana.redchisq
                  endfor
-
               end
               1 : begin
+                 ;; Plot only the good redchisq points
+                 ptl_lc_idx = tl_lc_idx[good_pts_idx]
                  ;; dw has two components, one from the Doppler and
                  ;; one from the dw.  Keep them seprate for printing
                  ;; purposes, but combine for filtering and plotting
                  ;; Regular dw
-                 par_values = sssg_ana_parinfo[tl_lc_idx+ipar].value
-                 err_values = sssg_ana_parinfo[tl_lc_idx+ipar].error
+                 par_values = sssg_ana_parinfo[ptl_lc_idx+ipar].value
+                 err_values = sssg_ana_parinfo[ptl_lc_idx+ipar].error
                  ;; Doppler
                  dpar_values = $
-                    sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.delta_dop
+                    sssg_ana_parinfo[ptl_lc_idx+ipar].sso_ana.delta_dop
                  derr_values = $
-                    sssg_ana_parinfo[tl_lc_idx+ipar].sso_ana.err_delta_dop
+                    sssg_ana_parinfo[ptl_lc_idx+ipar].sso_ana.err_delta_dop
                  ;; Combine Delta Doppler + dw to an absolute value
                  ;; metric for plotting and further calculation
                  par_values = abs(par_values) + abs(dpar_values)
@@ -351,9 +350,10 @@ pro ssg_ana_close_lines, $
                     good_pts_idx=good_pts_idx, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
-                 plot_pts_idx = good_pts_idx
-
-
+                 ;; unwrap to ptl_lc_idx keeping in mind that
+                 ;; par_values were taken from ptl_lc_idx.  This is
+                 ;; the ptl_lc_idx used for ew, Gw, Lw
+                 ptl_lc_idx = ptl_lc_idx[good_pts_idx]
                  ;;;; Now that we have our filter set, plot the actual
                  ;;;; Doppler value
                  ;;par_values = dpar_values
@@ -364,8 +364,8 @@ pro ssg_ana_close_lines, $
                  ipar = iplot - 1
                  ;; Plot the value and error of our host line as a function
                  ;; DOWL to the 0th closest line
-                 par_values = sssg_ana_parinfo[tl_lc_idx+ipar].value
-                 err_values = sssg_ana_parinfo[tl_lc_idx+ipar].error
+                 par_values = sssg_ana_parinfo[ptl_lc_idx+ipar].value
+                 err_values = sssg_ana_parinfo[ptl_lc_idx+ipar].error
 
                  ;; Only include points that are outside +/- DOWL_cut
                  good_pts_idx = $
@@ -425,7 +425,7 @@ pro ssg_ana_close_lines, $
            ;; and finalize this below.
            ;; Skip dw for now, since it is contaminated by Doppler,
            ;; but note that we marked it as active, above
-           if ipar gt  0 then begin
+           if ipar gt 0 then begin
               new_lparinfo[lp_lc_idx+ipar].value = med
               new_lparinfo[lp_lc_idx+ipar].limits = med + [-stdev, stdev]
            endif ;; skipping dw
@@ -435,10 +435,14 @@ pro ssg_ana_close_lines, $
               ;; Cycle through the dgs of the close lines to plot each
               ;; one in a different color.  Start by making the plot
               ;; axes
-              yrange = minmax(par_values[plot_pts_idx])
+              yrange = minmax(par_values)
+              ;; Try to weed out some of the junky points
+              if ipar gt 0 then begin
+                 yrange = med + 3*[-stdev, stdev]
+              endif
               if iplot eq 1 then $
                  yrange[0] = 0.01
-              plot, xaxis[plot_pts_idx], par_values[plot_pts_idx], $
+              plot, xaxis, par_values, $
                     /nodata, ylog=ylog, $
                     xmargin=[12,3], $
                     xtitle=xtitle, $
@@ -615,9 +619,14 @@ pro ssg_ana_close_lines, $
                     xerr[good_idx], $
                     yerr[good_idx]
         med = median(yaxis[good_idx]) ;; too few points
-        av = mean(yaxis[good_idx]) ;; what I want
-        ;;stdev = stdev(yaxis[good_idx])
+        av = mean(yaxis[good_idx])    ;; what I want
+        ;;stdev = stdev(yaxis[good_idx]) ;; too narrow
         stdev = mean(yerr[good_idx])
+        ;; Make sure telluric lines have room to breath, since their
+        ;; widths are really indicative of the spectrometer
+        ;; performance
+        if dgs[idg] eq earth_dg then $
+           stdev = max(yerr[good_idx])
         oplot, 10^!x.crange, replicate(av, 2), $
                linestyle=!tok.dashed
         oplot, 10^!x.crange, replicate(av + stdev, 2), $
@@ -662,9 +671,7 @@ pro ssg_ana_close_lines, $
   
   ;; Now put in our ew, Gw, and Lw information to all of the lines,
   ;; even our object line.  Also make sure we handle our airglow
-  ;; line(s) properly.  To do this, tack on our object line and treat
-  ;; its widths like telluric lines, since we don't expect it
-  ;; to have any measurable width (contrary to Oliversen et al. 2001)
+  ;; line(s) properly.  To do this, tack on our object line
   obj_dg = sso_path_dg(sso_path_create([!eph.obj, !eph.earth]))
   dgs = [dgs, obj_dg]
   for idg=0, N_elements(dgs)-1 do begin
@@ -676,26 +683,29 @@ pro ssg_ana_close_lines, $
      if nlines eq 0 then $
         message, 'ERROR: missing line center parameters in new_lparinfo'
 
-     ;; Hack to go backward when we are at our object dg to grab our
-     ;; telluric widths
-     obj_delta_idg = 0
+     ;; Adjust object line ew to have 0 lower bound and no upper bound
      if dgs[idg] eq obj_dg then begin
-        obj_delta_idg = 1
-        ;; while we are here, make sure our ew doesn't go negative,
-        ;; erase the upper limit we found here and set our limited
-        ;; appropriately (I think it should already be so)
         for il=0, nlines-1 do begin
            new_lparinfo[lp_lc_idx[il]+1].limits = [0, 0]
            new_lparinfo[lp_lc_idx[il]+1].limited = [1, 0]
         endfor ;; each object line
-     endif ;; obj_dg
+     endif     ;; obj_dg
      for ipar=2,3 do begin
+        ;; Fix object Lorentzian at 0 but keep Gw to measured value
+        if dgs[idg] eq obj_dg then begin
+           if ipar eq 3 then begin
+              new_lparinfo[lp_lc_idx+ipar].value = 0
+              new_lparinfo[lp_lc_idx+ipar].fixed = 1
+           endif ;; Fix Lw at 0
+           ;; Don't do any adjustments for other parameter(s)
+           CONTINUE
+        endif ;; obj_dg
         new_lparinfo[lp_lc_idx+ipar].fixed = 0
-        new_lparinfo[lp_lc_idx+ipar].value = width_av[idg-obj_delta_idg, ipar-2]
+        value = width_av[idg, ipar-2]
+        stdev = width_stdev[idg, ipar-2]
+        new_lparinfo[lp_lc_idx+ipar].value = value
         ;; Puff up the limits by 2 sigma
-        limits = width_av[idg-obj_delta_idg, ipar-2] + $
-                 2.*[-width_stdev[idg-obj_delta_idg, ipar-2], $
-                     width_stdev[idg-obj_delta_idg, ipar-2]]
+        limits = value + 2.*[-stdev, stdev]
         ;; Make sure widths are >= 0
         limits[0] = max([0, limits[0]])
         new_lparinfo[lp_lc_idx+ipar].limits = limits
@@ -715,8 +725,11 @@ pro ssg_ana_close_lines, $
         endfor ;; il
      endif ;; telluric lines
 
-     ;; Solar lines, on the other hand, should be stable, but probably
-     ;; quite at the 1-sigma level.  Puff that up to 2-sigma
+     ;; Solar lines, on the other hand, should be stable.  I am
+     ;; finding that strong lines fall within 2 sigma resonably
+     ;; nicely, but weak lines fall within 1-sigma.  In particular,
+     ;; weak lines where the other sigma would be above 0.  So adjust
+     ;; limits accordingly
      if dgs[idg] eq sun_dg then begin
         new_lparinfo[lp_lc_idx+1].fixed = 0
         new_lparinfo[lp_lc_idx+1].limited = [1, 1]
@@ -724,10 +737,12 @@ pro ssg_ana_close_lines, $
         ;; together
         for il=0,nlines-1 do begin
            limits = new_lparinfo[lp_lc_idx[il]+1].limits
-           values = new_lparinfo[lp_lc_idx[il]+1].value
-           limits -= values
-           limits *= 2
-           limits += values
+           if limits[1] lt 0 then begin
+              values = new_lparinfo[lp_lc_idx[il]+1].value
+              limits -= values
+              limits *= 2
+              limits += values
+           endif ;; strong enough line to use 2-sigma limits
            ;; Make sure upper limit does not go above 0 (EWs are
            ;; negative!)
            limits[1] = min([0, limits[1]])
