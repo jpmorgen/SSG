@@ -275,9 +275,6 @@ pro ssg_ana_close_lines, $
         opcharsize = !p.charsize
         !P.charsize = 2
 
-        ;; They all share one X-axis.  Start out with our closest line
-        xaxis = sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt
-        
         line_id = string(format='(a, " ", f9.4, " ", a, ", ", a)', $
                          path_names, $
                          RWLs[il], $
@@ -287,19 +284,21 @@ pro ssg_ana_close_lines, $
                         !tok.angstrom, $
                         line_id)
         
+        ;; Make our xrange here to make sure everything lines up
+        xrange = minmax(sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt)
+
         for iplot=0,1+!pfo.fnpars[!pfo.voigt]-1 do begin
            ;; Skip over the whole line if we run out of good parameters
            if keyword_set(skip_line) then $
               CONTINUE
            ipar = 0
            ylog = 0
-           ;; Create the default ptl_lc_idx, the indices into
-           ;; sssg_ana_parinfo that we will actually plot.  Default to
-           ;; plot everything
+           ;; First time through, create the default ptl_lc_idx,
+           ;; the indices into sssg_ana_parinfo that we will
+           ;; actually plot.  For reduced chi^2, plot everything
            ptl_lc_idx = tl_lc_idx
            case iplot of
               0 : begin
-                 ;; Reduced chi2.  Plot everything
                  par_values = sssg_ana_parinfo[ptl_lc_idx+ipar].sso_ana.redchisq
                  err_values = 0
                  ;; Plot it on a log scale
@@ -313,7 +312,7 @@ pro ssg_ana_close_lines, $
                     ssg_ana_close_lines_filter( $
                     par_values lt chi2_cut, $
                     ngood_pts, $
-                    good_pts_idx=good_pts_idx, $
+                    $;good_pts_idx=good_pts_idx, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
 
@@ -324,7 +323,7 @@ pro ssg_ana_close_lines, $
               end
               1 : begin
                  ;; Plot only the good redchisq points
-                 ptl_lc_idx = tl_lc_idx[good_pts_idx]
+                 ptl_lc_idx = ptl_lc_idx[good_pts_idx]
                  ;; dw has two components, one from the Doppler and
                  ;; one from the dw.  Keep them seprate for printing
                  ;; purposes, but combine for filtering and plotting
@@ -347,19 +346,19 @@ pro ssg_ana_close_lines, $
                     ssg_ana_close_lines_filter( $
                     par_values lt dw_cut, $
                     ngood_pts, $
-                    good_pts_idx=good_pts_idx, $
+                    $;good_pts_idx=good_pts_idx, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
-                 ;; unwrap to ptl_lc_idx keeping in mind that
-                 ;; par_values were taken from ptl_lc_idx.  This is
-                 ;; the ptl_lc_idx used for ew, Gw, Lw
-                 ptl_lc_idx = ptl_lc_idx[good_pts_idx]
+                 ;; Save these good_pts_idx for ew, Gw, Lw unwraping
+                 ;; to ptl_lc_idx
+                 plot_width_idx = ptl_lc_idx[good_pts_idx]
                  ;;;; Now that we have our filter set, plot the actual
                  ;;;; Doppler value
                  ;;par_values = dpar_values
                  ;;err_values = derr_values
               end
               else : begin
+                 ptl_lc_idx = plot_width_idx
                  ;; ew, Gw, Lw
                  ipar = iplot - 1
                  ;; Plot the value and error of our host line as a function
@@ -367,12 +366,15 @@ pro ssg_ana_close_lines, $
                  par_values = sssg_ana_parinfo[ptl_lc_idx+ipar].value
                  err_values = sssg_ana_parinfo[ptl_lc_idx+ipar].error
 
+                 ;; Make sure X-axis and parameters line up.
+                 xaxis = sssg_ana_parinfo[ptl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt
+
                  ;; Only include points that are outside +/- DOWL_cut
                  good_pts_idx = $
                     ssg_ana_close_lines_filter( $
                     abs(xaxis) gt DOWL_cut, $
                     ngood_pts, $
-                    good_pts_idx=good_pts_idx, $
+                    $;good_pts_idx=ptl_lc_idx, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
               end
@@ -415,7 +417,7 @@ pro ssg_ana_close_lines, $
                  'Doppler (mA)', $
                  dmed, dstdev                 
               ;; convert back to km/s
-              v2c = !ssg.c / median(sssg_ana_parinfo[tl_lc_idx+ipar].sso.OWL)
+              v2c = !ssg.c / median(sssg_ana_parinfo[ptl_lc_idx+ipar].sso.OWL)
               print, $
                  format='(a16, " = ", f6.1, " +/-", f6.1)', $
                  'Doppler (km/s)', dmed*v2c*!sso.dwcvt, dstdev*v2c*!sso.dwcvt
@@ -437,11 +439,15 @@ pro ssg_ana_close_lines, $
               ;; axes
               yrange = minmax(par_values)
               ;; Try to weed out some of the junky points
+              ;; Sun Sep 13 08:19:08 2015  jpmorgen@snipe
+              ;; See if limits solve this problem
               if ipar gt 0 then begin
-                 yrange = med + 3*[-stdev, stdev]
+                 ;;yrange = med + 3*[-stdev, stdev]
               endif
               if iplot eq 1 then $
                  yrange[0] = 0.01
+              ;; Make sure X-axis and parameters line up.
+              xaxis = sssg_ana_parinfo[ptl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt
               plot, xaxis, par_values, $
                     /nodata, ylog=ylog, $
                     xmargin=[12,3], $
@@ -452,13 +458,13 @@ pro ssg_ana_close_lines, $
                     yrange=yrange, $
                     ystyle=!tok.exact+!tok.extend
               for ipdg=0, N_elements(dgs)-1 do begin
-                 clp_idx = where(sssg_ana_parinfo[tl_lc_idx].sso_ana.dg[0] $
+                 clp_idx = where(sssg_ana_parinfo[ptl_lc_idx].sso_ana.dg[0] $
                                  eq dgs[ipdg], count)
                  ;; Avoid trouble with not enough points
                  if count lt 2 then $
                     CONTINUE
                  ;; Don't unwrap.  clp_idx is the index into
-                 ;; tl_lc_idx+ipar, which is what xaxis and par_values
+                 ;; ptl_lc_idx+ipar, which is what xaxis and par_values
                  ;; were created from
                  oplot, xaxis[clp_idx], $
                         par_values[clp_idx], $

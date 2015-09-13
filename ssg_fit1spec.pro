@@ -16,6 +16,10 @@
 
 ;-
 
+pro ssg_fit1spec_timer, id, junk
+  message, 'ERROR: time exceeded for individual call to ssg_fit1spec'
+end ;; ssg_fit1spec_timer
+
 function modval, val, name, format=format
   newval=val
   if NOT keyword_set(format) then $
@@ -144,7 +148,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         2 : obj = !eph.europa
         3 : obj = !eph.ganymede
         4 : obj = !eph.callisto
-        else : message, 'ERROR: I don''t know how to translate ssg_reduce database obj_code of "' + strtrim(obj_codes[0], 2) + '" to a NAIF object code (e.g. io=501, Europa=502, etc.)'
+        else : message, 'ERROR: I don''t know how to translate ssg_reduce database obj_code of "' + strtrim(fix(obj_codes[0]), 2) + '" to a NAIF object code (e.g. io=501, Europa=502, etc.)'
      endcase
   endif ;; default ephemeris obj
 
@@ -322,6 +326,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      if !error_state.name eq 'IDL_M_WINDOW_CLOSED' then begin
         window,6
      endif else begin
+        ;; Cancel our timer so it doesn't fire and mess up a
+        ;; future fit
+        junk = timer.cancel(timer_id)
         message, /NONAME, !error_state.msg
      endelse ;; a real error
   endif else begin
@@ -329,12 +336,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      wset, 6
   endelse
 
-  title = objects[0] + ' ' + shortfile + ' ' + nday2date(ndays[0]) + ' (UT)'
-  ;; This has to be in font !3 for the angstrom symbol to be found.
-  ;; The extra ;" is to close the " in the string
-  xtitle = 'Rest Wavelength, '+string("305B) ;" ;
-  ytitle = string('Signal (', sxpar(hdr, 'BUNIT'), '/S)')
-  
+  ;; Get our good X-axis pixels and make sure we have some data
   good_pix = where(finite(disp_pix[*,0]) eq 1 and $
                    finite(wavelengths[*,0]) eq 1 and $
                    finite(spectra[*,0]) eq 1 and $
@@ -343,6 +345,20 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      message, /continue, 'ERROR: no good data found in ' + files[0]
      return
   endif
+
+  ;; If we are autofitting, set a timer for 30 minutes, since
+  ;; sometimes mpfit gets lost (e.g. nday = 4015.2315, though this
+  ;; problem was not repeatable)
+  timer_id = 0
+  if keyword_set(autofit) then $
+     timer_id = timer.set(30*60., 'ssg_fit1spec_timer') 
+
+  title = objects[0] + ' ' + shortfile + ' ' + nday2date(ndays[0]) + ' (UT)'
+  ;; This has to be in font !3 for the angstrom symbol to be found.
+  ;; The extra ;" is to close the " in the string
+  xtitle = 'Rest Wavelength, '+string("305B) ;" ;
+  ytitle = string('Signal (', sxpar(hdr, 'BUNIT'), '/S)')
+  
 
   ;; Establish a figure of merit for small equivalent widths so that
   ;; Lorentzian widths can be set to 0.  This is based on the
@@ -423,20 +439,12 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         orders = ftypes[cidx] * 1E4 - rcftypes[cidx] * 10
         sso_fmod, disp_par, cidx, step=mpstep * 10^(-(3*orders + 1))
 
-;        for idsp = 0,disp_order do begin
-;           p = tparams[idsp] 
-;           ;; Kind of bogus limits, but thes will keep the mpfit code happy
-;           tparinfo[idsp].limits = [double(p - 10d), $
-;                                    double(p + 10d)]
-;           tparinfo[idsp].parname=string(format='("Disp Coef ", i3)', idsp)
-;           tparinfo[idsp].ssgID=ssgid_disp
-;        endfor
         ;; INITIALIZE PARAMETER LIST
         if N_elements(parinfo) le 1 then begin
            message, 'NOTE: initializing parameter list' ,/INFORMATIONAL
            parinfo = [disp_par, deldot_par, rdot_par, lparinfo]
         endif ;; Initialize parameter list
-        message, 'NOTE: set dispersion coefficients to those found in FITS header of ' + shortfile ,/INFORMATIONAL
+        message, 'NOTE: set dispersion coefficients to those found in reduced database' ,/INFORMATIONAL
      endif ;; Dispersion initialization
      ;; Keep dispersion handy as a separate variable.  Also the
      ;; dispersion order, though with segmented polynomials, this is
@@ -554,8 +562,76 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
 
      ;; --> Eventually move this code into the interactive case section
      message, /CONTINUE, 'TOP LEVEL'
-     if keyword_set(idisp_fit) then $
-       print, 'Initial dispersion fitting mode'
+     if keyword_set(idisp_fit) then begin
+        print, 'Initial dispersion fitting mode'
+        ;; On our first time around do a convolution with the model to
+        ;; fine tune the wavelength of our reference pixel
+        if NOT keyword_set(first_idisp) then begin
+           ;; First time through
+           print, 'Doing first dispersion adjustment in wavelength offset only'
+           first_idisp = 1
+           ;; convolve the central portion of our model with the
+           ;; spectrum.  We have to subtract the continuum for this to
+           ;; work.  Also keep in mind that since we center our kernel
+           ;; (the model spectrum) on ref_pixel, our kernel is going
+           ;; to be off relative to the ref_pixel of the true data
+           ;; wavelength scale by the amount we are trying to
+           ;; measure.  In other words, we are inducing a double
+           ;; offset.  Also, for this reason, we use hard-coded
+           ;; limits that are symmetric around the reference pixel,
+           ;; rather than sso_get_wrange
+           spec_overlap = convol(spec - cont_par[1].value, $
+                                 model_spec[ref_pixel-nx/4.:ref_pixel+nx/4.] - $
+                                 cont_par[1].value)
+           ;; The peak pixel of our overlap is not quite our new
+           ;; reference pixel, since our kernel was shifted by the
+           ;; amount we are trying to measure and therefore biased the
+           ;; result.  peak_find was too fancy.  Max is really all we
+           ;; need
+           junk = max(spec_overlap, peak_pix)
+           new_ref_pixel = ref_pixel + 2*(peak_pix - ref_pixel)
+           print, 'new_ref_pixel: ', new_ref_pixel
+           window,0
+           plot, pix_axis, spec_overlap
+           wset, 6
+
+           ;; Instead of recording our new reference pixel, keep the
+           ;; standard reference pixel and calculate a new reference
+           ;; wavelength for our old reference pixel.  Note that the
+           ;; higher order coefficients are possibly off too, but this
+           ;; will hopefully get us close enough where we tend to have
+           ;; the most deep lines so that in lots of
+           ;; iterations, we will be able to lock in.
+           parinfo[cidx[0]].value = $
+              interpol(xaxis, $
+                       pix_axis + 2*(peak_pix - ref_pixel), $
+                       ref_pixel)
+           ;;;; Find the peak wavelength of that convolution relative to
+           ;;;; the old wavelength scale
+           ;;peak_wave = peak_find(spec_overlap, xaxis=xaxis)
+           ;;parinfo[cidx[0]].value += 2 * (parinfo[cidx[0]].value - peak_wave)
+           ;;;;parinfo[cidx[0]].value = peak_wave
+           ;;ref_pixel = parinfo[cidx[0]-1].value + 2*(peak_pix - parinfo[cidx[0]-1].value)
+           ;;parinfo[cidx[0]-1].value = ref_pixel
+           ;;;;print, parinfo[cidx[0]].value, new_wave
+
+           ;; Save our original maxiter and bump up maxiter by a factor
+           ;; of 3 to make sure we get enough iterations to lock in
+           ;; all of our dispersion coefs
+           omaxiter = maxiter
+           maxiter *= 3
+           ;; Wrap around in our repeat to get a replot and recalculation
+           CONTINUE
+           ;;junk = timer.cancel(timer_id)
+           ;;stop
+           ;;parinfo[cidx[0]].value = new_wave
+        endif else begin ;; first idisp
+           ;; Turn off high maxiter for first dispersion fit.  Make
+           ;; sure we do this after we have had a successful fit.
+           if keyword_set(keep) then $
+              maxiter = omaxiter
+        endelse ;; turn off
+     endif ;; idisp_fit
      if keyword_set(dd_fit) then $
        print, 'Dispersion and solar Doppler fitting mode'
      print, 'Minimum equiv width (milli A) = ', strtrim(min_ew, 2)
@@ -1109,7 +1185,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                       quiet=quiet, nprint=nprint, iterproc=!pfo.iterproc, $ $
                       iterargs=iterargs, perror=perror, $
                       status=status, niter=niter, bestnorm=chisq)
-
+           
            ;; mpfitfun is usually robust with its errors, so if we
            ;; made it here, it has something useful to say in the
            ;; status variable.  For our purposes, we either want to
@@ -1385,5 +1461,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
 
   endrep until done
 
+  ;; Cancel our timer so it doesn't fire and mess up a
+  ;; future fit
+  junk = timer.cancel(timer_id)
+  
 end
 
