@@ -175,8 +175,8 @@ pro ssg_ana_close_lines, $
   yprint =  ['abs(Dop+dw)', 'ew', 'Gw', 'Lw']
   ytitles = yprint + ' (m'+ !tok.angstrom + ')'
   yprint += '(mA)'
-  ytitles = ['Red chi!U2!D', ytitles]
-  yprint = ['Red chi2', yprint]
+  ytitles = ['Red chi!U2!D', ytitles, 'Close Line Metric']
+  yprint = ['Red chi2', yprint, 'Close Line Metric']
 
   ;; Cycle through our sssg_ana_parinfo Doppler groups first, then
   ;; RWL, since at least for Io and airglow, [OI] is the same RWL.
@@ -271,7 +271,7 @@ pro ssg_ana_close_lines, $
         print, !tok.newline, line_id
 
         ;; Plot all parameters together
-        !p.multi = [0, 1, 5]
+        !p.multi = [0, 1, 6]
         opcharsize = !p.charsize
         !P.charsize = 2
 
@@ -285,9 +285,9 @@ pro ssg_ana_close_lines, $
                         line_id)
         
         ;; Make our xrange here to make sure everything lines up
-        xrange = minmax(sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt)
+        xrange = minmax(sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0])
 
-        for iplot=0,1+!pfo.fnpars[!pfo.voigt]-1 do begin
+        for iplot=0,2+!pfo.fnpars[!pfo.voigt]-1 do begin
            ;; Skip over the whole line if we run out of good parameters
            if keyword_set(skip_line) then $
               CONTINUE
@@ -297,8 +297,8 @@ pro ssg_ana_close_lines, $
            ;; the indices into sssg_ana_parinfo that we will
            ;; actually plot.  For reduced chi^2, plot everything
            ptl_lc_idx = tl_lc_idx
-           case iplot of
-              0 : begin
+           case 1 of
+              iplot eq 0 : begin
                  par_values = sssg_ana_parinfo[ptl_lc_idx+ipar].sso_ana.redchisq
                  err_values = 0
                  ;; Plot it on a log scale
@@ -321,7 +321,7 @@ pro ssg_ana_close_lines, $
                     print, sssg_ana_parinfo[ptl_lc_idx[bad_pts_idx[ijunk]]].ssg.nday, sssg_ana_parinfo[ptl_lc_idx[bad_pts_idx[ijunk]]].sso_ana.redchisq
                  endfor
               end
-              1 : begin
+              iplot eq 1 : begin
                  ;; Plot only the good redchisq points
                  ptl_lc_idx = ptl_lc_idx[good_pts_idx]
                  ;; dw has two components, one from the Doppler and
@@ -357,9 +357,9 @@ pro ssg_ana_close_lines, $
                  ;;par_values = dpar_values
                  ;;err_values = derr_values
               end
-              else : begin
-                 ptl_lc_idx = plot_width_idx
+              2 le iplot and iplot le 4 : begin
                  ;; ew, Gw, Lw
+                 ptl_lc_idx = plot_width_idx
                  ipar = iplot - 1
                  ;; Plot the value and error of our host line as a function
                  ;; DOWL to the 0th closest line
@@ -367,7 +367,7 @@ pro ssg_ana_close_lines, $
                  err_values = sssg_ana_parinfo[ptl_lc_idx+ipar].error
 
                  ;; Make sure X-axis and parameters line up.
-                 xaxis = sssg_ana_parinfo[ptl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt
+                 xaxis = sssg_ana_parinfo[ptl_lc_idx].sso_ana.DOWL[0]
 
                  ;; Only include points that are outside +/- DOWL_cut
                  good_pts_idx = $
@@ -378,26 +378,49 @@ pro ssg_ana_close_lines, $
                     bad_pts_idx=bad_pts_idx, $
                     nbad_pts=nbad_pts)
               end
+              iplot eq 5: begin
+                 ipar = -1
+                 ;; Metric for bad overlap:
+                 ;; (ewcl - ewp)/ (DOWL + abs(Gwp - Gwcl))
+                 ewp = sssg_ana_parinfo[ptl_lc_idx+1].value
+                 dewp = sssg_ana_parinfo[ptl_lc_idx+1].error
+                 ewcl = sssg_ana_parinfo[ptl_lc_idx+1].sso_ana.value[0]
+                 dewcl = sssg_ana_parinfo[ptl_lc_idx+1].sso_ana.error[0]
+                 ;; DOWL = xaxis, errors are negligible
+                 Gwp = sssg_ana_parinfo[ptl_lc_idx+2].value
+                 dGwp = sssg_ana_parinfo[ptl_lc_idx+2].error
+                 Gwcl = sssg_ana_parinfo[ptl_lc_idx+2].sso_ana.value[0]
+                 dGwcl = sssg_ana_parinfo[ptl_lc_idx+2].sso_ana.error[0]
+                 ptl_lc_idx = plot_width_idx
+                 par_values = (abs(ewcl) - abs(ewp)) / (abs(xaxis) + abs(Gwcl - Gwp))
+                 err_values = $
+                    par_values * $
+                    sqrt((dewcl^2 + dewp^2) / (ewcl - ewp) + $
+                         (dGwcl^2 + dGwp^2) / xaxis + abs(Gwcl - Gwp))
+              end ;; close line metric
            endcase
-           ;; If we don't have enough good points, we can't do
-           ;; meaningful statistical analysis --> I would like to come
-           ;; up with a beter fiducial than this, like a percentage of
-           ;; all of the spectra fit or something like that.  But I
-           ;; suppose if I have 5 good measurements, I can get an OK
-           ;; median and stdev.  Don't bother plotting bad
-           ;; plots anymore either.  Be careful with the case where we
-           ;; find bad parameter mid-way through our line.  We want to
-           ;; go back and mark the whole line as no_opinion
-           if ngood_pts lt 5 then begin
-              new_lparinfo[lp_lc_idx:lp_lc_idx+ipar].pfo.status = !pfo.no_opinion
-              skip_line = 1
-              CONTINUE ;; each parameter, so we need skip_line
-           endif
-           
-           ;; If we made it here, we have the ability to do statistics
-           ;; and will have some sort of an opinion about this
-           ;; parameter.  Mark it as active in new_lparinfo
-           new_lparinfo[lp_lc_idx+ipar].pfo.status = !pfo.active
+           ;; For single parameters
+           if ipar ge 0 then begin
+              ;; If we don't have enough good points, we can't do
+              ;; meaningful statistical analysis --> I would like to come
+              ;; up with a beter fiducial than this, like a percentage of
+              ;; all of the spectra fit or something like that.  But I
+              ;; suppose if I have 5 good measurements, I can get an OK
+              ;; median and stdev.  Don't bother plotting bad
+              ;; plots anymore either.  Be careful with the case where we
+              ;; find bad parameter mid-way through our line.  We want to
+              ;; go back and mark the whole line as no_opinion
+              if ngood_pts lt 5 then begin
+                 new_lparinfo[lp_lc_idx:lp_lc_idx+ipar].pfo.status = !pfo.no_opinion
+                 skip_line = 1
+                 CONTINUE ;; each parameter, so we need skip_line
+              endif
+              
+              ;; If we made it here, we have the ability to do statistics
+              ;; and will have some sort of an opinion about this
+              ;; parameter.  Mark it as active in new_lparinfo
+              new_lparinfo[lp_lc_idx+ipar].pfo.status = !pfo.active
+           endif ;; single-parameter based
 
            ;; Since we have lots of measurements, many of which are
            ;; bogus, stick with median to get our best value
@@ -447,7 +470,7 @@ pro ssg_ana_close_lines, $
               if iplot eq 1 then $
                  yrange[0] = 0.01
               ;; Make sure X-axis and parameters line up.
-              xaxis = sssg_ana_parinfo[ptl_lc_idx].sso_ana.DOWL[0] / !sso.dwcvt
+              xaxis = sssg_ana_parinfo[ptl_lc_idx].sso_ana.DOWL[0]
               plot, xaxis, par_values, $
                     /nodata, ylog=ylog, $
                     xmargin=[12,3], $
@@ -742,13 +765,16 @@ pro ssg_ana_close_lines, $
         ;; IDL doesn't handle the implict array and structures
         ;; together
         for il=0,nlines-1 do begin
-           limits = new_lparinfo[lp_lc_idx[il]+1].limits
-           if limits[1] lt 0 then begin
-              values = new_lparinfo[lp_lc_idx[il]+1].value
-              limits -= values
-              limits *= 2
-              limits += values
-           endif ;; strong enough line to use 2-sigma limits
+           ;; Mon Sep 14 07:04:32 2015  jpmorgen@snipe
+           ;; Upon refit thinking I can be bold and set 1-sigma limits to ew
+           ;; as well
+           ;; limits = new_lparinfo[lp_lc_idx[il]+1].limits
+           ;; if limits[1] lt 0 then begin
+           ;;    values = new_lparinfo[lp_lc_idx[il]+1].value
+           ;;    limits -= values
+           ;;    limits *= 2
+           ;;    limits += values
+           ;; endif ;; strong enough line to use 2-sigma limits
            ;; Make sure upper limit does not go above 0 (EWs are
            ;; negative!)
            limits[1] = min([0, limits[1]])

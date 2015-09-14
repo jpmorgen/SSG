@@ -85,21 +85,25 @@ pro ssg_fit2ana, $
      return
   endif
   ;; Make the analysis database our master for ndays
-  dbext, aentries, 'nday', ndays
+  dbext, aentries, 'nday, object, obj_code', ndays, objects, obj_codes
   ;; Collect things we need for our calculations
-  dbext, aentries, 'delta,r,phi,spa,ang_dia', delta, r, phi, sol_pha, io_dia
+  dbext, aentries, 'delta,r,phi,spa,ang_dia', delta, r, phi, sol_pha, obj_dia
   ;; Collect arrays for our output results
   dbext, aentries, $
          'deldot_m,err_deldot_m, fline,err_fline, fcont,err_fcont, wc,err_wc', $
          dv, err_dv, fline, err_fline, fcont, err_fcont, wc, err_wc
 
   dbext, aentries, $
-         'ag_flux,err_ag_flux, redchisq,freeparam,numlines,db_date,disp,refpix, refwave', $
-         ag, ag_err, redchisq, nfree, numlines, today, disp, refpix, refwave
+         'ag_flux,err_ag_flux, redchisq,freeparam,numlines,ip,db_date,disp,refpix, refwave', $
+         ag, ag_err, redchisq, nfree, numlines, ips, today, disp, refpix, refwave
 
   dbext, aentries, $
          'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
          weq, err_weq, alf, err_alf, today, intensity, err_intensity
+
+  dbext, aentries, $
+         'nn_DOWL, nn_ew, nn_Dw, nn_Lw,', $
+         nn_DOWLs, nn_ews, nn_Dws, nn_Lws
 
   dbclose
 
@@ -129,6 +133,7 @@ pro ssg_fit2ana, $
   redchisq      [*] = !values.d_nan
   nfree         [*] = !values.d_nan
   numlines      [*] = !values.d_nan
+  ips		[*] = !values.d_nan
   today         [*] = !values.d_nan
   disp          [*] = !values.d_nan
   refpix        [*] = !values.d_nan
@@ -190,7 +195,7 @@ pro ssg_fit2ana, $
                           count)
      if count eq 0 then $
         message, 'ERROR: no saved parinfo found for this particular nday'
-     ;; unnest
+     ;; unwrap
      our_nday_idx = f_idx[our_nday_idx]
 
      ;; Handle the before keyword so that we can go backward in our
@@ -210,7 +215,7 @@ pro ssg_fit2ana, $
         datestr = string(format='(I4, 2("-", I02), "T", 3(I02, :, ":") )', year, month, day, hour, minute, second)
         message, 'ERROR: no parinfo were saved before ' + datestr
      endif
-     ;; unnest back into our_nday_idx
+     ;; unwrap back into our_nday_idx
      our_nday_idx = our_nday_idx[before_idx]
 
      ;; Handle our after keyword so that we can exclude earlier
@@ -222,7 +227,7 @@ pro ssg_fit2ana, $
            datestr = string(format='(I4, 2("-", I02), "T", 3(I02, :, ":") )', year, month, day, hour, minute, second)
            message, 'ERROR: no parinfo were saved after ' + datestr
         endif
-        ;; unnest back into our_nday_idx
+        ;; unwrap back into our_nday_idx
         our_nday_idx = our_nday_idx[after_idx]
      endif
 
@@ -230,7 +235,7 @@ pro ssg_fit2ana, $
      fvers = sparinfo[our_nday_idx].ssg.fver
      best_fver = max(fvers)
      idx = where(sparinfo[our_nday_idx].ssg.fver eq best_fver)
-     ;; unnest
+     ;; unwrap
      idx = our_nday_idx[idx]
      ;; Get our end markers
      end_idx = where(sparinfo[idx].fixed eq 1 and $
@@ -238,16 +243,15 @@ pro ssg_fit2ana, $
                      sparinfo[idx].sso.ptype eq !sso.line, count)
      if count ne 2 then $
         message, 'ERROR: endpoints were not saved with fit'
-     ;; unnest
+     ;; unwrap
      end_idx = idx[end_idx]
      left_pix = sparinfo[end_idx[0]].value
      right_pix = sparinfo[end_idx[1]].value
 
      ;; Make sure we have dgs assigned consistently
      sso_dg_assign, sparinfo, idx
-     io_dg = sso_path_dg(sso_path_create([!eph.io, !eph.earth]))
-     ag_dg = sso_path_dg(sso_path_create([!eph.earth, !eph.earth])) ;; this includes telluric absorption too
-     fh_dg = sso_path_dg(sso_path_create([!eph.sun, !eph.io, !eph.earth]))
+     obj_dg = sso_path_dg(sso_path_create([!eph.jupiter - 99 + obj_codes[inday], !eph.earth]))
+     earth_dg = sso_path_dg(sso_path_create([!eph.earth, !eph.earth])) ;; this includes telluric absorption too
 
      ;; Run model to get owls and set up to calculate chisq stuff
      model_spec = pfo_funct(disp_pix, parinfo=sparinfo, $
@@ -299,7 +303,7 @@ pro ssg_fit2ana, $
                       disp_order)
      if disp_order eq 0 then $
         message, 'ERROR: no dispersion terms found'
-     ;; unnest
+     ;; unwrap
      disp_idx = idx[disp_idx]
      ftypes = sparinfo[disp_idx].pfo.ftype - !pfo.poly
      prnums = round(ftypes * 100. )
@@ -317,7 +321,7 @@ pro ssg_fit2ana, $
                    npoly)
      if npoly ne 1 then $
         message, 'ERROR: '  + strtrim(npoly, 2) + ' dispersion polynomials found.  Analysis database can only handle 1'
-     ;; unnest
+     ;; unwrap
      c0idx = disp_idx[c0idx]
      refwave[inday] = sparinfo[c0idx].value
      c1idx = where(0 lt rcftypes and rcftypes lt 10 and $
@@ -325,23 +329,188 @@ pro ssg_fit2ana, $
                    count)
      if count ne 1 then $
         message, 'ERROR: '  + strtrim(count, 2) + ' 1st order dispersion coefs found.  Analysis database can only handle 1'
-     ;; unnest
+     ;; unwrap
      c1idx = disp_idx[c1idx]
      disp[inday] = sparinfo[c1idx].value / !sso.dwcvt
 
-     ;; IO LINE
-     io_idx = where(sparinfo[idx].sso.dg eq io_dg, nio)
-     if nio eq 0 then $
-        message, 'ERROR: no Io parameters found'
-     ;; unnest
-     io_idx = idx[io_idx]
+     ;; CLOSE LINES
+     ;; Thu Jul 30 14:39:32 2015  jpmorgen@snipe
+     ;; Fill up an ssg_ana_parinfo with information on the parameters of
+     ;; the <N_close_lines> closest lines to each line.  We have
+     ;; already checked to make sure that there are lines found up in
+     ;; the NUMLINES code
+     ;; We want to fill in an ssg_ana_parinfo.  Make it a duplicate
+     ;; of our particular segment of sparinfo, we will eventually
+     ;; concatenate the ssg_ana_parinfo into an sssg_ana_parinfo for
+     ;; saving on disk
+     ;; At this point, idx points to our fit, including endpoints
+     ssg_ana_parinfo = replicate(ssg_ana_parinfo1, N_elements(idx))
+     struct_assign, sparinfo[idx], ssg_ana_parinfo, /verbose
+     ;; Get our lc_idx again, since we have a subset of the
+     ;; original sparinfo
+     lc_idx = where(ssg_ana_parinfo.sso.ttype eq !sso.center and $
+                    ssg_ana_parinfo.sso.ptype eq !sso.line)
 
-     ;; IO EQUIVALENT WIDTH
-     ew_idx = where(sparinfo[io_idx].sso.ttype eq !sso.ew, count)
+     for iline=0, numlines[inday]-1 do begin
+        ;; Delta observed wavelength = close line minus host line
+        ;; gets delta observed wavelegnth lined up sensibly in
+        ;; ssg_ana_close_lines.  Convert to our display units here
+        dowl = (ssg_ana_parinfo[lc_idx].sso.owl - $
+               ssg_ana_parinfo[lc_idx[iline]].sso.owl) / !sso.dwcvt
+        err_dowl = sqrt(ssg_ana_parinfo[lc_idx].error^2 + $
+                        ssg_ana_parinfo[lc_idx[iline]].error^2) / !sso.dwcvt
+        ;; Sort DOWL by the absolute value, so we get our true
+        ;; closest lines
+        dowl_sort_idx = sort(abs(dowl))
+        ;; Before we unwrap, save DOWL and err_DOWL in the line
+        ;; center parameter.  The 0th line is always the line
+        ;; itself
+        ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL = $
+           dowl[dowl_sort_idx[1:N_close_lines]]
+        ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL = $
+           err_dowl[dowl_sort_idx[1:N_close_lines]]
+        
+        ;; Unwrap, dropping off the 0th idx, since that is the line itself
+        dowl_sort_idx = lc_idx[dowl_sort_idx[1:N_close_lines]]
+
+        ;; Now we can get RWLs, dgs, and paths of our close lines
+        ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL = $
+           ssg_ana_parinfo[dowl_sort_idx].sso.RWL
+        ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg = $
+           ssg_ana_parinfo[dowl_sort_idx].sso.dg
+        ;; I don't think IDL would get the implicit array
+        ;; dimensions right, so copy paths explicitly, close line
+        ;; by close line
+        for icline=0, N_close_lines-1 do begin
+           ssg_ana_parinfo[lc_idx[iline]].sso_ana.path[icline,*] = $
+              ssg_ana_parinfo[dowl_sort_idx[icline]].sso.path
+        endfor ;; copy path for each close line
+
+        ;; Get indices into all parameters of our iline
+        iline_idx = where(ssg_ana_parinfo.sso.RWL eq $
+                          ssg_ana_parinfo[lc_idx[iline]].sso.RWL and $
+                          ssg_ana_parinfo.sso.dg eq $
+                          ssg_ana_parinfo[lc_idx[iline]].sso.dg, npar)
+        if npar eq !pfo.fnpars[!pfo.voigt] and floor(ssg_ana_parinfo[lc_idx[iline]].sso.pfo.pfo.ftype) ne !pfo.voigt then $
+           message, 'ERROR: I really only know how to deal with Voigts right now'
+
+        ;; Pull up the Doppler shift our this line and calculate
+        ;; how far it is off from the expected value
+        iline_dop_idx = where(ssg_ana_parinfo.sso.ptype eq !sso.dop and $
+                              ssg_ana_parinfo.sso.dg eq ssg_ana_parinfo[lc_idx[iline]].sso.dg, ndop)
+        if ndop ne 1 then $
+           message, 'ERROR: expected Doppler parameter for primary line not found for this spectrum'
+
+        iline_eph_deldot = sso_eph_dop(nday2date(ndays[inday]), $
+                                       ssg_ana_parinfo[iline_dop_idx].sso.path, $
+                                       !ssg.mmp_xyz)
+        v2c = !ssg.c / ssg_ana_parinfo[lc_idx[iline]].sso.OWL
+        delta_dop = (ssg_ana_parinfo[iline_dop_idx].value - iline_eph_deldot) $
+                    / v2c / !sso.dwcvt ;; convert from real wavelength to display wavelength
+        
+        err_delta_dop = sqrt((ssg_ana_parinfo[iline_dop_idx].error^2 $
+                              + ssg_ana_parinfo[iline_dop_idx].error^2) $
+                             / v2c^2)
+
+        ;; Now we need to move to the other parameters.  Use RWL
+        ;; and DG as a handle to pull up all the parametes of a
+        ;; particular line
+        for icline=0, N_close_lines-1 do begin
+           clidx = where(ssg_ana_parinfo.sso.RWL eq $
+                         ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL[icline] and $
+                         ssg_ana_parinfo.sso.dg eq $
+                         ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg[icline], count)
+           if count eq 0 then $
+              message, 'ERROR: not able to pull up line parameters by RWL/dg.  Something is really wrong.'
+           ;; I am fairly confident that all lines are Voigts and
+           ;; the parameters are in order, so I don't need
+           ;; to write general code, but check to make sure
+
+           bad_idx = where(ssg_ana_parinfo[iline_idx].pfo.ftype ne $
+                           ssg_ana_parinfo[clidx].pfo.ftype, count)
+           if count ne 0 then $
+              message, 'ERROR: Line ftype mismatch.  It is going to take some additional coding to line up the parameters'
+           ;; Now just assume everything is a Voigt.  Stash the
+           ;; reduced chi2 of our fit and the delta Doppler shift
+           ;; and error from expected of our host line.  Get rid of
+           ;; the trivial dimension for the *delta_dop tags
+           ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.redchisq = redchisq[inday]
+           ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.delta_dop = delta_dop[0]
+           ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.err_delta_dop = err_delta_dop[0]
+           ;; Copy over RWL, dg, DOWL, and err_DOWL from the line
+           ;; center to each close line
+           ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.RWL[icline] = $
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL[icline]
+           ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.dg[icline] = $
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg[icline]
+           ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.DOWL[icline] = $
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL[icline]
+           ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.err_DOWL[icline] = $
+              ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL[icline]
+           ;; Copy the value and error for the close lines into the
+           ;; structure
+           ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.value[icline] = $
+              ssg_ana_parinfo[clidx].value
+           ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.error[icline] = $
+              ssg_ana_parinfo[clidx].error
+           ;; path requires a little more work to copy from the
+           ;; line center parameter, because of implicit array
+           ;; index confusion
+           for ipar=1,!pfo.fnpars[!pfo.voigt]-1 do begin
+              ssg_ana_parinfo[lc_idx[iline]+ipar].sso_ana.path[icline,*] = $
+                 ssg_ana_parinfo[lc_idx[iline]].sso.path
+           endfor ;; each parameter for path
+        endfor    ;; handle parameters for each close line           
+     endfor       ;; each line
+     ;; Accumulate close lines for saving as we exit (if filename supplied)
+     sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
+
+     ;; AIRGLOW
+     ;; Start assuming no airglow was fit.  I think I like having NaN
+     ;; be the answer in this case
+     ;;ag[inday] = 0.
+     ;;ag_err[inday] = 0.
+     ag_idx = where(sparinfo[idx].sso.dg eq earth_dg and $
+                    sparinfo[idx].sso.ttype eq !sso.ew and $
+                    sparinfo[idx].value gt 0, ag_count)
+     if ag_count gt 1 then $
+        message, 'ERROR: ' + strtrim(count, 2) + ' airglow equivalent width paramemters found.  This database can only handle 1'
+     if ag_count eq 1 then begin
+        ;; unwrap
+        ag_idx = idx[ag_idx]
+        ag[inday] = sparinfo[ag_idx].value
+        ag_err[inday] = sparinfo[ag_idx].error
+     endif
+     
+     ;; IP instrument profile.  Estimate form the Gaussian width of the
+     ;; telluric lines
+     earth_ew_idx = where(sparinfo[idx].sso.dg eq earth_dg and $
+                          sparinfo[idx].sso.ttype eq !sso.ew and $
+                          sparinfo[idx].value lt 0, earth_count)
+     ;; Unlikely to have zero telluric lines, but check just in case
+     ;; and don't raise an error if it is so
+     if earth_count gt 0 then begin
+        ;; Like ssg_ana_close_lines, cheat and assume all our Voigt
+        ;; parameters are lined up, so to get to the Gw, add 1 to the
+        ;; ew IDX.
+        ;; unwrap
+        earth_ew_idx = idx[earth_ew_idx]
+        ips[inday] = median(sparinfo[earth_ew_idx + 1].value)
+     endif
+
+     ;; OBJECT LINE
+     obj_idx = where(sparinfo[idx].sso.dg eq obj_dg, nobj)
+     if nobj eq 0 then $
+        message, 'ERROR: no object parameters found'
+     ;; unwrap
+     obj_idx = idx[obj_idx]
+
+     ;; OBJECT EQUIVALENT WIDTH
+     ew_idx = where(sparinfo[obj_idx].sso.ttype eq !sso.ew, count)
      if count ne 1 then $
-        message, 'ERROR: ' + string(count) + ' Io equivalent width parmeters found'
-     ;; unnest
-     ew_idx = io_idx[ew_idx]
+        message, 'ERROR: ' + string(count) + ' equivalent width parmeters found for ' + objects[inday]
+     ;; unwrap
+     ew_idx = obj_idx[ew_idx]
      weq[inday] = sparinfo[ew_idx].value
      err_weq[inday] = sparinfo[ew_idx].error
 
@@ -349,7 +518,7 @@ pro ssg_fit2ana, $
      cont_idx = where(sparinfo[idx].sso.ptype eq !sso.cont, N_continuum)
      if N_continuum eq 0 then $
         message, 'ERROR: no continuum terms found'
-     ;; unnest
+     ;; unwrap
      cont_idx = idx[cont_idx]
      fcont[inday] = pfo_funct([sparinfo[ew_idx].sso.owl], $
                               parinfo=sparinfo, idx=[disp_idx, cont_idx])
@@ -367,12 +536,12 @@ pro ssg_fit2ana, $
                          (err_fcont[inday]/fcont[inday])^2)^(0.5) $
                         * fline[inday]
 
-     ;; IO CONVOLVED LINE WIDTH, wc
-     lw_idx = where(sparinfo[io_idx].sso.ttype eq !sso.width, count)
+     ;; OBJECT CONVOLVED LINE WIDTH, wc
+     lw_idx = where(sparinfo[obj_idx].sso.ttype eq !sso.width, count)
      if count eq 0 then $
         message, 'ERROR: no convolved Io linewidth found'
-     ;; unnest
-     lw_idx = io_idx[lw_idx]
+     ;; unwrap
+     lw_idx = obj_idx[lw_idx]
      for ilw=0, count-1 do begin
         if sparinfo[lw_idx[ilw]].value gt 0 then begin
            if finite(wc[inday]) then begin
@@ -384,39 +553,23 @@ pro ssg_fit2ana, $
         endif      ;; non-zero width
      endfor
 
-     ;; IO DOPPLER SHIFT
-     deldot_idx = where(sparinfo[io_idx].sso.ptype eq !sso.dop, count)
+     ;; OBJECTS DOPPLER SHIFT
+     deldot_idx = where(sparinfo[obj_idx].sso.ptype eq !sso.dop, count)
      if count ne 1 then $
-        message, 'ERROR: ' + strtrim(count, 2) + ' Io Doppler shift parmeters found'
-     ;; unnest
-     deldot_idx = io_idx[deldot_idx]
+        message, 'ERROR: ' + strtrim(count, 2) + ' Object Doppler shift parmeters found'
+     ;; unwrap
+     deldot_idx = obj_idx[deldot_idx]
      dv[inday] = sparinfo[deldot_idx].value
      err_dv[inday] = sparinfo[deldot_idx].error
-
-     ;; AIRGLOW
-     ;; Start assuming no airglow was fit.
-     ag[inday] = 0.
-     ag_err[inday] = 0.
-     ag_idx = where(sparinfo[idx].sso.dg eq ag_dg and $
-                    sparinfo[idx].sso.ttype eq !sso.ew and $
-                    sparinfo[idx].value gt 0, ag_count)
-     if ag_count gt 1 then $
-        message, 'ERROR: ' + strtrim(count, 2) + ' airglow equivalent width paramemters found.  This database can only handle 1'
-     if ag_count eq 1 then begin
-        ;; unnest
-        ag_idx = idx[ag_idx]
-        ag[inday] = sparinfo[ag_idx].value
-        ag_err[inday] = sparinfo[ag_idx].error
-     endif
 
      ;; I think this is the change in V-magnitude starting from the
      ;; sun, bouncing off of Io and ending up at the Earth
      dist_mag = 5*alog10(r[inday]*delta[inday])
 
      ;; I think this is from Jason Corliss' thesis, where he
-     ;; looked at Galileo data.  --> There is an old reference
+     ;; looked at Galileo observation of Io.  --> There is an old reference
      ;; somewhere of Io's brightness to which this can be compared
-     case 1 of
+     case obj_codes[inday] eq 1 of
         (phi[inday] ge 355) and (phi[inday] lt 5)   : phi_cor =.04
         (phi[inday] ge 5)   and (phi[inday] lt 15)  : phi_cor =.03
         (phi[inday] ge 15)  and (phi[inday] lt 25)  : phi_cor =  .016
@@ -454,7 +607,11 @@ pro ssg_fit2ana, $
         (phi[inday] ge 335) and (phi[inday] lt 345) : phi_cor =.074
         (phi[inday] ge 345) and (phi[inday] lt 355) : phi_cor =.056
         else: print,'phi has an illegal value'
-     endcase  
+     endcase
+     ;; This seems to be correcting for albedo vs. solar phase angle
+     ;; (opposition effect) --> This needs to be a case statement for
+     ;; the albedos of the other satellites, assuming any emission is
+     ;; found on them.
      if sol_pha[inday] ge 6 then $
         V_cor = -1.55 + DIST_MAG + 0.021*sol_pha[inday] + phi_cor
      if sol_pha[inday] lt 6 then $
@@ -468,140 +625,22 @@ pro ssg_fit2ana, $
      err_alf[inday] = err_weq[inday] * !sso.ewcvt * nlam
 
      intensity[inday] = ((alf[inday]*(206265.^2.)*4.)/ $
-                         ((1e6)*((io_dia[inday]/2.)^2.)))/1000.
+                         ((1e6)*((obj_dia[inday]/2.)^2.)))/1000.
      err_intensity[inday] = (err_alf[inday]*intensity[inday])/alf[inday]
 
-     ;; CLOSE LINES
-     if keyword_set(close_lines) then begin
-        ;; Thu Jul 30 14:39:32 2015  jpmorgen@snipe
-        ;; Fill up an ssg_ana_parinfo with information on the parameters of
-        ;; the <N_close_lines> closest lines to each line.  We have
-        ;; already checked to make sure that there are lines found up in
-        ;; the NUMLINES code
-        ;; We want to fill in an ssg_ana_parinfo.  Make it a duplicate
-        ;; of our particular segment of sparinfo, we will eventually
-        ;; concatenate the ssg_ana_parinfo into an sssg_ana_parinfo for
-        ;; saving on disk
-        ;; At this point, idx points to our fit, including endpoints
-        ssg_ana_parinfo = replicate(ssg_ana_parinfo1, N_elements(idx))
-        struct_assign, sparinfo[idx], ssg_ana_parinfo, /verbose
-        ;; Get our lc_idx again, since we have a subset of the
-        ;; original sparinfo
-        lc_idx = where(ssg_ana_parinfo.sso.ttype eq !sso.center and $
-                       ssg_ana_parinfo.sso.ptype eq !sso.line)
+     ;; Calculate the nearest neighbor stuff for our object line.  If
+     ;; we made it here, we have an object line.  Find it in our
+     ;; ssg_ana_parinfo
+     obj_lc_idx = where(ssg_ana_parinfo.sso.dg eq obj_dg and $
+                        ssg_ana_parinfo.sso.ttype eq !sso.center and $
+                        ssg_ana_parinfo.sso.ptype eq !sso.line, nobj)
+     if nobj eq 0 then $
+        message, 'ERROR: no object parameters found in ssg_ana_parinfo.  I just put them here, so I don''t expect this!'
+     nn_DOWLs[inday] = ssg_ana_parinfo[obj_lc_idx].sso_ana.DOWL[0]
+     nn_ews  [inday] = ssg_ana_parinfo[obj_lc_idx+1].sso_ana.value[0]
+     nn_Dws  [inday] = ssg_ana_parinfo[obj_lc_idx+2].sso_ana.value[0]
+     nn_Lws  [inday] = ssg_ana_parinfo[obj_lc_idx+3].sso_ana.value[0]
 
-        for iline=0, numlines[inday]-1 do begin
-           ;; Delta observed wavelength = close line minus host line
-           ;; gets delta observed wavelegnth lined up sensibly in ssg_ana_close_lines
-           dowl = ssg_ana_parinfo[lc_idx].sso.owl - $
-                  ssg_ana_parinfo[lc_idx[iline]].sso.owl
-           err_dowl = sqrt(ssg_ana_parinfo[lc_idx].error^2 + $
-                           ssg_ana_parinfo[lc_idx[iline]].error^2)
-           ;; Sort DOWL by the absolute value, so we get our true
-           ;; closest lines
-           dowl_sort_idx = sort(abs(dowl))
-           ;; Before we unwrap, save DOWL and err_DOWL in the line
-           ;; center parameter.  The 0th line is always the line
-           ;; itself
-           ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL = $
-              dowl[dowl_sort_idx[1:N_close_lines]]
-           ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL = $
-              err_dowl[dowl_sort_idx[1:N_close_lines]]
-           
-           ;; Unwrap, dropping off the 0th idx, since that is the line itself
-           dowl_sort_idx = lc_idx[dowl_sort_idx[1:N_close_lines]]
-
-           ;; Now we can get RWLs, dgs, and paths of our close lines
-           ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL = $
-              ssg_ana_parinfo[dowl_sort_idx].sso.RWL
-           ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg = $
-              ssg_ana_parinfo[dowl_sort_idx].sso.dg
-           ;; I don't think IDL would get the implicit array
-           ;; dimensions right, so copy paths explicitly, close line
-           ;; by close line
-           for icline=0, N_close_lines-1 do begin
-              ssg_ana_parinfo[lc_idx[iline]].sso_ana.path[icline,*] = $
-                 ssg_ana_parinfo[dowl_sort_idx[icline]].sso.path
-           endfor ;; copy path for each close line
-
-           ;; Get indices into all parameters of our iline
-           iline_idx = where(ssg_ana_parinfo.sso.RWL eq $
-                             ssg_ana_parinfo[lc_idx[iline]].sso.RWL and $
-                             ssg_ana_parinfo.sso.dg eq $
-                             ssg_ana_parinfo[lc_idx[iline]].sso.dg, npar)
-           if npar eq !pfo.fnpars[!pfo.voigt] and floor(ssg_ana_parinfo[lc_idx[iline]].sso.pfo.pfo.ftype) ne !pfo.voigt then $
-              message, 'ERROR: I really only know how to deal with Voigts right now'
-
-           ;; Pull up the Doppler shift our this line and calculate
-           ;; how far it is off from the expected value
-           iline_dop_idx = where(ssg_ana_parinfo.sso.ptype eq !sso.dop and $
-                                 ssg_ana_parinfo.sso.dg eq ssg_ana_parinfo[lc_idx[iline]].sso.dg, ndop)
-           if ndop ne 1 then $
-              message, 'ERROR: expected Doppler parameter for primary line not found for this spectrum'
-
-           iline_eph_deldot = sso_eph_dop(nday2date(ndays[inday]), $
-                                          ssg_ana_parinfo[iline_dop_idx].sso.path, $
-                                          !ssg.mmp_xyz)
-           v2c = !ssg.c / ssg_ana_parinfo[lc_idx[iline]].sso.OWL
-           delta_dop = (ssg_ana_parinfo[iline_dop_idx].value - iline_eph_deldot) $
-                       / v2c / !sso.dwcvt ;; convert from real wavelength to display wavelength
-           
-           err_delta_dop = sqrt((ssg_ana_parinfo[iline_dop_idx].error^2 $
-                                 + ssg_ana_parinfo[iline_dop_idx].error^2) $
-                                / v2c^2)
-
-           ;; Now we need to move to the other parameters.  Use RWL
-           ;; and DG as a handle to pull up all the parametes of a
-           ;; particular line
-           for icline=0, N_close_lines-1 do begin
-              clidx = where(ssg_ana_parinfo.sso.RWL eq $
-                           ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL[icline] and $
-                           ssg_ana_parinfo.sso.dg eq $
-                           ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg[icline], count)
-              if count eq 0 then $
-                 message, 'ERROR: not able to pull up line parameters by RWL/dg.  Something is really wrong.'
-              ;; I am fairly confident that all lines are Voigts and
-              ;; the parameters are in order, so I don't need
-              ;; to write general code, but check to make sure
-
-              bad_idx = where(ssg_ana_parinfo[iline_idx].pfo.ftype ne $
-                              ssg_ana_parinfo[clidx].pfo.ftype, count)
-              if count ne 0 then $
-                 message, 'ERROR: Line ftype mismatch.  It is going to take some additional coding to line up the parameters'
-              ;; Now just assume everything is a Voigt.  Stash the
-              ;; reduced chi2 of our fit and the delta Doppler shift
-              ;; and error from expected of our host line.  Get rid of
-              ;; the trivial dimension for the *delta_dop tags
-              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.redchisq = redchisq[inday]
-              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.delta_dop = delta_dop[0]
-              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.err_delta_dop = err_delta_dop[0]
-              ;; Copy over RWL, dg, DOWL, and err_DOWL from the line
-              ;; center to each close line
-              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.RWL[icline] = $
-                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.RWL[icline]
-              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.dg[icline] = $
-                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.dg[icline]
-              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.DOWL[icline] = $
-                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.DOWL[icline]
-              ssg_ana_parinfo[lc_idx[iline]+1:lc_idx[iline]+3].sso_ana.err_DOWL[icline] = $
-                 ssg_ana_parinfo[lc_idx[iline]].sso_ana.err_DOWL[icline]
-              ;; Copy the value and error for the close lines into the
-              ;; structure
-              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.value[icline] = $
-                 ssg_ana_parinfo[clidx].value
-              ssg_ana_parinfo[lc_idx[iline]:lc_idx[iline]+3].sso_ana.error[icline] = $
-                 ssg_ana_parinfo[clidx].error
-              ;; path requires a little more work to copy from the
-              ;; line center parameter, because of implicit array
-              ;; index confusion
-              for ipar=1,!pfo.fnpars[!pfo.voigt]-1 do begin
-                 ssg_ana_parinfo[lc_idx[iline]+ipar].sso_ana.path[icline,*] = $
-                    ssg_ana_parinfo[lc_idx[iline]].sso.path
-              endfor ;; each parameter for path
-           endfor    ;; handle parameters for each close line           
-        endfor    ;; each line
-        sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
-     endif ;; close_lines
   endfor   ;; for each nday
   CATCH, /CANCEL
 
@@ -612,12 +651,16 @@ pro ssg_fit2ana, $
             dv, err_dv, fline, err_fline, fcont, err_fcont, wc, err_wc
 
   dbupdate, aentries, $
-            'ag_flux,err_ag_flux, redchisq,freeparam,numlines,db_date,disp,refpix, refwave', $
-            ag, ag_err, redchisq, nfree, numlines, today, disp, refpix, refwave
+         'ag_flux,err_ag_flux, redchisq,freeparam,numlines,ip,db_date,disp,refpix, refwave', $
+         ag, ag_err, redchisq, nfree, numlines, ips, today, disp, refpix, refwave
 
   dbupdate, aentries, $
             'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
             weq, err_weq, alf, err_alf, today, intensity, err_intensity
+
+  dbupdate, aentries, $
+            'nn_DOWL, nn_ew, nn_Dw, nn_Lw,', $
+            nn_DOWLs, nn_ews, nn_Dws, nn_Lws
 
   dbclose
   !priv = oldpriv
