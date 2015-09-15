@@ -227,8 +227,18 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         ;; Now that we are bias subtracted, flattened and cosmic ray
         ;; removed AND REPLACED, we can finally do the derotation and
         ;; un-distortion
+
+	tempim = ssg_column_replace(im)
+	im = tempim.Image
+	map = tempim.Map
         im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
         eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
+	map = ssg_camrot(map, -cam_rot, nx/2., sli_cent)
+	dimensions = SIZE(im)
+	for i=0, dimensions[1]-1 DO BEGIN
+		replace=WHERE(map[i] GE 1)
+		im[replace] = !Values.F_NAN
+	ENDFOR
 
         sxaddhist, "(ssg_cr_replace.pro) Derotating im and eim, modified CAM_ROT keyword", hdr
         sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated by ssg_cr_replace.pro'
