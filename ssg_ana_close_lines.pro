@@ -271,9 +271,10 @@ pro ssg_ana_close_lines, $
         print, !tok.newline, line_id
 
         ;; Plot all parameters together
-        !p.multi = [0, 1, 6]
+        ;; Having trouble with charsize returning to expectred value
         opcharsize = !p.charsize
         !P.charsize = 2
+        !p.multi = [0, 1, 5]
 
         line_id = string(format='(a, " ", f9.4, " ", a, ", ", a)', $
                          path_names, $
@@ -287,7 +288,10 @@ pro ssg_ana_close_lines, $
         ;; Make our xrange here to make sure everything lines up
         xrange = minmax(sssg_ana_parinfo[tl_lc_idx].sso_ana.DOWL[0])
 
-        for iplot=0,2+!pfo.fnpars[!pfo.voigt]-1 do begin
+        ;; Made a fancy extra plot with a close line metric
+        ;; that didn't end up telling me anything
+        ;;for iplot=0,2+!pfo.fnpars[!pfo.voigt]-1 do begin
+        for iplot=0,1+!pfo.fnpars[!pfo.voigt]-1 do begin
            ;; Skip over the whole line if we run out of good parameters
            if keyword_set(skip_line) then $
               CONTINUE
@@ -488,15 +492,19 @@ pro ssg_ana_close_lines, $
                     CONTINUE
                  ;; Don't unwrap.  clp_idx is the index into
                  ;; ptl_lc_idx+ipar, which is what xaxis and par_values
-                 ;; were created from
+                 ;; were created from.  Take care of the case where
+                 ;; color is wrapping
+                 color = dgs[ipdg]
+                 if color eq 0 then $
+                    color++
                  oplot, xaxis[clp_idx], $
                         par_values[clp_idx], $
                         psym=!tok.plus, $
-                        color=dgs[ipdg]
+                        color=color
                  errplot, xaxis[clp_idx], $
                           par_values[clp_idx] + err_values[clp_idx]/2, $
                           par_values[clp_idx] - err_values[clp_idx]/2, $
-                          color=dgs[ipdg], width=0.001
+                          color=color, width=0.001
               endfor ;; plotting each close line Doppler group by color
 
               ;; Plot cut values used to exclude bad events
@@ -832,7 +840,7 @@ pro ssg_ana_close_lines, $
   finish:
   ;; Return color table to its original value
   tvlct, user_r, user_g, user_b
-  !p.charsize = opcharsize
   !p.multi = 0
+  !p.charsize = opcharsize
 end
 

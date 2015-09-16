@@ -590,10 +590,10 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
            ;; need
            junk = max(spec_overlap, peak_pix)
            new_ref_pixel = ref_pixel + 2*(peak_pix - ref_pixel)
-           print, 'new_ref_pixel: ', new_ref_pixel
-           window,0
-           plot, pix_axis, spec_overlap
-           wset, 6
+           ;;print, 'new_ref_pixel: ', new_ref_pixel
+           ;;window,0
+           ;;plot, pix_axis, spec_overlap
+           ;;wset, 6
 
            ;; Instead of recording our new reference pixel, keep the
            ;; standard reference pixel and calculate a new reference
