@@ -153,9 +153,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   endif ;; default ephemeris obj
 
 
-  ;; --> temporary code to get around bad slice values
-  if abs(slices[0,0]) gt 0.008 then $
-    message, 'ERROR: bad slicer tilt value detected: ' + strtrim(slices[0,0], 2)
+  ;;;; --> temporary code to get around bad slice values
+  ;;if abs(slices[0,0]) gt 0.008 then $
+  ;;  message, 'ERROR: bad slicer tilt value detected: ' + strtrim(slices[0,0], 2)
   if min(wavelengths[*,0], /NAN) lt 6280 or $
     max(wavelengths[*,0], /NAN) gt 6320 then $
     message, 'ERROR: code not debugged for non [OI] spectra'
@@ -357,7 +357,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   ;; This has to be in font !3 for the angstrom symbol to be found.
   ;; The extra ;" is to close the " in the string
   xtitle = 'Rest Wavelength, '+string("305B) ;" ;
-  ytitle = string('Signal (', sxpar(hdr, 'BUNIT'), '/S)')
+  ytitle = string('Signal (', sxpar(hdr, 'BUNIT'), '/S/pix)')
   
 
   ;; Establish a figure of merit for small equivalent widths so that

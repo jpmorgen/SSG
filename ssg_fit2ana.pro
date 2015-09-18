@@ -153,9 +153,10 @@ pro ssg_fit2ana, $
      ;; our analysis stuff.  For now, just make it a regular
      ;; ssg_parinfo plus ssg_ana_struct.  I could pare it down if I
      ;; wanted
-     ssg_ana_struct__define, parinfo=ssg_ana_parinfo1
-     N_close_lines = N_elements(ssg_ana_parinfo1.sso_ana.RWL)
-  endif
+  endif ;; recording close lines
+  ;; Whether or not we record, we work with the close lines
+  ssg_ana_struct__define, parinfo=ssg_ana_parinfo1
+  N_close_lines = N_elements(ssg_ana_parinfo1.sso_ana.RWL)
   
   CATCH,/CANCEL
   
@@ -172,7 +173,7 @@ pro ssg_fit2ana, $
         message, 'skipping ' + string(ndays[inday]), /CONTINUE
         CONTINUE
      endif
-     
+
      ;; Read in a file if we need to
      if dirs[inday] ne this_dir then begin
         this_dir = dirs[inday]
@@ -254,10 +255,10 @@ pro ssg_fit2ana, $
      earth_dg = sso_path_dg(sso_path_create([!eph.earth, !eph.earth])) ;; this includes telluric absorption too
 
      ;; Run model to get owls and set up to calculate chisq stuff
-     model_spec = pfo_funct(disp_pix, parinfo=sparinfo, $
+     model_spec = pfo_funct(disp_pix[*,inday], parinfo=sparinfo, $
                             idx=idx, xaxis=wavelengths)
      good_pix = where(finite(disp_pix[*,inday]) eq 1 and $
-                      finite(wavelengths[*,inday]) eq 1 and $
+                      finite(wavelengths) eq 1 and $
                       finite(spectra[*,inday]) eq 1 and $
                       finite(spec_errors[*,inday]) eq 1, n_pix)
      if n_pix eq 0 then $
@@ -267,7 +268,7 @@ pro ssg_fit2ana, $
      temp[0:left_pix] = !values.f_nan
      temp[right_pix:N_elements(disp_pix[*,inday])-1] = !values.f_nan
      pix_axis = where(finite(temp) eq 1 and $
-                      finite(wavelengths[*,inday]) eq 1 and $
+                      finite(wavelengths) eq 1 and $
                       finite(spectra[*,inday]) eq 1 and $
                       finite(spec_errors[*,inday]) eq 1, n_pix)
      if n_pix eq 0 then $
@@ -276,7 +277,8 @@ pro ssg_fit2ana, $
      ;; CHISQ
      spec = spectra[pix_axis, inday]
      err_spec = spec_errors[pix_axis, inday]
-     model_spec = pfo_funct(pix_axis, parinfo=sparinfo, idx=idx)
+     ;; Replace the wavelengths axis for calculations below
+     model_spec = pfo_funct(pix_axis, parinfo=sparinfo, idx=idx, xaxis=wavelengths)
      residual = spec - model_spec
      chisq = total((residual/err_spec)^2, /NAN)
      free_idx = where(sparinfo[idx].fixed ne 1 and $
@@ -462,8 +464,47 @@ pro ssg_fit2ana, $
            endfor ;; each parameter for path
         endfor    ;; handle parameters for each close line           
      endfor       ;; each line
-     ;; Accumulate close lines for saving as we exit (if filename supplied)
-     sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
+     ;; Accumulate close lines for saving as we exit (if filename
+     ;; supplied)
+     if keyword_set(close_lines) then $
+        sssg_ana_parinfo = array_append(ssg_ana_parinfo, sssg_ana_parinfo)
+
+     ;; CONTINUUM
+     cont_idx = where(sparinfo[idx].sso.ptype eq !sso.cont, N_continuum)
+     if N_continuum eq 0 then $
+        message, 'ERROR: no continuum terms found'
+     ;; unwrap
+     cont_idx = idx[cont_idx]
+     ;; Pass our reference pixel into pfo_funct using just dispersion and
+     ;; continuum to get our continuum value at the reference pixel.
+     ;; This will be improved to be at the object line, below, if we
+     ;; have one
+     fcont[inday] = pfo_funct([refpix[inday]], $
+                              parinfo=sparinfo, idx=[disp_idx, cont_idx])
+     ;; And convert from per pixel to per angstrom (convert disp back
+     ;; to A from mA)
+     fcont[inday] /= disp[inday] * !sso.dwcvt
+     ;; Thu Sep 17 17:22:24 2015  jpmorgen@snipe
+     ;; For now, just use the median data error bar for the continuum
+     ;; error, since that is the fiducial I want anyway
+     ;; --> CCD gain might be off, and thus continuum error bars,
+     ;; since there is a wide range of continuum values
+     err_fcont[inday] = median(spec_errors)
+     err_fcont[inday] /= disp[inday] * !sso.dwcvt
+     
+     ;; if N_continuum eq 1 then begin
+     ;;    err_fcont[inday] = sparinfo[cont_idx].error
+     ;; endif else begin
+     ;;    ;; --> fix this, maybe by calculating a bunch of models
+     ;;    ;; within the error bars + taking the max or something like
+     ;;    ;; that.
+     ;;    err_fcont[inday] = 0.
+     ;;    message, /CONTINUE, 'WARNING: continuum is complicated.  I am arbitrarily setting err_fcont = ' + strtrim(err_fcont[inday], 2) + '.  Please fix this'
+     ;; endelse
+     fline[inday] = weq[inday] * disp[inday] * !sso.dwcvt * fcont[inday]
+     err_fline[inday] = ((err_weq[inday]/weq[inday])^2 + $
+                         (err_fcont[inday]/fcont[inday])^2)^(0.5) $
+                        * fline[inday]
 
      ;; AIRGLOW
      ;; Start assuming no airglow was fit.  I think I like having NaN
@@ -495,7 +536,11 @@ pro ssg_fit2ana, $
         ;; ew IDX.
         ;; unwrap
         earth_ew_idx = idx[earth_ew_idx]
-        ips[inday] = median(sparinfo[earth_ew_idx + 1].value)
+        ;; Assume we only have one
+        ips[inday] = sparinfo[earth_ew_idx[0] + 1].value
+        ;; Take median if we have more than one
+        if earth_count gt 1 then $
+           ips[inday] = median(sparinfo[earth_ew_idx + 1].value)
      endif
 
      ;; OBJECT LINE
@@ -514,32 +559,22 @@ pro ssg_fit2ana, $
      weq[inday] = sparinfo[ew_idx].value
      err_weq[inday] = sparinfo[ew_idx].error
 
-     ;; CONTINUUM
-     cont_idx = where(sparinfo[idx].sso.ptype eq !sso.cont, N_continuum)
-     if N_continuum eq 0 then $
-        message, 'ERROR: no continuum terms found'
-     ;; unwrap
-     cont_idx = idx[cont_idx]
-     fcont[inday] = pfo_funct([sparinfo[ew_idx].sso.owl], $
+
+     ;; If we made it here, we can improve our continuum value from
+     ;; the reference pixel to the object line
+     obj_pix = interpol(pix_axis, wavelengths, sparinfo[ew_idx-1].sso.owl)
+     ;; Pass that pixel into pfo_funct using just dispersion and
+     ;; continuum to get our continuum value at the object line
+     fcont[inday] = pfo_funct([obj_pix], $
                               parinfo=sparinfo, idx=[disp_idx, cont_idx])
-     if N_continuum eq 1 then begin
-        err_fcont[inday] = sparinfo[cont_idx].error
-     endif else begin
-        ;; --> fix this, maybe by calculating a bunch of models
-        ;; within the error bars + taking the max or something like
-        ;; that.
-        err_fcont[inday] = 0.
-        message, /CONTINUE, 'WARNING: continuum is complicated.  I am arbitrarily setting err_fcont = ' + strtrim(err_fcont[inday], 2) + '.  Please fix this'
-     endelse
-     fline[inday] = weq[inday] * disp[inday] * !sso.dwcvt * fcont[inday]
-     err_fline[inday] = ((err_weq[inday]/weq[inday])^2 + $
-                         (err_fcont[inday]/fcont[inday])^2)^(0.5) $
-                        * fline[inday]
+     ;; And convert from per pixel to per angstrom (convert disp back
+     ;; to A from mA)
+     fcont[inday] /= disp[inday] * !sso.dwcvt
 
      ;; OBJECT CONVOLVED LINE WIDTH, wc
      lw_idx = where(sparinfo[obj_idx].sso.ttype eq !sso.width, count)
      if count eq 0 then $
-        message, 'ERROR: no convolved Io linewidth found'
+        message, 'ERROR: no convolved object linewidth found'
      ;; unwrap
      lw_idx = obj_idx[lw_idx]
      for ilw=0, count-1 do begin
