@@ -50,7 +50,7 @@ pro freed_compare
   dbext, entries, 'nday, LONG_3, intensity, err_intensity', mndays, mLONG_3, mintensities, merr_intensities
   dbclose
 
-  adbname = '/data/io/ssg/analysis/archive/database/2015-09-14/io_oi_analyze'
+  adbname = 'io_oi_analyze'
   dbopen, adbname, 0
 
   for im=0, N_m-1 do begin
@@ -92,5 +92,9 @@ pro freed_compare
   max = 10
   h = histogram(sigmas, binsize=binsize, min=-10, max=10)
   plot, indgen((max - min)/binsize)*binsize - max, h
+
+  good_idx = where(finite(intensities), complement=bad_idx, N_bad)
+  print, ndays[bad_idx]
+
   stop  
 end
