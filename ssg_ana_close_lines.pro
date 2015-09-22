@@ -90,7 +90,9 @@ pro ssg_ana_close_lines, $
    chi2_cut=chi2_cut, $  ;; exclude from parameter median/stdev
    dw_cut=dw_cut, $      ;; exclude from parameter median/stdev
    DOWL_cut=DOWL_cut, $  ;; exclude from parameter median/stdev
-   ew_err_cut=ew_err_cut ;; percent of ew for [GL]w vs ew plots
+   ew_err_cut=ew_err_cut, $ ;; percent of ew for [GL]w vs ew plots
+   single_object=single_object, $;; group all object lines together
+   close_limit=close_limit ;; for filtering Gw and Lw, how close to come to limit in fraction of value
   
   init = {ssg_sysvar}
   init = {tok_sysvar}
@@ -123,6 +125,8 @@ pro ssg_ana_close_lines, $
      DOWL_cut = 50
   if NOT keyword_set(ew_err_cut) then $
      ew_err_cut = 0.6
+  if NOT keyword_set(close_limit) then $
+     close_limit = 0.05
 
   ;; Set up for color plot with simple tek_color color table
   color
@@ -132,8 +136,26 @@ pro ssg_ana_close_lines, $
 
   ;; Get our Doppler groups (dgs) set up.  dgs are ephemeral, so they
   ;; need to be assigned and stored in the sso_sysvar pointer system
-  ;; to work properly
+  ;; to work properly.  But previous runs can mess up our numbering
+  ;; scheme which sets our colors, below, so clear things out first
+  ;; and set them up fresh
+  sso_dg_assign, /clear
+  
+  ;; Before we do this, check to see if we want to analyze all our
+  ;; objects together
+  if keyword_set(single_object) then begin
+     ;; Tweak the non-sun and non-earth path elements to be the
+     ;; generic object
+     for ip=0,N_elements(sssg_ana_parinfo)-1 do begin
+        obj_idx = where(sssg_ana_parinfo[ip].sso.path gt !eph.earth, count)
+        if count eq 0 then $
+           CONTINUE
+        sssg_ana_parinfo[ip].sso.path[obj_idx] = !eph.obj
+     endfor ;; each
+  endif ;; making one generic object
+
   sso_dg_assign, sssg_ana_parinfo
+
   ;; Get a unique list of dgs in the ssg_ana_parinfo, since these are
   ;; the ones we want to key in on
   dgs = sssg_ana_parinfo[lc_idx].sso.dg
@@ -414,6 +436,9 @@ pro ssg_ana_close_lines, $
               ;; plots anymore either.  Be careful with the case where we
               ;; find bad parameter mid-way through our line.  We want to
               ;; go back and mark the whole line as no_opinion
+
+              ;; --> now that I am analyzing all of the moons, I need
+              ;; to work on this to not keep resetting
               if ngood_pts lt 5 then begin
                  new_lparinfo[lp_lc_idx:lp_lc_idx+ipar].pfo.status = !pfo.no_opinion
                  skip_line = 1
@@ -538,13 +563,13 @@ pro ssg_ana_close_lines, $
                  oplot, !x.crange, replicate(llimit1, 2), $
                         linestyle=!tok.dash_3dot
               endif ;;
-           endif ;; interactive
+           endif    ;; interactive
 
         endfor   ;; Each parameter
 
         ;; Make a nice menu for paging through the lines
         answer = ''
-        if NOT keyword_set(noninteractive) then begin;; and $
+        if NOT keyword_set(noninteractive) then begin ;; and $
            ;;NOT keyword_set(skip_line) then begin
            message, /CONTINUE, 'Menu:'
            print, 'Next'
@@ -643,14 +668,35 @@ pro ssg_ana_close_lines, $
      xaxis = -xaxis
      xtitle = '-' + ytitles[2]
      for ipar=2,3 do begin
+        ;; Get lparinfo values and limits.  They should be the same, but
+        ;; do median just in case
+        lval = median(lparinfo[lp_lc_idx+ipar].value)
+        llimit0 = median(lparinfo[lp_lc_idx+ipar].limits[0])
+        llimit1 = median(lparinfo[lp_lc_idx+ipar].limits[1])
+
         yaxis = new_lparinfo[lp_lc_idx+ipar].value
         yerr = new_lparinfo[lp_lc_idx+ipar].limits[1] - yaxis
         ytitle = ytitles[ipar+1]
+        ;; Tue Sep 22 10:41:21 2015  jpmorgen@snipe
+        ;; Try another form of filtering seeing if we are pegged at/near
+        ;; old lparinfo values
+        cgood_idx = where(abs((llimit1 - yaxis[good_idx])/yaxis[good_idx]) gt close_limit and $
+                          abs((llimit0 - yaxis[good_idx])/yaxis[good_idx]) gt close_limit, count)
+        if count lt 2 then begin
+           message, 'WARNING: not enough good points found with close_limit filter criterion', /CONTINUE
+           cgood_idx = good_idx
+        endif ;; filter check
+        ;; unwrap
+        good_idx = good_idx[cgood_idx]
+
+        yrange = [min([yaxis[good_idx], llimit0]), $
+                  max([yaxis[good_idx], llimit1])]
         plot, xaxis[good_idx], $
               yaxis[good_idx], $
               psym=!tok.asterisk, $
               xtitle=xtitle, ytitle=ytitle, /xlog, $
-              ystyle=!tok.extend
+              yrange=yrange, $
+              ystyle=!tok.extend;;+!tok.exact
         oploterror, xaxis[good_idx], $
                     yaxis[good_idx], $
                     xerr[good_idx], $
@@ -670,11 +716,6 @@ pro ssg_ana_close_lines, $
                linestyle=!tok.dotted
         oplot, 10^!x.crange, replicate(av - stdev, 2), $
                linestyle=!tok.dotted
-        ;; all lparinfo values should be the same, but do median just
-        ;; in case
-        lval = median(lparinfo[lp_lc_idx+ipar].value)
-        llimit0 = median(lparinfo[lp_lc_idx+ipar].limits[0])
-        llimit1 = median(lparinfo[lp_lc_idx+ipar].limits[1])
         oplot, 10^!x.crange, replicate(lval, 2), $
                linestyle=!tok.solid
         oplot, 10^!x.crange, replicate(llimit0, 2), $
@@ -689,6 +730,17 @@ pro ssg_ana_close_lines, $
         ;; 33.470576+/-       17.296930
         ;; 44.447794+/-       12.269928
         ;; 30.487494+/-       9.1861917
+
+        ;; Tue Sep 22 11:52:06 2015  jpmorgen@snipe
+        ;; Next iteration, with potentially improved filtering of
+        ;; values that pegged (close=0.10).  Note that we ignore
+        ;; second parameter (Lw of solar lines)
+        ;; 128.24271+/-       19.240070
+        ;; 45.384685+/-       18.848046
+        ;; 44.007828+/-       10.568762
+        ;; 32.600012+/-       11.522068
+
+        ;; I'd say that the widths are converging
 
         ;; Store results for application to all parameter, below
         width_av[idg, ipar-2] = av
@@ -708,7 +760,8 @@ pro ssg_ana_close_lines, $
   
   ;; Now put in our ew, Gw, and Lw information to all of the lines,
   ;; even our object line.  Also make sure we handle our airglow
-  ;; line(s) properly.  To do this, tack on our object line
+  ;; line(s) properly.  To do this, tack on our object line to the
+  ;; list of dgs we are handling
   obj_dg = sso_path_dg(sso_path_create([!eph.obj, !eph.earth]))
   dgs = [dgs, obj_dg]
   for idg=0, N_elements(dgs)-1 do begin
@@ -753,12 +806,21 @@ pro ssg_ana_close_lines, $
            new_lparinfo[lp_lc_idx+ipar].limits[0] = 0
      endfor ;; ipar
 
-     ;; For ew, put telluric limits back to original values, since
-     ;; they are variable and I was reasonably happy with them.
+     ;; Fiddle with the telluric lines
      if dgs[idg] eq earth_dg then begin
         for il=0, nlines-1 do begin
+           ;; For ew, put telluric limits back to original values, since
+           ;; they are variable and I was reasonably happy with them.
            new_lparinfo[lp_lc_idx[il]+1].limits = $
               lparinfo[lp_lc_idx[il]+1].limits
+           ;; Tue Sep 22 09:00:22 2015 jpmorgen@snipe [OI] 6300
+           ;; airglow line actually has a non-negligible width (Wark
+           ;; ApJ 131 p. 491).  Convolved with our typical O2 telluric
+           ;; line width, which should be negligible, we get
+           ;; 63.097147.  So puff it out a bit
+           if new_lparinfo[lp_lc_idx[il]+1].value gt 0 then begin
+              lparinfo[lp_lc_idx[il]+2].limits[1] = 100
+           endif ;; airglow
         endfor ;; il
      endif ;; telluric lines
 

@@ -94,8 +94,12 @@ pro ssg_fit2ana, $
          dv, err_dv, fline, err_fline, fcont, err_fcont, wc, err_wc
 
   dbext, aentries, $
-         'ag_flux,err_ag_flux, redchisq,freeparam,numlines,ip,db_date,disp,refpix, refwave', $
-         ag, ag_err, redchisq, nfree, numlines, ips, today, disp, refpix, refwave
+         'ag_flux,err_ag_flux, ag_wc, err_ag_wc', $
+         ag, ag_err, ag_wc, err_ag_wc
+
+  dbext, aentries, $
+         'redchisq,freeparam,numlines,ip,db_date,disp,refpix, refwave', $
+         redchisq, nfree, numlines, ips, today, disp, refpix, refwave
 
   dbext, aentries, $
          'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
@@ -130,6 +134,8 @@ pro ssg_fit2ana, $
   err_wc        [*] = !values.d_nan
   ag            [*] = !values.d_nan
   ag_err        [*] = !values.d_nan
+  ag_wc         [*] = !values.d_nan
+  err_ag_wc     [*] = !values.d_nan
   redchisq      [*] = !values.d_nan
   nfree         [*] = !values.d_nan
   numlines      [*] = !values.d_nan
@@ -521,6 +527,8 @@ pro ssg_fit2ana, $
         ag_idx = idx[ag_idx]
         ag[inday] = sparinfo[ag_idx].value
         ag_err[inday] = sparinfo[ag_idx].error
+        ag_wc[inday] = sparinfo[ag_idx+1].value
+        err_ag_wc[inday] = sparinfo[ag_idx+1].error
      endif
      
      ;; IP instrument profile.  Estimate form the Gaussian width of the
@@ -686,9 +694,12 @@ pro ssg_fit2ana, $
             dv, err_dv, fline, err_fline, fcont, err_fcont, wc, err_wc
 
   dbupdate, aentries, $
-         'ag_flux,err_ag_flux, redchisq,freeparam,numlines,ip,db_date,disp,refpix, refwave', $
-         ag, ag_err, redchisq, nfree, numlines, ips, today, disp, refpix, refwave
+         'redchisq,freeparam,numlines,ip,db_date,disp,refpix, refwave', $
+         redchisq, nfree, numlines, ips, today, disp, refpix, refwave
 
+  dbupdate, aentries, $
+         'ag_flux,err_ag_flux, ag_wc, err_ag_wc', $
+         ag, ag_err, ag_wc, err_ag_wc
   dbupdate, aentries, $
             'weq, err_weq, alf, err_alf, p_date, intensity, err_intensity', $
             weq, err_weq, alf, err_alf, today, intensity, err_intensity
