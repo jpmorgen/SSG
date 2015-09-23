@@ -33,7 +33,7 @@ pro ssg_fix_head, indir, outdir
   cd, indir
 
   ;; See if there are any files listed in the directory
-  files = file_search(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = file_search(string(indir, '/*'), /test_regular) ; Doesn't matter if <dir>//*
   files = strtrim(files)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $

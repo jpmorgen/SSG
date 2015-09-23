@@ -153,8 +153,9 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
      if NOT keyword_set(extract) then $
        message, 'WARNING: you are deleting a slicer description from a header while distorting.  This is probably a bad idea, but I will do it anyway', /CONITNUE
      for ipxd = 0, npxd - 1 do begin
-        for ipd = 0, npd - 1 do begin
-           sxdelpar, hdr, string(format='("SLICER", i1, i1)', ipxd, ipd)
+        sxdelpar, hdr, string(format='("SLICER", i01, i01)', ipxd, 0)
+        for ipd = 1, npd - 1 do begin
+           sxdelpar, hdr, string(format='("SLICER", i01, i01)', ipxd, ipd)
         endfor
      endfor
   endif

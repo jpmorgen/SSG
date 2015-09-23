@@ -1,4 +1,4 @@
-FUNCTION ssg_column_replace, Newim
+pro ssg_column_replace, im, map
 
 ;This procedure will replace all the bad columns with non-nan values for rotation.
 ;It will also generate a file that will hold a mapping of all the the nan values so that
@@ -6,7 +6,6 @@ FUNCTION ssg_column_replace, Newim
 ;fabricated data in our final analysis.
 
 
-im = Newim
 imSize = SIZE(im)
 XElements = imSize[1]
 YElements = imSize[2]
@@ -56,7 +55,5 @@ for i=0, XElements-1 DO BEGIN
 		
 	ENDELSE
 ENDFOR
-toReturn = {toReturn, image:im, map:map}
-Return, toReturn
 
 END

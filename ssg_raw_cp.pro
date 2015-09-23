@@ -31,7 +31,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
   ;; Find all files in the directory, matching ndays and pulling over
   ;; the correct file name
-  files = file_search(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = file_search(string(indir, '/*'), /test_regular) ; Doesn't matter if <dir>//*
   files = strtrim(files)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
