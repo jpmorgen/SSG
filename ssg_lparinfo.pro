@@ -80,7 +80,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   if NOT keyword_set(rebuild) then begin
      if NOT keyword_set(indir) then $
        indir = !ssg.top + '/reduced'
-     files = findfile(indir + '/lparinfo_*.sav')
+     files = file_search(indir + '/lparinfo_*.sav')
      nfiles = N_elements(files)
      if nfiles gt 0 then begin
         wstart = dblarr(nfiles)

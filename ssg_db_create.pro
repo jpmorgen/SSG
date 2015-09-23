@@ -28,10 +28,10 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   files[2] = 'oi_6300_fit_ext'
   files[3] = 'io_oi_analyze'
   for i=0,nf-1 do begin
-     tmp=findfile(string(files[i],'.dbd'), COUNT=count)
+     tmp=file_search(string(files[i],'.dbd'), COUNT=count)
      if count gt 0 and NOT keyword_set(newdbd) then $
        message, 'ERROR: will not overwrite '+ tmp+' DataBase Descriptor file unless /ERASEDBD is specified.  If you are just making changes to the formats, it is OK to /ERASEDBD.  The software you are using to create the DBD file should be stored in a revision control system so that you can track changes and get back  to a version that works with a particular binary database (e.g. everything has to line up in the database).'
-     tmp=findfile(string(files[i],'.dbx'), COUNT=count)
+     tmp=file_search(string(files[i],'.dbx'), COUNT=count)
      if count eq 0 then newindex=1 else begin
         if NOT keyword_set(newindex) then begin
            newindex = 0
@@ -39,7 +39,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
         endif
      endelse
 
-     tmp=findfile(string(files[i],'.dbf'), COUNT=count)
+     tmp=file_search(string(files[i],'.dbf'), COUNT=count)
      if count eq 0 then newdb=1 else begin
         if NOT keyword_set(newdb) then begin
            newdb = 0
