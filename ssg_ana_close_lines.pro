@@ -92,8 +92,9 @@ pro ssg_ana_close_lines, $
    DOWL_cut=DOWL_cut, $  ;; exclude from parameter median/stdev
    ew_err_cut=ew_err_cut, $ ;; percent of ew for [GL]w vs ew plots
    single_object=single_object, $;; group all object lines together
-   close_limit=close_limit ;; for filtering Gw and Lw, how close to come to limit in fraction of value
-  
+   close_limit=close_limit, $    ;; for filtering Gw and Lw, how close to come to limit in fraction of value
+   ew_puff=ew_puff	;; amount to puff out ew limits from stdev in units of stdev
+
   init = {ssg_sysvar}
   init = {tok_sysvar}
 
@@ -127,6 +128,8 @@ pro ssg_ana_close_lines, $
      ew_err_cut = 0.6
   if NOT keyword_set(close_limit) then $
      close_limit = 0.05
+  if NOT keyword_set(ew_puff) then $
+     ew_puff = 1.2
 
   ;; Set up for color plot with simple tek_color color table
   color
@@ -167,7 +170,9 @@ pro ssg_ana_close_lines, $
   if keyword_set(lparinfo_in) then begin
      restore, lparinfo_in, /relaxed_structure_assignment
   endif else begin
-     ssg_lparinfo, [6280, 6320]
+     ;; make sure we read a fresh copy off the disk each time, since
+     ;; we fiddle with it 
+     ssg_lparinfo, [6280, 6320], /reread
      lparinfo = *!ssg.lparinfo
   endelse
   ;; The lparinfo uses a general !sso.obj path element.  Get those
@@ -824,27 +829,25 @@ pro ssg_ana_close_lines, $
         endfor ;; il
      endif ;; telluric lines
 
-     ;; Solar lines, on the other hand, should be stable.  I am
-     ;; finding that strong lines fall within 2 sigma resonably
-     ;; nicely, but weak lines fall within 1-sigma.  In particular,
-     ;; weak lines where the other sigma would be above 0.  So adjust
-     ;; limits accordingly
+     ;; Solar lines, on the other hand, should be stable.  For the
+     ;; initial fit (2015-09-04) I found that strong lines fall within
+     ;; 2 sigma resonably nicely, but weak lines fall within 1-sigma.
+     ;; In particular, weak lines where the other sigma would be above
+     ;; 0.  I adjusted limits accordingly.  Using those limits, things
+     ;; looked much more compact.
      if dgs[idg] eq sun_dg then begin
         new_lparinfo[lp_lc_idx+1].fixed = 0
         new_lparinfo[lp_lc_idx+1].limited = [1, 1]
         ;; IDL doesn't handle the implict array and structures
         ;; together
         for il=0,nlines-1 do begin
-           ;; Mon Sep 14 07:04:32 2015  jpmorgen@snipe
-           ;; Upon refit thinking I can be bold and set 1-sigma limits to ew
-           ;; as well
-           ;; limits = new_lparinfo[lp_lc_idx[il]+1].limits
-           ;; if limits[1] lt 0 then begin
-           ;;    values = new_lparinfo[lp_lc_idx[il]+1].value
-           ;;    limits -= values
-           ;;    limits *= 2
-           ;;    limits += values
-           ;; endif ;; strong enough line to use 2-sigma limits
+           limits = new_lparinfo[lp_lc_idx[il]+1].limits
+           if limits[1] lt 0 then begin
+              values = new_lparinfo[lp_lc_idx[il]+1].value
+              limits -= values
+              limits *= ew_puff
+              limits += values
+           endif ;; strong enough line to use 2-sigma limits
            ;; Make sure upper limit does not go above 0 (EWs are
            ;; negative!)
            limits[1] = min([0, limits[1]])

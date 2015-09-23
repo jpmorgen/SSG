@@ -507,10 +507,6 @@ pro ssg_fit2ana, $
      ;;    err_fcont[inday] = 0.
      ;;    message, /CONTINUE, 'WARNING: continuum is complicated.  I am arbitrarily setting err_fcont = ' + strtrim(err_fcont[inday], 2) + '.  Please fix this'
      ;; endelse
-     fline[inday] = weq[inday] * disp[inday] * !sso.dwcvt * fcont[inday]
-     err_fline[inday] = ((err_weq[inday]/weq[inday])^2 + $
-                         (err_fcont[inday]/fcont[inday])^2)^(0.5) $
-                        * fline[inday]
 
      ;; AIRGLOW
      ;; Start assuming no airglow was fit.  I think I like having NaN
@@ -567,7 +563,6 @@ pro ssg_fit2ana, $
      weq[inday] = sparinfo[ew_idx].value
      err_weq[inday] = sparinfo[ew_idx].error
 
-
      ;; If we made it here, we can improve our continuum value from
      ;; the reference pixel to the object line
      obj_pix = interpol(pix_axis, wavelengths, sparinfo[ew_idx-1].sso.owl)
@@ -595,6 +590,12 @@ pro ssg_fit2ana, $
            endelse ;; Gaussian width
         endif      ;; non-zero width
      endfor
+
+     ;; OBJECT FLUX 
+     fline[inday] = weq[inday] * disp[inday] * !sso.dwcvt * fcont[inday]
+     err_fline[inday] = ((err_weq[inday]/weq[inday])^2 + $
+                         (err_fcont[inday]/fcont[inday])^2)^(0.5) $
+                        * fline[inday]
 
      ;; OBJECTS DOPPLER SHIFT
      deldot_idx = where(sparinfo[obj_idx].sso.ptype eq !sso.dop, count)
