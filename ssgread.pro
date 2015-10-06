@@ -95,7 +95,7 @@ function ssgread, fname_or_im, hdr, eim, ehdr, TV=tv, REUSE=reuse, zoom=zoom, VE
      CATCH, err
      if err ne 0 then begin
         message, /NONAME, !error_state.msg, /CONTINUE
-        message, 'there seem to be no BIASSEC, etc. keywords in this header.  Roting the image 90 degree clockwise, but skipping the header modifications',/CONTINUE
+        message, 'Rotating the image 90 degree clockwise, but skipping the header modifications',/CONTINUE
         sxaddhist, string('(ssgread.pro) Error manipulating BIASSEC, etc. keywords.'), hdr
         sxaddhist, string('(ssgread.pro) blue might not be left or slice 1 on the bottom'), hdr
 
@@ -109,11 +109,26 @@ function ssgread, fname_or_im, hdr, eim, ehdr, TV=tv, REUSE=reuse, zoom=zoom, VE
            sxaddpar, hdr, 'NAXIS1', nx, 'size of axis 1'
            sxaddpar, hdr, 'NAXIS2', ny, 'size of axis 2'
 
-           sxaddpar, hdr, 'BIASSEC', rotate_array_string(sxpar(hdr,'BIASSEC'), full_array, 1)
-           sxaddpar, hdr, 'TRIMSEC', rotate_array_string(sxpar(hdr,'TRIMSEC'), full_array, 1)
-           sxaddpar, hdr, 'DATASEC', rotate_array_string(sxpar(hdr,'DATASEC'), full_array, 1)
-           sxaddpar, hdr, 'CCDSEC' , rotate_array_string(sxpar(hdr,'CCDSEC' ), full_array, 1)
-           sxaddpar, hdr, 'ORIGSEC', rotate_array_string(sxpar(hdr,'ORIGSEC'), full_array, 1)
+           k_arr = ['BIASSEC', 'TRIMSEC', 'DATASEC', 'CCDSEC', 'ORIGSEC']
+           for ik=0,N_elements(k_arr)-1 do begin
+              k_value = sxpar(hdr ,k_arr[ik], count=count)
+              ;; Trigger an error, caught above, if we don't have our
+              ;; full complement of keywords, but don't call it ERROR,
+              ;; since that generates too much junk in the ERROR grep
+              ;; of the logs
+              if count eq 0 then $
+                 message, 'WARNING: keyword ' + k_arr[ik] + ' missing'
+              ;; If we made it here, we are good to manipulate the
+              ;; keywords in the header
+              sxaddpar, hdr, k_arr[ik], rotate_array_string(k_value, full_array, 1)
+           endfor
+
+
+           ;;sxaddpar, hdr, 'BIASSEC', rotate_array_string(sxpar(hdr,'BIASSEC'), full_array, 1)
+           ;;sxaddpar, hdr, 'TRIMSEC', rotate_array_string(sxpar(hdr,'TRIMSEC'), full_array, 1)
+           ;;sxaddpar, hdr, 'DATASEC', rotate_array_string(sxpar(hdr,'DATASEC'), full_array, 1)
+           ;;sxaddpar, hdr, 'CCDSEC' , rotate_array_string(sxpar(hdr,'CCDSEC' ), full_array, 1)
+           ;;sxaddpar, hdr, 'ORIGSEC', rotate_array_string(sxpar(hdr,'ORIGSEC'), full_array, 1)
 
            sxaddhist, string('(ssgread.pro) so blue is left, slice 1 is bottom.'), hdr
            sxaddhist, string('(ssgread.pro) Modified *SEC keywords to reflect rotation.'), hdr

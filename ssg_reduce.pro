@@ -88,7 +88,7 @@ pro ssg_reduce, indir, TV=TV, SHOW=SHOW, PLOT=PLOT, $
 
   ;; Make sure reduced directory exists at this level and are group
   ;; lyra writable
-  temp = findfile(reddir, count=count)
+  temp = file_search(reddir, count=count)
   if count eq 0 then begin
      spawn, string('mkdir ', reddir)
      spawn, string('chgrp lyra ', reddir), txtout, errout

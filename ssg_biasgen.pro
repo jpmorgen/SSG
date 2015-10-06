@@ -106,20 +106,43 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
         endif
 
         ;; Now work with the whole image
-
-        ;; Try doing this iteratively so bad columns are caught
+        
+        ;; Try doing this iteratively so bad columns are caught.  This
+        ;; gets a very clean image, but takes away too much and does
+        ;; not give clean column breaks
         nbad = nx*ny
         tmp_im = im
         repeat begin
            last_nbad = nbad
            sigma_im = (im-data_med)/stdev 
            mask_im = mark_bad_pix(sigma_im, cutval=cutval)
+           ;; Save off just the number of times pixels are identified
+           ;; as bad and use the for bad column identification
+           bad_count_im = mask_im
            badidx = where(mask_im gt 0, nbad)
            if nbad gt 0 then mask_im[badidx] = !values.f_nan
            tmp_im = im+mask_im
            stdev = stddev(tmp_im, /NAN)
            data_med = median(tmp_im)
         endrep until nbad ge last_nbad
+        
+        ;; Make up a bad column spotting algorithm
+        ssg_spec_extract, bad_count_im, ihdr, colspec, rowspec, /total
+        bad_col = where(colspec gt 0, count)
+        if count gt 0 then begin
+           mask_im[bad_col,*] = !values.f_nan
+        endif
+        ;;plot, colspec
+        ;;stop
+        ;;wait, 1
+        
+        ;;; ;; I find using the bad pixels found in this way is too
+        ;;; ;; draconian.  But data_med should be really good + we can use
+        ;;; ;; that as a cut pixel-by-pixel
+        ;;; badidx = where(im gt data_med + 5.*stdev, count)
+        ;;; mask_im = mask_im*0.
+        ;;; mask_im[badidx] = !values.f_nan
+        
 
         if keyword_set(TV) then begin
            display, im+mask_im, ihdr, /reuse

@@ -30,7 +30,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
   ;; Find all files in the directory, matching ndays and pulling over
   ;; the correct file name
-  files = findfile(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = file_search(string(indir, '/*')) ; Doesn't matter if <dir>//*
   files = strtrim(files)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
@@ -116,7 +116,7 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
         files[i] = shortoutfile
 
         outfile = outdir + '/' + shortoutfile
-        checkout = findfile(outfile, COUNT=count)
+        checkout = file_search(outfile, COUNT=count)
         if count ne 0 and NOT keyword_set(overwrite) then begin
            message, 'WARNING: file ' + shortoutfile + ' found in ' + outdir + ' use /OVERWRITE keyword to replace'
         endif

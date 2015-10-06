@@ -80,7 +80,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   if NOT keyword_set(rebuild) then begin
      if NOT keyword_set(indir) then $
        indir = !ssg.top + '/reduced'
-     files = findfile(indir + '/lparinfo_*.sav')
+     files = file_search(indir + '/lparinfo_*.sav')
      nfiles = N_elements(files)
      if nfiles gt 0 then begin
         wstart = dblarr(nfiles)
@@ -91,9 +91,9 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
         ;; Loop through the files looking for the one with the closest
         ;; match to inwave.  Figure of merit is the sum of the
         ;; distance between the endpoints.
-        underscore = strpos(files[ifi], '_', /reverse_search)
-        dash = strpos(files[ifi], '-', /reverse_search)
-        dot = strpos(files[ifi], '.', /reverse_search)
+        underscore = strpos(files[ifi], '_');, /reverse_search)
+        dash = strpos(files[ifi], '-');, /reverse_search)
+        dot = strpos(files[ifi], '.') ;, /reverse_search)
         wstart[ifi] = $
           double(strmid(files[ifi], underscore+1, dash-underscore))
         wstop[ifi] = $
@@ -194,6 +194,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
   ;; the system variable line lists.  Tried to put this multi-line
   ;; defining code in sso_fcreate, but it didn't handle value
   ;; correctly.  I had not intended things to be done that way anyway.
+  ;; --> not sure if I really meant to start out with a _positive_ value
   par = !values.d_nan
   good_idx = where(inwave[0] le !sso.airglow_lines and $
                    !sso.airglow_lines le inwave[1], nlines)
@@ -231,6 +232,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
 
 
   ;; Object lines.  This assumes Voigts (not good for Sodium)
+  ;; These should be small positive initial value
   par = !values.d_nan
   good_idx = where(inwave[0] le !ssg.obj_lines and $
                    !ssg.obj_lines le inwave[1], nlines)
@@ -297,7 +299,7 @@ pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
      ;; Put back Doppler groups
      sso_dg_assign, /clear
      !sso.dgs = save_sso_dgs
-     ;; Delete Doppler info from lparinfo
+     ;; Delete small lines from lparinfo
      good_idx = where(lparinfo.pfo.status ne !pfo.delete)
      lparinfo = lparinfo[good_idx]
   endif ;; Equivalent width testing

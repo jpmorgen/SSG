@@ -16,6 +16,10 @@
 
 ;-
 
+pro ssg_fit1spec_timer, id, junk
+  message, 'ERROR: time exceeded for individual call to ssg_fit1spec'
+end ;; ssg_fit1spec_timer
+
 function modval, val, name, format=format
   newval=val
   if NOT keyword_set(format) then $
@@ -88,7 +92,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                   grave_report=grave_report, nprint=nprint, min_ew=min_ew, $
                   xtol=xtol, ftol=ftol, gtol=gtol, resdamp=resdamp, $
                   mpstep=mpstep, landscape=landscape, autofit=autofit, $
-                  delta_nday=delta_nday, dispers=dispers_in
+                  delta_nday=delta_nday, dispers=dispers_in, $
+                  min_redchisq=min_redchisq, $
+                  min_final_redchisq=min_final_redchisq
 
   init = {ssg_sysvar}
 
@@ -116,6 +122,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if N_elements(auto_dd_numlines) eq 0 then auto_dd_numlines = 8
   ;; 4 gives 7 A of coverage for Io on the east
   if N_elements(final_numlines) eq 0 then final_numlines = 4
+  if N_elements(min_redchisq) eq 0 then min_redchisq = 100
+  if N_elements(min_final_redchisq) eq 0 then min_final_redchisq = 10
 
   if N_elements(N_continuum_in) eq 0 then N_continuum_in = 3
   N_continuum_orig = N_continuum_in
@@ -140,14 +148,14 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         2 : obj = !eph.europa
         3 : obj = !eph.ganymede
         4 : obj = !eph.callisto
-        else : message, 'ERROR: I don''t know how to translate ssg_reduce database obj_code of "' + strtrim(obj_codes[0], 2) + '" to a NAIF object code (e.g. io=501, Europa=502, etc.)'
+        else : message, 'ERROR: I don''t know how to translate ssg_reduce database obj_code of "' + strtrim(fix(obj_codes[0]), 2) + '" to a NAIF object code (e.g. io=501, Europa=502, etc.)'
      endcase
   endif ;; default ephemeris obj
 
 
-  ;; --> temporary code to get around bad slice values
-  if abs(slices[0,0]) gt 0.008 then $
-    message, 'ERROR: bad slicer tilt value detected: ' + strtrim(slices[0,0], 2)
+  ;;;; --> temporary code to get around bad slice values
+  ;;if abs(slices[0,0]) gt 0.008 then $
+  ;;  message, 'ERROR: bad slicer tilt value detected: ' + strtrim(slices[0,0], 2)
   if min(wavelengths[*,0], /NAN) lt 6280 or $
     max(wavelengths[*,0], /NAN) gt 6320 then $
     message, 'ERROR: code not debugged for non [OI] spectra'
@@ -162,7 +170,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   ;; of the fitting database.  I think I want to call it ssg_fit
   fdbname = 'oi_6300_fit'
 
-  message, /INFO, 'fitting spectrum nday = ' + strtrim(nday, 2)
+  nday_str = string(format='(f10.4)', nday)
+  message, /INFO, 'fitting spectrum nday = ' + nday_str
 
   ;; Check my ephemeris code against what Melanie and Divia downloaded
   dbopen,'io6300_integrated',0  
@@ -198,19 +207,26 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   sun_obj_path = sso_path_create([!eph.sun, obj, !eph.earth])
   sun_obj_dop = sso_eph_dop(nday2date(nday+delta_nday), sun_obj_path, !ssg.mmp_xyz)
 
+
+  ;; Fri Aug 28 07:48:47 2015  jpmorgen@snipe
+  ;; Processed all of the data and found that Sun-Io-Earth Doppler
+  ;; shifts are consistently within 0.100 km/s.  So instead of letting
+  ;; those float, fix them and let the line wavelengths float
   value = obj_dop
   deldot_par = $
     pfo_fcreate(!pfo.sso_funct, ptype=!sso.dop, path=obj_path, $
-                step=mpstep, value=value, limited=[1,1], $
-                limits=[value-5, value+5], $
+                step=mpstep, value=value, $
+                fixed=1, $
+                $;; limited=[1,1], limits=[value-5, value+5], $
                 format=['f8.3'], eformat=['f6.2'], $
                 parinfo_template=!ssg.parinfo)
 
   value = sun_obj_dop
   rdot_par   = $
     pfo_fcreate(!pfo.sso_funct, ptype=!sso.dop, path=sun_obj_path, $
-                step=mpstep, value=value, limited=[1,1], $
-                limits=[value-5, value+5], $
+                step=mpstep, value=value, $
+                fixed=1, $
+                $;; limited=[1,1], limits=[value-5, value+5], $
                 format=['f8.3'], eformat=['f6.2'], $
                 parinfo_template=!ssg.parinfo)
 
@@ -310,6 +326,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      if !error_state.name eq 'IDL_M_WINDOW_CLOSED' then begin
         window,6
      endif else begin
+        ;; Cancel our timer so it doesn't fire and mess up a
+        ;; future fit
+        junk = timer.cancel(timer_id)
         message, /NONAME, !error_state.msg
      endelse ;; a real error
   endif else begin
@@ -317,12 +336,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      wset, 6
   endelse
 
-  title = objects[0] + ' ' + shortfile + ' ' + nday2date(ndays[0]) + ' (UT)'
-  ;; This has to be in font !3 for the angstrom symbol to be found.
-  ;; The extra ;" is to close the " in the string
-  xtitle = 'Rest Wavelength, '+string("305B) ;" ;
-  ytitle = string('Signal (', sxpar(hdr, 'BUNIT'), '/S)')
-  
+  ;; Get our good X-axis pixels and make sure we have some data
   good_pix = where(finite(disp_pix[*,0]) eq 1 and $
                    finite(wavelengths[*,0]) eq 1 and $
                    finite(spectra[*,0]) eq 1 and $
@@ -331,6 +345,20 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
      message, /continue, 'ERROR: no good data found in ' + files[0]
      return
   endif
+
+  ;; If we are autofitting, set a timer for 30 minutes, since
+  ;; sometimes mpfit gets lost (e.g. nday = 4015.2315, though this
+  ;; problem was not repeatable)
+  timer_id = 0
+  if keyword_set(autofit) then $
+     timer_id = timer.set(30*60., 'ssg_fit1spec_timer') 
+
+  title = objects[0] + ' ' + shortfile + ' ' + nday2date(ndays[0]) + ' (UT)'
+  ;; This has to be in font !3 for the angstrom symbol to be found.
+  ;; The extra ;" is to close the " in the string
+  xtitle = 'Rest Wavelength, '+string("305B) ;" ;
+  ytitle = string('Signal (', sxpar(hdr, 'BUNIT'), '/S/pix)')
+  
 
   ;; Establish a figure of merit for small equivalent widths so that
   ;; Lorentzian widths can be set to 0.  This is based on the
@@ -411,20 +439,12 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         orders = ftypes[cidx] * 1E4 - rcftypes[cidx] * 10
         sso_fmod, disp_par, cidx, step=mpstep * 10^(-(3*orders + 1))
 
-;        for idsp = 0,disp_order do begin
-;           p = tparams[idsp] 
-;           ;; Kind of bogus limits, but thes will keep the mpfit code happy
-;           tparinfo[idsp].limits = [double(p - 10d), $
-;                                    double(p + 10d)]
-;           tparinfo[idsp].parname=string(format='("Disp Coef ", i3)', idsp)
-;           tparinfo[idsp].ssgID=ssgid_disp
-;        endfor
         ;; INITIALIZE PARAMETER LIST
         if N_elements(parinfo) le 1 then begin
            message, 'NOTE: initializing parameter list' ,/INFORMATIONAL
            parinfo = [disp_par, deldot_par, rdot_par, lparinfo]
         endif ;; Initialize parameter list
-        message, 'NOTE: set dispersion coefficients to those found in FITS header of ' + shortfile ,/INFORMATIONAL
+        message, 'NOTE: set dispersion coefficients to those found in reduced database' ,/INFORMATIONAL
      endif ;; Dispersion initialization
      ;; Keep dispersion handy as a separate variable.  Also the
      ;; dispersion order, though with segmented polynomials, this is
@@ -542,8 +562,76 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
 
      ;; --> Eventually move this code into the interactive case section
      message, /CONTINUE, 'TOP LEVEL'
-     if keyword_set(idisp_fit) then $
-       print, 'Initial dispersion fitting mode'
+     if keyword_set(idisp_fit) then begin
+        print, 'Initial dispersion fitting mode'
+        ;; On our first time around do a convolution with the model to
+        ;; fine tune the wavelength of our reference pixel
+        if NOT keyword_set(first_idisp) then begin
+           ;; First time through
+           print, 'Doing first dispersion adjustment in wavelength offset only'
+           first_idisp = 1
+           ;; convolve the central portion of our model with the
+           ;; spectrum.  We have to subtract the continuum for this to
+           ;; work.  Also keep in mind that since we center our kernel
+           ;; (the model spectrum) on ref_pixel, our kernel is going
+           ;; to be off relative to the ref_pixel of the true data
+           ;; wavelength scale by the amount we are trying to
+           ;; measure.  In other words, we are inducing a double
+           ;; offset.  Also, for this reason, we use hard-coded
+           ;; limits that are symmetric around the reference pixel,
+           ;; rather than sso_get_wrange
+           spec_overlap = convol(spec - cont_par[1].value, $
+                                 model_spec[ref_pixel-nx/4.:ref_pixel+nx/4.] - $
+                                 cont_par[1].value)
+           ;; The peak pixel of our overlap is not quite our new
+           ;; reference pixel, since our kernel was shifted by the
+           ;; amount we are trying to measure and therefore biased the
+           ;; result.  peak_find was too fancy.  Max is really all we
+           ;; need
+           junk = max(spec_overlap, peak_pix)
+           new_ref_pixel = ref_pixel + 2*(peak_pix - ref_pixel)
+           ;;print, 'new_ref_pixel: ', new_ref_pixel
+           ;;window,0
+           ;;plot, pix_axis, spec_overlap
+           ;;wset, 6
+
+           ;; Instead of recording our new reference pixel, keep the
+           ;; standard reference pixel and calculate a new reference
+           ;; wavelength for our old reference pixel.  Note that the
+           ;; higher order coefficients are possibly off too, but this
+           ;; will hopefully get us close enough where we tend to have
+           ;; the most deep lines so that in lots of
+           ;; iterations, we will be able to lock in.
+           parinfo[cidx[0]].value = $
+              interpol(xaxis, $
+                       pix_axis + 2*(peak_pix - ref_pixel), $
+                       ref_pixel)
+           ;;;; Find the peak wavelength of that convolution relative to
+           ;;;; the old wavelength scale
+           ;;peak_wave = peak_find(spec_overlap, xaxis=xaxis)
+           ;;parinfo[cidx[0]].value += 2 * (parinfo[cidx[0]].value - peak_wave)
+           ;;;;parinfo[cidx[0]].value = peak_wave
+           ;;ref_pixel = parinfo[cidx[0]-1].value + 2*(peak_pix - parinfo[cidx[0]-1].value)
+           ;;parinfo[cidx[0]-1].value = ref_pixel
+           ;;;;print, parinfo[cidx[0]].value, new_wave
+
+           ;; Save our original maxiter and bump up maxiter by a factor
+           ;; of 3 to make sure we get enough iterations to lock in
+           ;; all of our dispersion coefs
+           omaxiter = maxiter
+           maxiter *= 3
+           ;; Wrap around in our repeat to get a replot and recalculation
+           CONTINUE
+           ;;junk = timer.cancel(timer_id)
+           ;;stop
+           ;;parinfo[cidx[0]].value = new_wave
+        endif else begin ;; first idisp
+           ;; Turn off high maxiter for first dispersion fit.  Make
+           ;; sure we do this after we have had a successful fit.
+           if keyword_set(keep) then $
+              maxiter = omaxiter
+        endelse ;; turn off
+     endif ;; idisp_fit
      if keyword_set(dd_fit) then $
        print, 'Dispersion and solar Doppler fitting mode'
      print, 'Minimum equiv width (milli A) = ', strtrim(min_ew, 2)
@@ -735,6 +823,14 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         ;; range
 
         ;; Check to see if the fitting algorithm got stuck
+        ;; Wed Sep  2 10:04:58 2015  jpmorgen@snipe
+        ;; Check to see if we can use redchisq as a figure of merit to
+        ;; reject bad spectra and spectra which have misidentified
+        ;; objects during the autofit process
+        if autofit eq 6 and redchisq gt min_redchisq then $
+           message, 'ERROR: bad spectrum or object code for nday = ' + nday_str + '  Dispersion and Doppler autofit gives redchisq = ' + strtrim(redchisq, 2) + ' for object code ' + strtrim(obj, 2) + ' (' + !eph.names[obj] + ')'
+
+        ;; This is old and may never trigger
         if autofit eq 6 and status ne 1 then begin
            if auto_dd_numlines le 1 then $
              message, 'ERROR: fit is just not converging'
@@ -813,7 +909,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         endif
 
         ;; Check to see if the fitting algorithm got stuck
-        if autofit eq 9 and status ne 1 then begin
+        if autofit eq 9 and (status ne 1 or redchisq gt min_final_redchisq) then begin
            if final_numlines le 1 then $
              message, 'ERROR: fit is just not converging'
            message, /CONTINUE, 'WARNING: narrowing wavelength range to try to get fit to converge'
@@ -1080,7 +1176,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
            fparinfo = parinfo[f_idx]
            functargs = {parinfo:fparinfo}
            iterargs = {Xorig:pix_axis, spec:spec, err_spec:err_spec, $
-                       iterstop:1}
+                       iterstop:~keyword_set(autofit)}
            params = $
              mpfitfun('pfo_funct', pix_axis, spec, err_spec, $
                       parinfo=fparinfo, functargs=functargs, $
@@ -1089,8 +1185,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                       quiet=quiet, nprint=nprint, iterproc=!pfo.iterproc, $ $
                       iterargs=iterargs, perror=perror, $
                       status=status, niter=niter, bestnorm=chisq)
-
-
+           
            ;; mpfitfun is usually robust with its errors, so if we
            ;; made it here, it has something useful to say in the
            ;; status variable.  For our purposes, we either want to
@@ -1232,6 +1327,10 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               ;; Assume we are starting a fresh sparinfo 
               tparinfo.ssg.nday = ndays[0]
               tparinfo.ssg.fver = 1
+              save_date = systime(/Julian, /UT)
+              tparinfo.ssg.fdate = save_date
+              caldat, save_date, month, day, year, hour, minute, second
+              datestr = string(format='(I4, 2("-", I02), "T", 3(I02, :, ":") )', year, month, day, hour, minute, second)
               if N_elements(sparinfo) gt 0 then begin
                  ;; check for our nday and increment fver if necessary
                  our_nday_idx = where(abs(ndays[0] - sparinfo.ssg.nday) lt 0.0001, count)
@@ -1243,7 +1342,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
               endif
               sparinfo = array_append(tparinfo, sparinfo)
               save, sparinfo, filename=sparinfo_fname
-              message, /CONTINUE, 'Saved version ' + strtrim(tparinfo[0].ssg.fver, 2) + ' parameters for ' +  shortfile + ',nday = ' + strtrim(nday, 2) + ' in ' + sparinfo_fname
+              message, /CONTINUE, 'Saved version ' + strtrim(tparinfo[0].ssg.fver, 2) + ' parameters for ' +  shortfile + ', nday = ' + nday_str + ' in ' + sparinfo_fname + ' on ' + datestr
               saved = 1
 
               ;; For old time sake, put some stuff into the fit db
@@ -1324,7 +1423,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
            endif ;; User wanted to restore from a different nday
 
            if rnday[0] ne -1 and fit_vers ne 0 then begin
-              ;; We really have a set of paramters to restore
+              ;; We really have a set of paramters to restore.  New
+              ;; regime.  Fix Doppler rather than having it float at
+              ;; +/-5 km/s
               tidx = where(sparinfo[our_nday_idx].ssg.fver eq fit_vers, count)
               if count eq 0 then $
                 message, 'ERROR: this should not happen'
@@ -1337,7 +1438,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                  idx = dop_idx[obj_dop_idx]
                  value = obj_dop[0]
                  parinfo[idx].value = value
-                 parinfo[idx].limits = [value - 5, value + 5]
+                 parinfo[idx].fixed = 1
+                 ;;parinfo[idx].limits = [value - 5, value + 5]
               endif
               sun_obj_dop_idx = where(parinfo[dop_idx].sso.dg eq sun_obj_dg, $
                                       count)
@@ -1345,7 +1447,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                  idx = dop_idx[sun_obj_dop_idx]
                  value = sun_obj_dop[0]
                  parinfo[idx].value = value
-                 parinfo[idx].limits = [value - 5, value + 5]
+                 parinfo[idx].fixed = 1
+                 ;;parinfo[idx].limits = [value - 5, value + 5]
               endif
            endif ;; Restored parameters
 
@@ -1358,5 +1461,9 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
 
   endrep until done
 
+  ;; Cancel our timer so it doesn't fire and mess up a
+  ;; future fit
+  junk = timer.cancel(timer_id)
+  
 end
 

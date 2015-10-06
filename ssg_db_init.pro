@@ -25,15 +25,17 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
 
   init={ssg_sysvar}
   ;; Avoid errors from db stuff about not being able to write in a
-  ;; write-protected data directory
-  cd, '/tmp'
+  ;; write-protected data directory.  This is more trouble that it is
+  ;; worth, since if I have a database in /tmp, it gets read instead
+  ;; of the one in /data/io/ssg/analysis/database
+  ;;cd, '/tmp'
   silent = 1
   if keyword_set(verbose) then silent = 0
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   ;; Find all files in the directory.
   message,'looking for FITS file in '+ indir, /CONTINUE
-  files = file_search(string(indir, '/*'))
+  files = file_search(string(indir, '/*'), /test_regular)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
        message, 'No files found in '+indir 

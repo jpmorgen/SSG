@@ -63,6 +63,7 @@
 ;-
 pro ssg_blob_search, $
    model_sub=model_sub, $
+   chi_sq=chi_sq, $
    positive=positive, $
    negative=negative, $
    threshold=threshold, $
@@ -82,9 +83,10 @@ pro ssg_blob_search, $
    _EXTRA=extra ; args to plot or first_peak_find
 
   init = {tok_sysvar}
+  init = {ssg_sysvar}
 
-  if keyword_set(positive) + keyword_set(negative) ne 1 then $
-     message, 'ERROR: specify /positive or /negative for the kind of blips you are looking for'
+  if keyword_set(positive) + keyword_set(negative) + keyword_set(chi_sq) ne 1 then $
+     message, 'ERROR: specify /positive or /negative or /chi_sq for the kind of blips you are looking for'
 
   ;; Be polite, but get the line thicknesses we need for PS output
   ;; (leave for terminal output since that gets us started on PS output)
@@ -217,9 +219,11 @@ pro ssg_blob_search, $
         ;; data.  All indices into scaled_model will match those into
         ;; the database quantities we extract below
         scaled_model = model.model_scale1[model_nday_idx] * model.model_scale[model_nday_idx]
-        ;; For now, just adjust mintensity when we want to do blob
-        ;; searching in the model-subtracted data
+        ;; Use the mintensity variable to store our model-subtracted results
         mintensity -= scaled_model
+        if keyword_set(chi_sq) then $
+           mintensity *= mintensity
+
      endif
 
      N_nday = N_elements(mnday)
@@ -301,7 +305,9 @@ pro ssg_blob_search, $
         if keyword_set(negative) then $
            sign = -1.
         ;; Subtract minimum in this segment to get better contrast in
-        ;; the raw data case.  Leave residuals alone in the model_sub case
+        ;; the raw data case.  Leave residuals alone in the model_sub
+        ;; case.  In the negative case, first_peak_find subtracts off
+        ;; the minimum
         if NOT keyword_set(model_sub) then $
            mintensity[idx] = mintensity[idx] - min(mintensity[idx])
 
@@ -309,18 +315,20 @@ pro ssg_blob_search, $
         ;; segment.  We have to do this because the code below
         ;; erodes mintensity as it goes along. --> significance
         ;; calculation ends up making this not so important
-        max_mintensity = max(mintensity[idx])
+        max_mintensity = max(sign * mintensity[idx])
         repeat begin
            ;; In the model_sub case, we sometimes have negative
            ;; residuals.  first_peak_find has trouble with that and
            ;; moves the values positive.  We want to just admit that
            ;; there is no peak there
-           pos_idx = where(mintensity[idx[last_left_idx:N_in_gap-1]] gt 0, count)
-           if count lt 3 then begin
-              message, 'NOTE: segment has less than 3 positive elements.  Skipping', /CONTINUE
-              last_left_idx = N_in_gap-1
-              CONTINUE
-           endif
+           if keyword_set(model_sub) then begin
+              pos_idx = where(sign * mintensity[idx[last_left_idx:N_in_gap-1]] gt 0, count)
+              if count lt 3 then begin
+                 message, 'NOTE: segment has less than 3 positive elements.  Skipping', /CONTINUE
+                 last_left_idx = N_in_gap-1
+                 CONTINUE
+              endif ;; Not enough positive points
+           endif ;; model_sub case
 
            ;; Get the position in index space of the (next) blob in
            ;; mintensity
@@ -357,20 +365,31 @@ pro ssg_blob_search, $
               this_blob_pos += gap_left_idx
               left_idx += gap_left_idx
               right_idx += gap_left_idx
+              ;; Collect widths
+              width = right_idx - left_idx
+              pfo_array_append, widths, width
               ;; Collect valid blob positions
               pfo_array_append, blob_pos, this_blob_pos
-              ;; Calculate statistical significance.  First subtract
-              ;; the continuum under the peak
-              m = (mintensity[right_idx] - mintensity[left_idx]) / $
-                  (right_idx - left_idx)
-              b = mintensity[right_idx] - m * right_idx
-              width = right_idx - left_idx
-              cont = m * (indgen(width) + left_idx) + b
-              peak_int = total(mintensity[left_idx:right_idx] - cont)
-              err_int = sqrt(total(merr_intensity[left_idx:right_idx]^2))
-              pfo_array_append, sigmas, peak_int / err_int
-              pfo_array_append, widths, width
-           endif
+              ;; Calculate statistical significance.
+              if keyword_set(chi_sq) then begin
+                 ;; Use the sigmas array to store the weighted sum of
+                 ;; squares for chi-square result
+                 pfo_array_append, sigmas, $
+                                   total(mintensity[left_idx:right_idx]/ $
+                                         merr_intensity[left_idx:right_idx]^2)
+              endif else begin
+                 ;; In the blob case, first subtract the continuum
+                 ;; under the peak
+                 m = sign * (mintensity[right_idx] - mintensity[left_idx]) / $
+                     (right_idx - left_idx)
+                 b = sign * mintensity[right_idx] - m * right_idx
+                 cont = m * (indgen(width) + left_idx) + b
+                 peak_int = total(sign * mintensity[left_idx:right_idx] - cont)
+                 err_int = sqrt(total(merr_intensity[left_idx:right_idx]^2))
+                 ;; Build up the arrays of sigma and widths
+                 pfo_array_append, sigmas, peak_int / err_int
+              endelse ;;
+           endif ;;
         endrep until N_in_gap - last_left_idx lt 3
 
         count = N_elements(blob_pos) 

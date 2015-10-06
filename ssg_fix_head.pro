@@ -33,7 +33,7 @@ pro ssg_fix_head, indir, outdir
   cd, indir
 
   ;; See if there are any files listed in the directory
-  files = file_search(string(indir, '/*')) ; Doesn't matter if <dir>//*
+  files = file_search(string(indir, '/*'), /test_regular) ; Doesn't matter if <dir>//*
   files = strtrim(files)
   if N_elements(files) eq 1 then begin
      if strcmp(files, '') eq 1 then $
@@ -49,13 +49,13 @@ pro ssg_fix_head, indir, outdir
      outname = outname + '_' + outarr[i]
   endfor
   outname = outdir + '/' + outname + '.tar'
-  test = findfile(outname+'.gz', count=count)
+  test = file_search(outname+'.gz', count=count)
   if count eq 1 then begin
      message, 'WARNING: Previous run of ssg_fix_head detected.  If you really want to run this again, move '+ outname+ '.gz to a safe place.', /CONTINUE
      message, 'WARNING: EXITING WITHOUT CHECKING HEADERS!', /CONTINUE
      return
   endif
-  test = findfile(outname, count=count)
+  test = file_search(outname, count=count)
   if count eq 1 then $
     message, 'ERROR: Program did not terminate properly.  I suggest you start over with a tar xvf '+ outname + ' and move that file to a different name'
 

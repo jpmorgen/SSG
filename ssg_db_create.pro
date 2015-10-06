@@ -28,10 +28,10 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   files[2] = 'oi_6300_fit_ext'
   files[3] = 'io_oi_analyze'
   for i=0,nf-1 do begin
-     tmp=findfile(string(files[i],'.dbd'), COUNT=count)
+     tmp=file_search(string(files[i],'.dbd'), COUNT=count)
      if count gt 0 and NOT keyword_set(newdbd) then $
        message, 'ERROR: will not overwrite '+ tmp+' DataBase Descriptor file unless /ERASEDBD is specified.  If you are just making changes to the formats, it is OK to /ERASEDBD.  The software you are using to create the DBD file should be stored in a revision control system so that you can track changes and get back  to a version that works with a particular binary database (e.g. everything has to line up in the database).'
-     tmp=findfile(string(files[i],'.dbx'), COUNT=count)
+     tmp=file_search(string(files[i],'.dbx'), COUNT=count)
      if count eq 0 then newindex=1 else begin
         if NOT keyword_set(newindex) then begin
            newindex = 0
@@ -39,7 +39,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
         endif
      endelse
 
-     tmp=findfile(string(files[i],'.dbf'), COUNT=count)
+     tmp=file_search(string(files[i],'.dbf'), COUNT=count)
      if count eq 0 then newdb=1 else begin
         if NOT keyword_set(newdb) then begin
            newdb = 0
@@ -535,14 +535,18 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'err_fline         R*4          error in line flux (electrons/sec)'
   printf, lun, 'fcont             R*4          measured continuum flux (electrons/sec/Angstrom)'
   printf, lun, 'err_fcont         R*4          error in continuum flux (electrons/sec/Angstrom)'
-  printf, lun, 'wc                R*4          measured convolved FWHM (Angstroms)'
-  printf, lun, 'err_wc            R*4          error in convolved FWHM (Angstroms)'
-  printf, lun, 'wd                R*4          deconvolved FWHM (Angstroms)'
-  printf, lun, 'err_wd            R*4          error in deconvolved FWHM (Angstroms)'
-  printf, lun, 'weq               R*4          equivalent width (Angstroms)'
-  printf, lun, 'err_weq           R*4          error in equivalent width (Angstroms)'
+  printf, lun, 'wc                R*4          measured convolved FWHM (milli Angstroms)'
+  printf, lun, 'err_wc            R*4          error in convolved FWHM (milli Angstroms)'
+  printf, lun, 'wd                R*4          deconvolved FWHM (milli Angstroms)'
+  printf, lun, 'err_wd            R*4          error in deconvolved FWHM (milli Angstroms)'
+  printf, lun, 'weq               R*4          equivalent width (milli Angstroms)'
+  printf, lun, 'err_weq           R*4          error in equivalent width (milli Angstroms)'
   printf, lun, 'alf               R*4          apparent line flux (photons/sec/cm^2)'
   printf, lun, 'err_alf           R*4          error in apparent line flux (photons/sec/cm^2)'
+  printf, lun, 'ag_ew             R*4          airglow equivalent width (milli Angstroms)'
+  printf, lun, 'err_ag_ew         R*4          error airglow equivalent width (milli Angstroms)'
+  printf, lun, 'ag_wc             R*4          airglow line convolved width (milli Angstroms)'
+  printf, lun, 'err_ag_wc         R*4          error in airglow line convolved width (milli Angstroms)'
   printf, lun, 'ag_flux           R*4          airglow line flux (electrons/sec)'
   printf, lun, 'err_ag_flux       R*4          error in airglow line flux (electrons/sec)'
   printf, lun, 'redchisq          R*4          reduced chi-squared        '
@@ -550,8 +554,8 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'numlines          I*2          number of spectral lines used in the model'
   printf, lun, 'rows(150)         L*1          rows extracted (0=false, 1=true)'
   printf, lun, 'quality           C*7          quality assessment flag'
-  printf, lun, 'ip                R*4          instrumental profile (FWHM: Angstroms)'
-  printf, lun, 'disp              R*4          dispersion (Angstroms/pixel)'
+  printf, lun, 'ip                R*4          instrumental profile (FWHM: milli-Angstroms)'
+  printf, lun, 'disp              R*4          dispersion (milli-Angstroms/pixel)'
   printf, lun, 'refpix            R*4          nominal reference pixel'
   printf, lun, 'refwave           R*4          nominal reference wavelength (Angstroms)'
   printf, lun, 'comp_min          R*4          comp lamp FWHM minimum (Angstroms)'
@@ -560,6 +564,10 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'db_date           C*10         database update date (yyyy-mm-dd)'
   printf, lun, 'intensity         R*4          surface brightness (alf/area of disk of Io) (kRaleighs)'
   printf, lun, 'err_intensity     R*4          error in surface brightness (kRaleighs)'
+  printf, lun, 'nn_DOWL           R*4          Nearest neighbor Delta Observed Wavelength (Angstroms)'
+  printf, lun, 'nn_ew             R*4          Nearest neighbor equivalent width'
+  printf, lun, 'nn_Dw             R*4          Nearest neighbor Dopper width'
+  printf, lun, 'nn_Lw             R*4          Nearest neighbor Lorentzian width'
   printf, lun, 'spares(76)        L*1          future use'
   printf, lun, ''
   printf, lun, '#formats'
@@ -649,14 +657,18 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'err_fline         F7.4         ERROR,FLINE,e/s '
   printf, lun, 'fcont             F9.4         CONTINUUM,FLUX,e/s/A'
   printf, lun, 'err_fcont         F9.4         ERROR,FCONT,e/s/A'
-  printf, lun, 'wc                F8.6         FWHM,CONV,A'
-  printf, lun, 'err_wc            F8.6         ERROR,WC,A'
-  printf, lun, 'wd                F8.6         FWHM,DECONV,A'
-  printf, lun, 'err_wd            F8.6         ERROR,WD,A'
-  printf, lun, 'weq               F8.6         EQUIVAL,WIDTH,A'
+  printf, lun, 'wc                F8.6         FWHM,CONV,mA'
+  printf, lun, 'err_wc            F8.6         ERROR,WC,mA'
+  printf, lun, 'wd                F8.6         FWHM,DECONV,mA'
+  printf, lun, 'err_wd            F8.6         ERROR,WD,mA'
+  printf, lun, 'weq               F8.6         EQUIVAL,WIDTH,mA'
   printf, lun, 'err_weq           F8.6         ERROR,WEQ,A'
   printf, lun, 'alf               F9.6         ABSOLUTE,LINE,FLUX'
   printf, lun, 'err_alf           F9.6         ERROR,ALF'
+  printf, lun, 'ag_ew             F8.5         AIRGLOW,EW,mA'
+  printf, lun, 'err_ag_ew         F8.5         ERROR,AIRGLOW,EW'
+  printf, lun, 'ag_wc             F8.5         AIRGLOW,WIDTH,mA'
+  printf, lun, 'err_ag_wc	  F8.5         ERROR,AIRGLOW,WIDTH'
   printf, lun, 'ag_flux           F8.5         AIRGLOW,FLUX,e/s'
   printf, lun, 'err_ag_flux       F8.5         ERROR,AIRGLOW,FLUX'
   printf, lun, 'redchisq          F7.4         REDUCED,CHI^2'
@@ -666,7 +678,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 ;  printf, lun, 'n_disp  	  I*2          number of elements in dispersion spectrum'
 ;  printf, lun, 'n_xdisp		  I*2          number of elements in cross-dispersion spectrum'
   printf, lun, 'quality           A7            ,QUALITY'
-  printf, lun, 'ip                F7.4         INSTR.,PROFILE,A'
+  printf, lun, 'ip                F7.4         INSTR.,PROFILE,mA'
   printf, lun, 'disp              F8.6         DISPERSN'
   printf, lun, 'refpix            F9.3         REFERENCE,PIXEL'
   printf, lun, 'refwave           F9.3         REFERENCE,WAVE-,LENGTH(A)'
@@ -676,6 +688,10 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'db_date           A11          DATABASE,UPDATE,YYYY-MM-DD'
   printf, lun, 'intensity         F10.2        SURFACE,BRIGHTNESS,KRAYLEIGHS'
   printf, lun, 'err_intensity     F10.2        ERROR,INTENSITY,KRAYLEIGHS'
+  printf, lun, 'nn_DOWL           F10.2        NEAREST_NEIGHBOR,DOWL,mA'
+  printf, lun, 'nn_ew             F10.2        NEAREST_NEIGHBOR,EQUIV_WIDTH,mA'
+  printf, lun, 'nn_Dw             F10.2        NEAREST_NEIGHBOR,DOP_WIDTH,mA'
+  printf, lun, 'nn_Dw             F10.2        NEAREST_NEIGHBOR,LOR_WIDTH,mA'
   printf, lun, ''
 
   printf, lun, '#index'

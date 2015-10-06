@@ -83,7 +83,7 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
   ngood_files = 0
   err = 0
   for i=0,nf-1 do begin
-     ;CATCH, err
+     CATCH, err
      if err ne 0 then begin
         message, /NONAME, !error_state.msg, /CONTINUE
         message, 'skipping ' + files[i], /CONTINUE
@@ -223,29 +223,31 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         sxaddhist, string('(ssg_cr_replace.pro) Replaced NAN pixels with best-fit xdisp values'), hdr        
         sxaddpar, hdr, 'BAD_COLS', bad_cols[i], 'number of columns that had dubious fits '
 
-        ;; --> Might get moved to ssg_column_replace vvv
         ;; Now that we are bias subtracted, flattened and cosmic ray
         ;; removed AND REPLACED, we can finally do the derotation and
         ;; un-distortion
 
-	tempim = ssg_column_replace(im)
-	im = tempim.Image
-	map = tempim.Map
+        ;; First make a map of bad columns and pixels that otherwise
+        ;; would grow too much when rot is used
+        ssg_column_replace, im, map
+        ;; Derotate
         im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
         eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
-	map = ssg_camrot(map, -cam_rot, nx/2., sli_cent)
-	dimensions = SIZE(im)
-	for i=0, dimensions[1]-1 DO BEGIN
-		replace=WHERE(map[i] GE 1)
-		im[replace] = !Values.F_NAN
-	ENDFOR
-
         sxaddhist, "(ssg_cr_replace.pro) Derotating im and eim, modified CAM_ROT keyword", hdr
         sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated by ssg_cr_replace.pro'
-
+        ;; Un-distort slices
         im = ssg_slicer(im, hdr, /EXTRACT, /DELETE)
         sxaddhist, "(ssg_cr_replace.pro) Fixing distortions in slicer shape caused by optics", hdr
         sxaddhist, "(ssg_cr_replace.pro) Deleted non-zero SLICER* keywords", hdr
+
+        ;;map = ssg_camrot(map, -cam_rot, nx/2., sli_cent)
+        ;; Re-apply map to blank out bad columns
+        bad_idx = where(map gt 1, count)
+        if count gt 0 then begin
+           im[bad_idx] = !Values.F_NAN
+           eim[bad_idx] = !Values.F_NAN
+        endif
+
 
 ;; Leave in place
 ;        im = ssg_camrot(im, 0., nx/2., sli_cent, /NOPIVOT)
@@ -282,9 +284,10 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         ;; Things have been de-rotated, so there should be no need to
         ;; rotate the template
 
-	;Rotate image
-        im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
-        eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
+        ;; We have already done this
+        ;;;Rotate image
+        ;;im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
+        ;;eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
 
         fim = im/norm_xdisp_im
         feim = fim*sqrt((eim/im)^2 + $
@@ -302,7 +305,7 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         ngood_files = ngood_files + 1
 
      endelse ;; CATCH if err
-  endfor  ;; All files
+  endfor     ;; All files
 
   CATCH, /CANCEL
 

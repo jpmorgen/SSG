@@ -338,6 +338,12 @@ print, 'SMALL_EW = ', small_ew
      endelse
   endfor ;; resurrecting lines
 
+  ;; Fri Aug 28 21:37:42 2015  jpmorgen@snipe
+  ;; experiment with leaving Lorentzian widths constrained to
+  ;; measurements by stronger lines
+  ;; Tue Sep  1 09:53:05 2015  jpmorgen@snipe
+  ;; Not sure if it worked all that well.
+
   ;; LORENTZIAN WIDTH CHECK
   ;; --> this depends on the specific definition of the Voigt
   ;; function in the pfo system.
@@ -364,7 +370,7 @@ print, 'SMALL_EW = ', small_ew
      if abs(parinfo[my_ew_idx].value) lt small_ew and $
        parinfo[idx].fixed eq 0 then begin
         zero_lor_idx = array_append(idx, zero_lor_idx)
-
+  
         parinfo[idx].value = 0
         parinfo[idx].fixed = 1
      endif ;; too small
@@ -374,9 +380,9 @@ print, 'SMALL_EW = ', small_ew
 ;              message, /INFORMATIONAL, 'NOTE: freeing Lorentzian width of ' + strjoin(sso_dg_path(dg, /name), '-') + ' ' + string(format=!sso.rwl_format, rwl) + ' because its equivalent width is now above ' + strtrim(small_ew, 2)
         parinfo[idx].fixed = 0
      endif ;; now big enough
-
+  
   endfor ;; each Lorentzian parameter
-
+  
   ;; Print messages about Lorentzian width changes
   if N_elements(zero_lor_idx) gt maxprint and NOT keyword_set(quiet) then begin
      message, /INFORMATIONAL, 'NOTE: zeroing Lorentzian width of ' + strtrim(N_elements(zero_lor_idx),2) + ' lines because their equivalent widths are below ' + strtrim(small_ew, 2)
@@ -387,7 +393,7 @@ print, 'SMALL_EW = ', small_ew
         endfor
      endif
   endelse
-
+  
   if N_elements(free_lor_idx) gt maxprint and NOT keyword_set(quiet) then begin
      message, /INFORMATIONAL, 'NOTE: freeing Lorentzian width of ' + strtrim(N_elements(free_lor_idx),2) + ' lines because their equivalent widths are above ' + strtrim(small_ew, 2)
   endif else begin
@@ -397,6 +403,8 @@ print, 'SMALL_EW = ', small_ew
         endfor
      endif
   endelse
+
+
   ;; End of GRAVEYARD and RESURRECTION stuff
 
 
