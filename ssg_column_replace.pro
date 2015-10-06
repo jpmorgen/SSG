@@ -10,7 +10,7 @@ imSize = SIZE(im)
 XElements = imSize[1]
 YElements = imSize[2]
 IF (imSize[0] EQ 1) THEN middle = 0 ELSE middle = ROUND(YElements/2)
-map = MAKE_ARRAY(XElements, YElements, value=0)
+map = MAKE_ARRAY(XElements+4, YElements, value=0)
 firstRow = 1
 SegmentCounter = 1
 firstFinite = 1
@@ -18,27 +18,27 @@ firstFinite = 1
 for i=0, XElements-1 DO BEGIN
 
 	IF (finite(im[i, middle]) EQ 0 and i EQ 0) THEN BEGIN
-		map[i, *] = 1
+		map[i+2, *] = 1
 		firstFinite = 0
 		CONTINUE
 	ENDIF
 	IF (finite(im[i, middle]) EQ 0 and firstFinite EQ 0) THEN BEGIN
-		map[i, *] = 1
+		map[i+2, *] = 1
 		CONTINUE
 	ENDIF
 	IF (finite(im[i, middle]) EQ 1 and firstFinite EQ 0) THEN BEGIN
-		map[i, *] = 0
+		map[i+2, *] = 0
 		firstFinite = 1
 		CONTINUE
 	ENDIF
 	IF (finite(im[i, middle]) EQ 0 and firstFinite EQ 1) THEN BEGIN
-		map[i, *] = 1
+		map[i+2, *] = 1
 		FirstRow = 0
 		SegmentCounter = SegmentCounter+1
 		CONTINUE
 		 
 	ENDIF ELSE BEGIN
-		map[i, *] = 0 	
+		map[i+2, *] = 0 	
 		IF(firstrow EQ 0) THEN BEGIN
 			SegmentSize = SegmentCounter+1
 			imSegment = MAKE_ARRAY(SegmentSize, YElements)
