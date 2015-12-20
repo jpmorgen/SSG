@@ -116,63 +116,63 @@ pro ssg_reduce, indir, TV=TV, SHOW=SHOW, PLOT=PLOT, $
 
      write = noninteractive
      ssg_fix_head, rawdir
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_db_init, rawdir, /APPEND, /DELETE, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_raw_cp, rawdir, reddir, /OVERWRITE, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_get_overclock, reddir, TV=TV, write=write, $
                         noninteractive=noninteractive, $
                         _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_biasgen, reddir, TV=TV, PLOT=PLOT, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_biassub, reddir
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_get_sliloc, reddir, TV=TV, SHOW=SHOW, PLOT=PLOT, write=write, $
                      noninteractive=noninteractive, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_fit_sliloc, reddir, noninteractive=noninteractive, write=write, _EXTRA=extra ;;, $
      ;; The slicer location is now well determined
      ;;                flat_only=noninteractive
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_get_camrot, reddir, TV=TV, SHOW=SHOW, write=write, $
                      noninteractive=noninteractive, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_fit_camrot, reddir, noninteractive=noninteractive, write=write, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_lightsub, reddir, TV=TV,SHOW=SHOW, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_flatgen, reddir, TV=TV,SHOW=SHOW, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_flatfield, reddir, TV=TV, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_get_slicer, reddir, noninteractive=noninteractive, $
                      write=write, TV=TV, SHOW=SHOW, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_fit_slicer, reddir, noninteractive=noninteractive, write=write, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_get_dispers, reddir, PLOT=PLOT, TV=TV, show_first_pass=SHOW, $
                       noninteractive=noninteractive, write=write, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_fit_dispers, reddir, noninteractive=noninteractive, write=write, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
 
      ssg_cr_mark, reddir, cutval=5, TV=TV, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_cr_replace, reddir, TV=TV, _EXTRA=extra
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_extract, reddir, SHOW=SHOW, TV=TV, noninteractive=noninteractive, write=write, _EXTRA=extra
      if keyword_set(interactive) then $
         message, /CONTINUE, 'Finished with ' + reddir
-     exit_or_skip, interactive, exit_status=exit_status     
+     ;;exit_or_skip, interactive, exit_status=exit_status     
   endelse
 
   CATCH, /CANCEL

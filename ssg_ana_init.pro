@@ -78,7 +78,7 @@ pro ssg_ana_init, $
   endif
 
   ;; Read the information we want to transfer over to the analysis database
-  dbext, entries, 'date, time, nday, object, obj_code, fname, exptime, n_disp, n_xdisp', dates, times, ndays, objects, obj_codes, fnames, exptimes, n_disps, n_xdisps
+  dbext, entries, 'date, time, nday, object, obj_code, fname, exptime, n_disp, n_xdisp, med_spec, med_spec_err', dates, times, ndays, objects, obj_codes, fnames, exptimes, n_disps, n_xdisps, med_specs, med_spec_errs
 
   dbclose
 
@@ -149,6 +149,8 @@ pro ssg_ana_init, $
            exptimes, $
            n_disps, $
            n_xdisps, $
+           med_specs, $
+           med_spec_errs, $
            make_array(icount, value=today)
 
   dbclose

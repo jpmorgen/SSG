@@ -101,7 +101,8 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
      for i=0,nf-1 do begin
         message, 'Looking at ' + files[i], /CONTINUE
-        CATCH, err
+        ;;CATCH, err
+        err=0
         if err ne 0 then begin
            message, /NONAME, !error_state.msg, /CONTINUE
            message, 'skipping ' + files[i], /CONTINUE

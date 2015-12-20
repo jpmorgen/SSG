@@ -57,6 +57,7 @@ pro ssg_data2max
   adbname = 'io_oi_analyze'
   dbopen, adbname, 0
   oentries = dbfind("err_intensity<10", dbfind("redchisq<10", dbfind("obj_code=1")))
+  ;; --> beware of airglow line if I relax DOWL criterion
   lentries = dbfind("nn_DOWL<-50", oentries)
   hentries = dbfind("nn_DOWL>50", oentries)
   aentries = [lentries, hentries]

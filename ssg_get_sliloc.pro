@@ -360,11 +360,9 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      ;; first_peak_find to look at the entire flat execpt the left
      ;; peak as noise.  The signal on the flats tends to be very good
 
-     flat_left_bound = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /left)
+     best_flat_left = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /left, error=left_error)
      ;;best_flat_left  = first_peak_find(best_flat_d2, 'left', threshold=0.1, contrast=0.03)
-     best_flat_left = flat_left_bound[0]
-     flat_right_bound = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /right)
-     best_flat_right = flat_right_bound[0]
+     best_flat_right = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /right, error=right_error)
      ;;best_flat_right = first_peak_find(best_flat_d2, 'right', threshold=0.1, contrast=0.03)
      if best_flat_right - best_flat_left lt ny/10 then $
         message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)
@@ -381,9 +379,9 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
         bad_idx = good_idx[bad_idx]
         m_sli_bots[bad_idx] = 0
      endif
-     e_sli_bots[good_idx]  = best_xdisp_peaks_errors
+     e_sli_bots[good_idx]  = sqrt(best_xdisp_peaks_errors^2 + left_error^2)
      m_sli_tops[good_idx]  = best_flat_right + best_xdisp_peaks
-     e_sli_tops[good_idx]  = best_xdisp_peaks_errors
+     e_sli_tops[good_idx]  = sqrt(best_xdisp_peaks_errors^2 + right_error^2)
      sli_cents [good_idx]  = (best_flat_left + best_flat_right)/2. + best_xdisp_peaks
      e_sli_cents[good_idx] = best_xdisp_peaks_errors
 

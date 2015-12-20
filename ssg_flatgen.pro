@@ -106,9 +106,9 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
      repeat begin
         ;; slicer, dust, source loop
         write_name = string(type+'_'+subtype+'_flat.fits')
-        ;; We refine the slicer flat in one last iteration
-;        if subtype eq 'slicer2' then $
-;          write_name = string(type+'_slicer_flat.fits')
+        ;;;;; We refine the slicer flat in one last iteration
+        ;;;if subtype eq 'slicer2' then $
+        ;;;  write_name = string(type+'_slicer_flat.fits')
         ;; In case of previous error
         dbclose
         dbopen, dbname, 0
@@ -166,15 +166,17 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               message, 'ERROR: run ssg_lightsub first'
 
            
-           ;; Do a prelimiary cut to find the edges and bad
-           ;; columns.  Keep track of these in a separate array,
-           ;; edge_mask.  This gets refined as we start adding in
-           ;; other flatfield components.  Oops, if there is one
-           ;; hot pixel, that can mess up normalize, so for this
-           ;; pass, do a median filter
+           ;; Do a prelimiary cut to find the edges and bad columns.
+           ;; Keep track of these in a separate array, edge_mask.
+           ;; This gets refined as we start adding in other flatfield
+           ;; components.  Prepare all subsequent calls to normalize
+           ;; by setting first_mean to the median of the pixels in
+           ;; the active spectral region
+           im_med_val = median(im[*,sli_bots[i]:sli_tops[i]])
            cut = flat_cut
            if num_skyflats gt 0 then cut = sky_cut
-           edge_idx = where(normalize(median(im,4), cut) lt cut or $
+           edge_idx = where(normalize(im, cut, $
+                                      first_mean=im_med_val) lt cut or $
                             finite(im) eq 0, $
                             edge_count, complement=middle_idx)
 
@@ -190,10 +192,17 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               cutval = dust_cutval
               ;; Slicer flat needs to be aligned to each image.
               saim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
-              edge_idx = where(normalize(saim, cut) lt cut or $
+              im_med_val = median(saim[*,sli_bots[i]:sli_tops[i]])
+              ;; Had a little trouble when I was using the max of the
+              ;; bias, since there is sometimes a cosmic ray there.
+              ;; Do some median filtering to get rid of that.  Really,
+              ;; cutting on saim should be adequate
+              bim = median(ssgread(im, ihdr, /bias), 4)
+              edge_idx = where(normalize(saim, cut, $
+                                      first_mean=im_med_val) lt cut or $
                                finite(saim) eq 0 or $
                                finite(im) eq 0 or $
-                               im le max(ssgread(im, ihdr, /bias), /NAN), $
+                               im le max(bim), $
                                edge_count, complement=middle_idx)
 
               fim[middle_idx] = im[middle_idx] / saim[middle_idx]
@@ -202,7 +211,9 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               ;; Dust flat should not be re-aligned.  Also, bad
               ;; pixels in the dust flat should not be divided
               saim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
-              edge_idx = where(normalize(saim, cut) lt cut or $
+              im_med_val = median(saim[*,sli_bots[i]:sli_tops[i]])
+              edge_idx = where(normalize(saim, cut, $
+                                      first_mean=im_med_val) lt cut or $
                                finite(saim) eq 0 or $
                                finite(dust_flat) eq 0 or $
                                finite(im) eq 0, $
@@ -214,7 +225,9 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
               ;; Redo slicer flat using everything
               slaim = ssg_flat_align(im, ihdr, slicer_flat, hdr)
               sfaim = ssg_flat_align(im, ihdr, source_flat, hdr)
-              edge_idx = where(normalize(slaim, cut) lt cut or $
+              im_med_val = median(slaim[*,sli_bots[i]:sli_tops[i]])
+              edge_idx = where(normalize(slaim, cut, $
+                                      first_mean=im_med_val) lt cut or $
                                finite(slaim) eq 0 or $
                                finite(dust_flat) eq 0 or $
                                finite(sfaim) eq 0 or $
@@ -485,9 +498,12 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
            ssgwrite, write_name, total_im, hdr, sqrt(total_im), ehdr
            message, /INFORMATIONAL, 'Wrote file ' + write_name
 
+           ;; Get ready to move on to the next type
+           total_im_median = median(total_im[*,median(sli_bots):median(sli_tops)])
            case subtype of
               'slicer': begin
-                 slicer_flat = normalize(total_im, cut)
+                 slicer_flat = normalize(total_im, $
+                                         first_mean=total_im_median, cut)
                  if num_skyflats eq -1 then begin
                     subtype = 'dust'
                  endif else begin
@@ -500,11 +516,13 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
                  endelse
               end
               'dust': begin
-                 dust_flat = normalize(total_im, cut)
+                 dust_flat = normalize(total_im, $
+                                         first_mean=total_im_median, cut)
                  subtype = 'source'
               end
               'source': begin
-                 source_flat = normalize(total_im, cut)
+                 source_flat = normalize(total_im, $
+                                         first_mean=total_im_median, cut)
                  subtype = 'DONE'
                  ;; I did a comparison between slicer and slicer2 and
                  ;; found that they were identical to within

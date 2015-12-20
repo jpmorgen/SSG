@@ -47,10 +47,11 @@ pro freed_compare
                  dbfind("intensity>0.001", $
                         dbfind("lambda=6300", $
                                dbfind("obj_code=1"))), count=N_m)
-  dbext, entries, 'nday, LONG_3, intensity, err_intensity', mndays, mLONG_3, mintensities, merr_intensities
+  dbext, entries, 'nday, LONG_3, phi, intensity, err_intensity', mndays, mLONG_3s, mphis, mintensities, merr_intensities
   dbclose
 
-  adbname = 'io_oi_analyze'
+  ;;adbname = 'io_oi_analyze'
+  adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
   dbopen, adbname, 0
 
   for im=0, N_m-1 do begin
@@ -69,8 +70,10 @@ pro freed_compare
   mndays = mndays[good_idx]
   mintensities = mintensities[good_idx]
   merr_intensities = merr_intensities[good_idx]
+  mLONG_3s = mLONG_3s[good_idx]
+  mphis = mphis[good_idx]
 
-  dbext, aentries, "nday, weq, err_weq, ip, intensity, err_intensity", ndays, weqs, err_weqs, ips, intensities, err_intensities
+  dbext, aentries, "nday, long_3, phi, weq, err_weq, ip, intensity, err_intensity", ndays, long_3s, phis, weqs, err_weqs, ips, intensities, err_intensities
   dbclose
 
   delta = mintensities - intensities
@@ -83,6 +86,22 @@ pro freed_compare
   ;;oplot, mndays, mintensities-30, psym=!tok.dot
   ;;plot, ndays, intensities, psym=!tok.dot
   ;;plot, mndays, mintensities, psym=!tok.dot
+
+  plot, mintensities, intensities, psym=!tok.square
+  ;;oploterror, mintensities, $
+  ;;            intensities, $
+  ;;            merr_intensities, $
+  ;;            err_intensities
+  xaxis = indgen(30)
+  oplot, xaxis, xaxis
+
+  ;;plot, merr_intensities, err_intensities, psym=!tok.square
+  ;;oplot, xaxis, xaxis
+
+  plot, long_3s-mlong_3s, psym=!tok.square
+  plot, phis-mphis, psym=!tok.square
+
+  stop
 
   sigmas = delta / errs
   plot, sigmas, psym=!tok.dot

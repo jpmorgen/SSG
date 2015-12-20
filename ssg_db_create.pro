@@ -120,6 +120,8 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'sli_top		R*4		Slicer top edge to use'
   printf, lun, 'sli_cent	R*4		Best slicer center'
   printf, lun, 'e_sli_cent	R*4		Slicer center error'
+  printf, lun, 'bot_cut		R*4		Bottom slicer cut for spectra'
+  printf, lun, 'top_cut		R*4		Top slicer cut for spectra'
   printf, lun, 'm_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
   printf, lun, 'e_cam_rot	R*4		Measured camera rotation: clockwise deviation of flatfield pattern on CCD.'
   printf, lun, 'cam_rot		R*4		Predicted camera rotation based on fit'
@@ -145,6 +147,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'cross_disp(400)	R*4		full reduced cross-dispersion spectrum'
   printf, lun, 'cross_err(400)	R*4		statistical error on cross dispersion spectrum'
   printf, lun, 'med_spec	R*4		median spectral value'
+  printf, lun, 'med_spec_err	R*4		median spectral error bar value'
   printf, lun, 'av_spec		R*4		average spectral value'
   printf, lun, 'min_spec	R*4		minimum spectral value'
   printf, lun, 'max_spec	R*4		maximum spectral value'
@@ -213,6 +216,8 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'e_sli_cent	F7.3		slicer,center,error'
   printf, lun, 'm_cam_rot	F7.3		measred,cam_rot,clockws'
   printf, lun, 'e_cam_rot	F7.3		measred,cam_rot,error'
+  printf, lun, 'bot_cut		F7.3		bot,cut,4spec'
+  printf, lun, 'top_cut		F7.3		top,cut,4spec'
   printf, lun, 'cam_rot		F7.3		to_use,cam_rot,clockws'
   printf, lun, 'm_slice		F7.3		measred,slicer,shape'
   printf, lun, 'slice		F7.3		pred,slicer,shape'
@@ -231,6 +236,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'cross_disp	F7.3		cross,disp,spec'
   printf, lun, 'cross_err	F7.3		cross,disp,err'
   printf, lun, 'med_spec	F7.3		median,spec,value'
+  printf, lun, 'med_spec_err	F7.3		median,spec,err'
   printf, lun, 'av_spec		F7.3		averag,spec,value'
   printf, lun, 'min_spec	F7.3		min,spec,value'
   printf, lun, 'max_spec	F7.3		max,spec,value'
@@ -265,6 +271,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'ncr		sort/index'
   printf, lun, 'nbad		sort/index'
   printf, lun, 'med_spec	sort/index'
+  printf, lun, 'med_spec_err	sort/index'
   printf, lun, 'av_spec		sort/index'
 ;  printf, lun, 'min_spec	sort/index'
   printf, lun, 'max_spec	sort/index'
@@ -316,6 +323,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'cross_disp(400)	R*4		full reduced cross-dispersion spectrum'
   printf, lun, 'cross_err(400)	R*4		statistical error on cross dispersion spectrum'
   printf, lun, 'med_spec	R*4		median spectral value'
+  printf, lun, 'med_spec_err	R*4		median spectral error bar value'
   printf, lun, 'av_spec		R*4		average spectral value'
   printf, lun, 'min_spec	R*4		minimum spectral value'
   printf, lun, 'max_spec	R*4		maximum spectral value'
@@ -352,6 +360,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, '#index'
   printf, lun, 'nday		sort/index'
   printf, lun, 'med_spec	sort/index'
+  printf, lun, 'med_spec_err	sort/index'
   printf, lun, 'av_spec		sort/index'
   printf, lun, 'min_spec	sort/index'
   printf, lun, 'max_spec	sort/index'
@@ -448,6 +457,9 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'exptime           R*4          exposure time (seconds)'
   printf, lun, 'nrows             I*2          number of rows extracted'
   printf, lun, 'npix              I*2          number of pixels extracted'
+  printf, lun, 'med_spec	R*4	 	median spectral value (e/s/chan)'
+  printf, lun, 'med_spec_err	R*4		median spectral error bar value (e/s/chan)'
+
   printf, lun, 'p_date            C*10         processing date (yyyy-mm-dd)'
   ;; Down to here is entered in one fell swoop in ssg_ana_init
   ;; This next section more-or-less matches the HORIZONS column names
@@ -535,6 +547,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'err_fline         R*4          error in line flux (electrons/sec)'
   printf, lun, 'fcont             R*4          measured continuum flux (electrons/sec/Angstrom)'
   printf, lun, 'err_fcont         R*4          error in continuum flux (electrons/sec/Angstrom)'
+
   printf, lun, 'wc                R*4          measured convolved FWHM (milli Angstroms)'
   printf, lun, 'err_wc            R*4          error in convolved FWHM (milli Angstroms)'
   printf, lun, 'wd                R*4          deconvolved FWHM (milli Angstroms)'
@@ -582,6 +595,9 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
   printf, lun, 'specname          A25          EXTRACTED,SPECTRUM,FILE'
   printf, lun, 'exptime           I4           EXPO,TIME,SEC'
   printf, lun, 'nrows	          I4           NUM,ROWS,PIX'
+  printf, lun, 'npix	          I4           NUM,col,PIX'
+  printf, lun, 'med_spec	  F7.3		median,value,e/s/p'
+  printf, lun, 'med_spec_err	  F7.3		median,err,e/s/p'
   printf, lun, 'p_date            A11          PROCESSING,DATE,YYYY-MM-DD'
 
   printf, lun, 'ra                F11.5        RIGHT-J2000,ASCENSION,DEGREES'
@@ -729,5 +745,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
      dbcreate, files[i], newindex, newdb, /EXTERNAL
   endfor
   !priv=oldpriv
-
+  message, 'NOTE: changing to user''s home directory', /INFORMATIONAL
+  cd, '~/'
+  
 end

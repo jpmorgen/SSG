@@ -67,7 +67,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
 
   dbext, entries, "nbad, ncr, wavelen, spectrum, spec_err, cross_disp, cross_err", nbads, ncrs, wavelengths, spectra, spec_errors, cross_disps, cross_errors
 
-  dbext, entries, "med_spec, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross", med_specs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps
+  dbext, entries, "med_spec, med_spec_err, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross", med_specs, med_spec_errs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps
 
   dbext, entries, "disp_pix, xdisp_pix, m_dispers, dispers, n_disp, n_xdisp, cross_dcog, sli_cent", $
          disp_pix, xdisp_pix, m_disperss, disperss, n_disp, n_xdisp, cross_dcogs, sli_cents
@@ -93,6 +93,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
   cross_disps   [*] = !values.f_nan
   cross_errors  [*] = !values.f_nan
   med_specs     [*] = !values.f_nan
+  med_spec_errs [*] = !values.f_nan
   av_specs      [*] = !values.f_nan
   min_specs     [*] = !values.f_nan
   max_specs     [*] = !values.f_nan
@@ -260,6 +261,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
         cross_errors	[0:ngood_xdisp-1, i] = xdisp_err
 
         med_specs    [i] = median(spec)
+        med_spec_errs[i] = median(spec_err)
         av_specs     [i] = mean(spec, /NAN)
         min_specs    [i] = min(spec, /NAN)
         max_specs    [i] = max(spec, /NAN)
@@ -354,7 +356,7 @@ pro ssg_extract, indir, tv=tv, showplots=showplots, sn_imp=sn_imp, min_frac=min_
      !priv = 2
      dbopen, rdbname, 1
      dbupdate, entries, 'bad, wavelen, spectrum, spec_err, cross_disp, cross_err, disp_pix, xdisp_pix', badarray, wavelengths, spectra, spec_errors, cross_disps, cross_errors, disp_pix, xdisp_pix
-     dbupdate, entries, 'med_spec, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross, n_disp, n_xdisp, cross_dcog', med_specs, av_specs, min_specs, max_specs, med_xdisps, av_xdisps, min_xdisps, max_xdisps, n_disp, n_xdisp, cross_dcogs
+     dbupdate, entries, 'med_spec, med_spec_err, av_spec, min_spec, max_spec, med_cross, av_cross, min_cross, max_cross, n_disp, n_xdisp, cross_dcog', med_specs, av_specs, min_specs, max_specs, med_spec_errs, med_xdisps, av_xdisps, min_xdisps, max_xdisps, n_disp, n_xdisp, cross_dcogs
      dbclose
 
      ;; Now let's initialize the fitting database
