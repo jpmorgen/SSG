@@ -5,7 +5,7 @@
 
 ;-
 
-pro exit_or_skip, interactive, exit_status=exit_status
+pro ;;exit_or_skip, interactive, exit_status=exit_status
 
   if NOT keyword_set(interactive) then RETURN
 
