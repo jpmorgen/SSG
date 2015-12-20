@@ -74,6 +74,11 @@ pro ssg_cr_mark, indir, flat_cut=flat_cut, tv=tv, showplots=showplots, cr_rate=c
         ;; Get initial number of bad pixels
         ibad_idx = where(finite(im+ssg_edge_mask(im, thdr)) eq 0, ibad_pix)
 
+        if keyword_set(TV) then begin
+           display, im, hdr, /reuse
+           wait, TV/10.
+        endif
+
         sxaddhist, string('(ssg_cr_mark.pro) ', systime(/UTC), ' UT'), hdr
 
         ;; It is handy but not essential to use the flatfield to cut
@@ -129,7 +134,7 @@ pro ssg_cr_mark, indir, flat_cut=flat_cut, tv=tv, showplots=showplots, cr_rate=c
               print, 'cut value = ', cr_cuts[i], '  num bad_pix = ', bad_pix
               print, 'bad rate per CCD per second', bad_pix/sxpar(hdr, 'DARKTIME')
               if tbad_pix gt 0 then iter_im[bad_idx] = !values.f_nan
-              if keyword_set(TV) then display, iter_im, hdr, /reuse
+              ;;if keyword_set(TV) then display, iter_im, hdr, /reuse
            endrep until tbad_pix ge old_tbad_pix
            num_bads[i] = tbad_pix
            num_crs[i] = tbad_pix/pix_per_cr
@@ -149,7 +154,10 @@ pro ssg_cr_mark, indir, flat_cut=flat_cut, tv=tv, showplots=showplots, cr_rate=c
 ;        ;; Strong cosmic ray hits seem to take out about 4 pixels total
 ;        sxaddpar, hdr, 'NUMCR', pix_per_cr, 'assumed number of bad pixels per cosmic ray hits'
 
-        if keyword_set(TV) then display, im, hdr, /reuse
+        if keyword_set(TV) then begin
+           display, im, hdr, /reuse
+           wait, TV/10.
+        endif
 
         if keyword_set(showplots) then begin
            wset,7

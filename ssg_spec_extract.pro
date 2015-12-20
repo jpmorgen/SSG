@@ -12,9 +12,13 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
 ;  ON_ERROR, 2
   if N_elements(im_or_fname) eq 0 then $
     message, 'ERROR: no filename or image supplied'
-  if size(im_or_fname, /TNAME) eq 'STRING' then $
-    im=ssgread(im_or_fname, hdr, eim, ehdr, /DATA) $
-  else im = im_or_fname
+  if size(im_or_fname, /TNAME) eq 'STRING' then begin
+     im=ssgread(im_or_fname, hdr, eim, ehdr, /DATA)
+  endif else begin
+     if N_elements(hdr) eq 0 then $
+        message, 'ERROR: when providing a non-string im_or_fname, you must specify hdr'
+     im = im_or_fname
+  endelse
   if N_elements(size(im, /DIMENSIONS)) ne 2 then $
     message, 'ERROR: specify a valid filename or 2D array'
 

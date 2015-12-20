@@ -101,6 +101,6 @@ IF TAG_EXIST(data, 'nday') EQ 1b THEN BEGIN
 ENDIF ELSE BEGIN
 point='please enter a structure that includes nday as a tag'
 ENDELSE
-
+!P.MULTI = 0
 Return, point
 END

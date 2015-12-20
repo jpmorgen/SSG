@@ -69,7 +69,11 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
      return
   endif
 
-  dbext, entries, "fname, nday, date, typecode, bad, nbad, ncr, nbad_col", files, ndays, dates, typecodes, badarray, nbads, ncrs, bad_cols
+  dbext, entries, "fname, nday, date, typecode, bad, nbad, ncr, nbad_col, bot_cut, top_cut", files, ndays, dates, typecodes, badarray, nbads, ncrs, bad_cols, bot_cuts, top_cuts
+
+  bad_cols[*] = !values.f_nan
+  bot_cuts[*] = !values.f_nan
+  top_cuts[*] = !values.f_nan
 
   files=strtrim(files)
   nf = N_elements(files)
@@ -114,11 +118,17 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
 
         sxaddhist, string('(ssg_cr_replace.pro) ', systime(/UTC), ' UT'), hdr
 
-        im = im + ssg_edge_mask(im, hdr)
+        ;; Save off our original im and eim, since, for the purposes
+        ;; of this algorithm, we are going to mark pixels with NAN.
+        ;; However, NAN causes problems with rot, so after we have run
+        ;; our algorithm, we will put back
+        oim = im
+        oeim = eim
+        ;; Don't be verbose about our NAN tweaks and un-tweaks
         thdr = hdr
-        eim = eim + ssg_edge_mask(im, thdr)
-
-        sxaddhist, string('Used edge_mask to set edge pixels to NAN in im and eim'), hdr
+        edge_mask = ssg_edge_mask(im, thdr)
+        im = im + edge_mask
+        eim = eim + edge_mask
 
         ;; Since I will be working a lot with quadradure sums...
         err_im2 = eim^2
@@ -143,6 +153,7 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         ;; so far that keeping the image rotated is good enough
         ssg_spec_extract, im, hdr, rough_spec, xdisp, /AVERAGE
         ssg_spec_extract, err_im2, hdr, rough_err2, xdisp_err2, /AVERAGE
+
 
         ;; Get the good portion of the cross-dispersion spectrum and
         ;; normalize it.  
@@ -225,14 +236,33 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
 
         ;; Now that we are bias subtracted, flattened and cosmic ray
         ;; removed AND REPLACED, we can finally do the derotation and
-        ;; un-distortion
+        ;; un-distortion.  However, im and eim have NANs in bad
+        ;; columns (if present) and in the region above and below the
+        ;; usable spectrum.  NANs mess up the de-rotation and
+        ;; un-distortion calculations, so we need to replace them with
+        ;; some sort of sensible values for the distortions and then
+        ;; put them back afterward.
 
-        ;; First make a map of bad columns and pixels that otherwise
-        ;; would grow too much when rot is used
-        ssg_column_replace, im, map
-        ;; Derotate
-        im = ssg_camrot(im, -cam_rot, nx/2., sli_cent)
-        eim = ssg_camrot(eim, -cam_rot, nx/2., sli_cent)
+        ;; Replace NANs with original pixels in the region above and
+        ;; below the primary spectrum.  This also replaces pixels in
+        ;; bad columns, but it puts NANs for NANs in those places and
+        ;; so has not effect.
+        bad_idx = where(finite(im) * finite(eim) eq 0, count)
+        if count gt 0 then begin
+           im[bad_idx] = oim[bad_idx]
+           eim[bad_idx] = oeim[bad_idx]
+        endif
+
+        ;; Now replace NANs in bad colummns with some reaosnably
+        ;; chosen non-NAN values
+        no_NAN_im = ssg_column_replace(im, hdr, map, nbad)
+        no_NAN_eim = ssg_column_replace(eim, hdr, emap)
+        ;;im = no_NAN_im
+        ;;eim = no_NAN_eim
+
+        ;; Derotate no_NAN versions
+        im = ssg_camrot(no_NAN_im, -cam_rot, nx/2., sli_cent)
+        eim = ssg_camrot(no_NAN_eim, -cam_rot, nx/2., sli_cent)
         sxaddhist, "(ssg_cr_replace.pro) Derotating im and eim, modified CAM_ROT keyword", hdr
         sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated by ssg_cr_replace.pro'
         ;; Un-distort slices
@@ -240,16 +270,25 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         sxaddhist, "(ssg_cr_replace.pro) Fixing distortions in slicer shape caused by optics", hdr
         sxaddhist, "(ssg_cr_replace.pro) Deleted non-zero SLICER* keywords", hdr
 
-        ;;map = ssg_camrot(map, -cam_rot, nx/2., sli_cent)
-        ;; Re-apply map to blank out bad columns
-        bad_idx = where(map gt 1, count)
-        if count gt 0 then begin
-           im[bad_idx] = !Values.F_NAN
-           eim[bad_idx] = !Values.F_NAN
-        endif
+        ;; NAN out bad columns using maps from ssg_column_replace,
+        ;; which were produced slightly over-sized to deal with
+        ;; rotation
+        im = im*map
+        eim = eim*emap
+        if nbad gt 0 then $
+           sxaddhist, "(ssg_cr_replace.pro) Marked bad columns saved from un-rotated im with NANs", hdr
 
+        ;; NAN out pixels beyond the useful spectral region
+        edge_mask = ssg_edge_mask(im, hdr, bot_cut=bot_cut, top_cut=top_cut)
+        bot_cuts[i] = bot_cut
+        top_cuts[i] = top_cut
+        sxaddpar, hdr, 'BOT_CUT', bot_cut, 'Fist Xdisp pixel used for spectrum'
+        sxaddpar, hdr, 'TOP_CUT', top_cut, 'Last Xdisp pixel used for spectrum'
+        im = im + edge_mask
+        eim = eim + edge_mask
+        sxaddhist, string('Set pixels outside of BOT_CUT and TOP_CUT to NAN'), hdr
 
-;; Leave in place
+;; Leave in place (don't center spectrum in y direction)
 ;        im = ssg_camrot(im, 0., nx/2., sli_cent, /NOPIVOT)
 ;        sxaddhist, "(ssg_cr_replace.pro) Centering slicer pattern in image", hdr
 ;        sxaddpar, hdr, 'SLI_CENT', 0, 'Centered by ssg_cr_replace.pro'
@@ -313,7 +352,7 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
   oldpriv=!priv
   !priv = 2
   dbopen, dbname, 1
-  dbupdate, entries, 'nbad_col', bad_cols
+  dbupdate, entries, 'nbad_col, bot_cut, top_cut', bad_cols, bot_cuts, top_cuts
 
   dbclose
   !priv=oldpriv

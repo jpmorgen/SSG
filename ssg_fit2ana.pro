@@ -606,13 +606,17 @@ pro ssg_fit2ana, $
      dv[inday] = sparinfo[deldot_idx].value
      err_dv[inday] = sparinfo[deldot_idx].error
 
-     ;; I think this is the change in V-magnitude starting from the
-     ;; sun, bouncing off of Io and ending up at the Earth
+     ;; This is the change in magnitude starting from the sun,
+     ;; bouncing off of Io and ending up at the Earth assuming a
+     ;; perfect reflection
      dist_mag = 5*alog10(r[inday]*delta[inday])
 
      ;; I think this is from Jason Corliss' thesis, where he
      ;; looked at Galileo observation of Io.  --> There is an old reference
-     ;; somewhere of Io's brightness to which this can be compared
+     ;; somewhere of Io's brightness to which this can be
+     ;; compared.  Make default no correction.  Correction will be for
+     ;; Io only at this point
+     phi_cor = 0.
      case obj_codes[inday] eq 1 of
         (phi[inday] ge 355) and (phi[inday] lt 5)   : phi_cor =.04
         (phi[inday] ge 5)   and (phi[inday] lt 15)  : phi_cor =.03
@@ -650,24 +654,27 @@ pro ssg_fit2ana, $
         (phi[inday] ge 325) and (phi[inday] lt 335) : phi_cor =.084
         (phi[inday] ge 335) and (phi[inday] lt 345) : phi_cor =.074
         (phi[inday] ge 345) and (phi[inday] lt 355) : phi_cor =.056
-        else: print,'phi has an illegal value'
+        else: message, 'ERROR: phi has an illegal value'
      endcase
+     ;; Correct for distance magnitude and phi correction
+     V_cor = DIST_MAG + phi_cor
      ;; This seems to be correcting for albedo vs. solar phase angle
      ;; (opposition effect) --> This needs to be a case statement for
      ;; the albedos of the other satellites, assuming any emission is
      ;; found on them.
      if sol_pha[inday] ge 6 then $
-        V_cor = -1.55 + DIST_MAG + 0.021*sol_pha[inday] + phi_cor
+        V_cor += -1.55 + 0.021*sol_pha[inday]
      if sol_pha[inday] lt 6 then $
-        V_cor = -1.7233 +  DIST_MAG + $
-                0.078*sol_pha[inday] - 0.0047*(sol_pha[inday])^2 + phi_cor
+        V_cor += -1.7233 + $
+                0.078*sol_pha[inday] - 0.0047*(sol_pha[inday])^2
 
      exp1= 26 - (20 + 0.4*V_cor)
      nlam= float((1.509 * 3.694 * 10^(exp1))/6300.304 )
-     ;; absolute line flux
+     ;; apparent line flux photons/sec/cm^2
      alf[inday] = weq[inday] * !sso.ewcvt * nlam
      err_alf[inday] = err_weq[inday] * !sso.ewcvt * nlam
 
+     ;; Convert to kR
      intensity[inday] = ((alf[inday]*(206265.^2.)*4.)/ $
                          ((1e6)*((obj_dia[inday]/2.)^2.)))/1000.
      err_intensity[inday] = (err_alf[inday]*intensity[inday])/alf[inday]
