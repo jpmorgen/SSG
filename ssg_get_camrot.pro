@@ -8,27 +8,48 @@
 
 function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=nx
   ;; tnmin doesn't need common blocks but is slow for this application
-  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx
+  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx, hdr, typecode
   if keyword_set(dp) then $
      message, 'ERROR: You are asking me to calculate a derivative of the parameters for tnmin.  I don''nt know how to do this.  Make sure you specify /AUTODERIVATIVE with tnmin'
 
   ;; I am not sure why amoeba passes two arguments when I just want
   ;; one, but that was an easy enough fix.
-  rot_im = ssg_camrot(ref_im, angle[0], nx/2., sli_cent, /quiet)
-  return, -total(im*rot_im,/NAN)
+  ;;rot_im = ssg_camrot(ref_im, angle[0], nx/2., sli_cent, /quiet)
+  ;;return, -total(im*rot_im,/NAN)
+
+  ;; Tue Dec 22 10:19:08 2015  jpmorgen@snipe
+  
+  ;; Trying for a better algorithm.  The idea is to find the angle
+  ;; that produces a 2D spectrum that collapses and reexpands well
+  ;; into a template which matches the original spectrum the
+  ;; best.  Didn't have any measureable effect
+  
+  rot_im = ssg_camrot(im, -angle[0], nx/2., sli_cent, /quiet)
+  ssg_spec_extract, rot_im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
+  if typecode gt 2 then begin
+     ;; For non-comp images, this removes additional cosmic
+     ;; ray effects
+     ref_im=template_create(rot_im, med_xdisp)
+  endif else begin
+     ;; For the comps, the median xdisp spectrum is 0, so use
+     ;; the average instead
+     ref_im=template_create(rot_im, xdisp)
+  endelse
+  return, -total((rot_im*ref_im)^2.,/NAN)
+  ;;return, total(rot_im-ref_im,/NAN)
 
 end
 
 pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, ftol=ftol, maxiter=maxiter, max_angle=max_angle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
 
-  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx
+  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx, hdr, typecode
 ;  ON_ERROR, 2
   cd, indir
   if NOT keyword_set(ftol) then ftol = 1E-5
   if NOT keyword_set(start_angle) then start_angle=0.
   if NOT keyword_set(max_angle) then max_angle=5.
   if NOT keyword_set(nsteps) then nsteps=25
-  if NOT keyword_set(trimspec) then trimspec=16
+  if NOT keyword_set(trimspec) then trimspec=0
   if NOT keyword_set(nterms) then nterms=5
   params = [0, start_angle]
 
@@ -103,6 +124,9 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         test = strtrim(sxpar(hdr,'SLI_CENT',COUNT=count))
         if count eq 0 then message, 'ERROR: you must call ssg_[get&fit]_sliloc first'
 
+        typecode = typecodes[i]
+
+        ;; Set step size for amoeba
         if NOT keyword_set(max_angle) then begin
            max_angle = 0.25
            ;; Binned measurments can use smaller angles 
@@ -122,6 +146,12 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
            im[0:trimspec-1,*] 	= !values.f_nan
            im[nx-trimspec-1:nx-1,*] 	= !values.f_nan
         endif
+
+        ;; Replace these and any other bad columns with extensions
+        ;; from their edge values so that NAN areas don't affect the
+        ;; calculations
+        im = ssg_column_replace(im)
+
         ;; Borrow some code from ssg_lightsub to get rid of any
         ;; background light problem (particularly troublesome in
         ;; comps).  ssg_lightsub works better with the rotation
@@ -154,12 +184,14 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         ;; high contrast in good signal
         if typecodes[i] gt 2 then begin
            template = template_create(im, normalize(med_spec))
-           im = im/template
+           ;; Do our cosmic ray removal in a separate array
+           cim = im/template
            ;; Mark likely cosmic rays as NAN
-           badim = mark_cr(im)
+           badim = mark_cr(cim)
            badidx = where(badim gt 0, count)
-           if count gt 0.01*N_elements(im) then $
+           if count gt 0.01*N_elements(cim) then $
               message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
+           ;; Take out cosmic rays from original image
            if count gt 0 then $
               im[badidx] = !values.f_nan
         endif ;; not a comp
@@ -167,7 +199,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         if keyword_set(TV) then display, im, /reuse
 
         ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
-
+        
         if typecodes[i] gt 2 then begin
            ;; For non-comp images, this removes additional cosmic
            ;; ray effects
@@ -200,6 +232,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
                          p0=start_angle, scale=max_angle)
         if cam_rot eq -1 then $
            message, 'ERROR: can''t get camrot on this one'
+print, cam_rot        
         m_cam_rots[i] = cam_rot
         e_cam_rots[i] = ftol
         ngood = ngood + 1

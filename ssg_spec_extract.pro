@@ -7,7 +7,7 @@
 
 ;-
 
-pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, sigma_cut=sigma_cut, showplots=showplots, sli_cent=sli_cent, center=center, cam_rot=cam_rot, slicer=slicer, blocking=blocking, average=av, total=tot, title=title, sli_bot=sli_bot, sli_top=sli_top
+pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, sigma_cut=sigma_cut, showplots=showplots, sli_cent=sli_cent, center=center, cam_rot=cam_rot, slicer=slicer, blocking=blocking, average=av, total=tot, title=title, sli_bot=sli_bot, sli_top=sli_top, no_rot=no_rot, no_slicer=no_slicer
 
 ;  ON_ERROR, 2
   if N_elements(im_or_fname) eq 0 then $
@@ -57,11 +57,20 @@ pro ssg_spec_extract, im_or_fname, hdr, spec, xdisp, med_spec=med_spec, med_xdis
   endif
   sli_height = sli_top-sli_bot
 
-  im = ssg_camrot(im, -cam_rot, nx/2., sli_cent, NOPIVOT=NOPIVOT)
+  ;; Assuming we are doing a normal extraction, replace NANed columns
+  ;; with estimates so they don't grow when rotating and morphing
+  if keyword_set(no_rot) + keyword_set(no_slicer) eq 0 then $
+     im = ssg_column_replace(im, map)
+  
+  if NOT keyword_set(no_rot) then $
+     im = ssg_camrot(im, -cam_rot, nx/2., sli_cent, NOPIVOT=NOPIVOT)
   
   ;; Slicer shape is more subtle, since some stretching can occur
-  im = ssg_slicer(im, hdr, slicer=slicer, blocking=blocking, /EXTRACT)
+  if NOT keyword_set(no_slicer) then $
+     im = ssg_slicer(im, hdr, slicer=slicer, blocking=blocking, /EXTRACT)
 
+  ;; Now put back our bad columns (if any)
+  im = im + map
 
   ;; Now that I have the slicer top and bottom, it is possible to get
   ;; a better normalization on things when there are missing pixels

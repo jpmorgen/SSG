@@ -10,7 +10,9 @@
 
 function ssg_edge_mask, im, hdr, edge_cut, $
                         bot_cut=bot_cut, $
-                        top_cut=top_cut  
+                        top_cut=top_cut, $
+                        _EXTRA=extra
+  
 
   asize=size(im) & nx=asize[1] & ny=asize[2]
   sxaddhist, string('(ssg_edge_mask.pro) ', systime(/UTC), ' UT'), hdr
@@ -79,7 +81,8 @@ function ssg_edge_mask, im, hdr, edge_cut, $
      bot_cut = 0
      if sli1_idx gt 0 then begin
         temp = med_xdisp[0:sli1_idx]
-        edge_idx = where(normalize(temp, edge_cut) lt edge_cut, $
+        edge_idx = where(normalize(temp, edge_cut, _EXTRA=extra) $
+                         lt edge_cut, $
                          count)
         if count gt 0 then $
            bot_cut = max(edge_idx)
@@ -87,7 +90,8 @@ function ssg_edge_mask, im, hdr, edge_cut, $
      top_cut = sny-1
      if sli10_idx lt sny-1 then begin
         temp = med_xdisp[sli10_idx:sny-1]
-        edge_idx = where(normalize(temp, edge_cut) lt edge_cut, $
+        edge_idx = where(normalize(temp, edge_cut, _EXTRA=extra) $
+                         lt edge_cut, $
                          count)
         if count gt 0 then $
            top_cut = min(edge_idx) + sli10_idx

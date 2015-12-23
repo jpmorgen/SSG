@@ -6,7 +6,7 @@
 
 ;-
 
-function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, slicer_size=slicer_size, blocking=blocking, cr_cutval=cr_cutval, noninteractive=noninteractive
+function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, slicer_size=slicer_size, blocking=blocking, cr_cutval=cr_cutval, noninteractive=noninteractive, first_val=first_val
 
   ;; Get ready to use this function in a variety of contexts
   if n_params() eq 2 then begin
@@ -25,6 +25,8 @@ function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, sli
   else im = im_or_fname
   if N_elements(size(im, /DIMENSIONS)) ne 2 then $
      message, 'ERROR: specify a valid filename or a 2D array to display.'
+  if N_elements(first_val) eq 0 then $
+     first_val = 0
 
   ;; If we were called by tnmin, in_slicer is a 1D array.  We might
   ;; need to make it a 2D array so dispersion dependent distortions
@@ -46,7 +48,7 @@ function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, sli
 
   ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, slicer=slicer, blocking=blocking, cam_rot=0, /AVERAGE
   ref_im=template_create(im, med_spec, xdisp)
-  ref_im = ssg_slicer(ref_im, hdr, slicer=slicer, /DISTORT)
+  ref_im = ssg_slicer(ref_im, hdr, slicer=slicer, /DISTORT, grow_mask=3)
 
   if NOT keyword_set(noninteractive) then begin
      answer = strupcase(get_kbrd(0))
@@ -55,7 +57,8 @@ function slicer_compare, in_slicer, image_or_dp, image=im_or_fname, hdr=hdr, sli
      endif
      if answer eq 'S' then message, 'STOPPING FIT'
   endif
-  return, total(im*ref_im, /NAN)
+  to_return = total(im*ref_im, /NAN)/N_elements(im) - first_val
+  return, to_return
 end
 
 pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, blocking=blocking, flat_cut=flat_cut, cr_cutval=cr_cutval, showplots=showplots, noninteractive=noninteractive, review=review, write=write, winnum=winnum
@@ -242,12 +245,13 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
 
 ;        display, ssg_slicer(im, hdr, slicer=slicer, /EXTRACT), /reuse
 
+        first_val = slicer_compare(slicer_in, image=im, hdr=hdr, slicer_size=[npxd, npd], /noninteractive)
         if keyword_set(noninteractive) then begin
            to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd], $
-                       noninteractive:noninteractive }
+                       noninteractive:noninteractive, first_val:first_val  }
         endif else begin
            message, 'Hit the S key to skip this fit.  Depress and hold the D key to display images of each fitting iteration.',/CONTINUE
-           to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd] }
+           to_pass = { image:im, hdr:hdr, slicer_size:[npxd, npd], first_val:first_val }
         endelse
 
         ;; tnmin is having trouble finding a good max.  Help it out

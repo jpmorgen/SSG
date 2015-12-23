@@ -120,7 +120,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
                      max([med_ovrclk, av_ovrclk], /NAN)],$
              xtitle='Pixel (dispersion direction)', $
              ytitle='Bias value (DN)'
-        legend, ['Median', 'Average'], psym=[plus, diamond], pos=pos, /norm
+        al_legend, ['Median', 'Average'], psym=[plus, diamond], pos=pos, /norm
         for i=0,nf-1 do begin
            oplot, med_ovrclk[*,i], psym=plus
            oplot, av_ovrclk[*,i], psym=diamond

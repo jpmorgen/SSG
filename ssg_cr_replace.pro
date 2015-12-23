@@ -126,7 +126,7 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         oeim = eim
         ;; Don't be verbose about our NAN tweaks and un-tweaks
         thdr = hdr
-        edge_mask = ssg_edge_mask(im, thdr)
+        edge_mask = ssg_edge_mask(im, thdr, /mean)
         im = im + edge_mask
         eim = eim + edge_mask
 
@@ -147,10 +147,7 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         ;; sli_top for the final spectrum.
 
 
-        ;; Do ssg_extract even though we are not perfectly lined up.
-        ;; Doing derotation to line up perfectly makes cosmic ray NANs
-        ;; grow in area too much.  We have also made the assumption
-        ;; so far that keeping the image rotated is good enough
+        ;; Extract spectra
         ssg_spec_extract, im, hdr, rough_spec, xdisp, /AVERAGE
         ssg_spec_extract, err_im2, hdr, rough_err2, xdisp_err2, /AVERAGE
 
@@ -254,9 +251,10 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         endif
 
         ;; Now replace NANs in bad colummns with some reaosnably
-        ;; chosen non-NAN values
-        no_NAN_im = ssg_column_replace(im, hdr, map, nbad)
-        no_NAN_eim = ssg_column_replace(eim, hdr, emap)
+        ;; chosen non-NAN values.  Do this once here to save time in
+        ;; ssg_camrot and ssg_slier
+        no_NAN_im = ssg_column_replace(im, mask, nbad, grow_mask=3)
+        no_NAN_eim = ssg_column_replace(eim, emask, grow_mask=3)
         ;;im = no_NAN_im
         ;;eim = no_NAN_eim
 
@@ -270,16 +268,18 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         sxaddhist, "(ssg_cr_replace.pro) Fixing distortions in slicer shape caused by optics", hdr
         sxaddhist, "(ssg_cr_replace.pro) Deleted non-zero SLICER* keywords", hdr
 
-        ;; NAN out bad columns using maps from ssg_column_replace,
+        ;; NAN out bad columns using masks from ssg_column_replace,
         ;; which were produced slightly over-sized to deal with
         ;; rotation
-        im = im*map
-        eim = eim*emap
+        im = im*mask
+        eim = eim*emask
         if nbad gt 0 then $
            sxaddhist, "(ssg_cr_replace.pro) Marked bad columns saved from un-rotated im with NANs", hdr
 
-        ;; NAN out pixels beyond the useful spectral region
-        edge_mask = ssg_edge_mask(im, hdr, bot_cut=bot_cut, top_cut=top_cut)
+        ;; NAN out pixels beyond the useful spectral region.  By this
+        ;; time im should be healthy enough to be able to tolerate a
+        ;; mean as the first mean in edge_idx
+        edge_mask = ssg_edge_mask(im, hdr, bot_cut=bot_cut, top_cut=top_cut, /MEAN)
         bot_cuts[i] = bot_cut
         top_cuts[i] = top_cut
         sxaddpar, hdr, 'BOT_CUT', bot_cut, 'Fist Xdisp pixel used for spectrum'
@@ -301,8 +301,9 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
           display, im, title=fname, /reuse
 
         ;; Write flat check
-        ;; recalculate full_norm_xdisp now that we are rotated (code
-        ;; copied from above)
+        ;; Recalculate full_norm_xdisp now that we are rotated (code
+        ;; copied from above, keeping in mind we have rotated im and eim)
+        err_im2 = eim^2
         ssg_spec_extract, im, hdr, rough_spec, xdisp, /AVERAGE
         ssg_spec_extract, err_im2, hdr, rough_err2, xdisp_err2, /AVERAGE
 

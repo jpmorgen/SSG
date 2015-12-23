@@ -5,7 +5,7 @@
 
 ;-
 
-pro ;;exit_or_skip, interactive, exit_status=exit_status
+pro exit_or_skip, interactive, exit_status=exit_status
 
   if NOT keyword_set(interactive) then RETURN
 
@@ -170,6 +170,7 @@ pro ssg_reduce, indir, TV=TV, SHOW=SHOW, PLOT=PLOT, $
      ssg_cr_replace, reddir, TV=TV, _EXTRA=extra
      ;;exit_or_skip, interactive, exit_status=exit_status     
      ssg_extract, reddir, SHOW=SHOW, TV=TV, noninteractive=noninteractive, write=write, _EXTRA=extra
+
      if keyword_set(interactive) then $
         message, /CONTINUE, 'Finished with ' + reddir
      ;;exit_or_skip, interactive, exit_status=exit_status     

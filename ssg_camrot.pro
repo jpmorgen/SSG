@@ -10,7 +10,7 @@
 ;; lots and lots of NANs floating around.  At least it does return
 ;; missing values as 0s, so they are relatively easy to put back to NAN.
 
-function ssg_camrot, in_im, cam_rot, xc, yc, nopivot=nopivot, quiet=quiet
+function ssg_camrot, in_im, cam_rot, xc, yc, nopivot=nopivot, quiet=quiet, grow_mask=grow_mask
 
   im = in_im
   pivot=1
@@ -27,18 +27,14 @@ function ssg_camrot, in_im, cam_rot, xc, yc, nopivot=nopivot, quiet=quiet
 ;     bad_idx = where(im eq bad, count)
 ;  endrep until count eq 0 
 
-  bad=0
-  bad_idx = where(im eq bad, count)
-  if count ne 0 and NOT keyword_set(quiet) then $
-    message, /CONTINUE, 'WARNING: ' + string(count) + ' pixels=0--these will be replaced with NAN'
+  ;; Replace bad columns with estimates so that rot won't make
+  ;; NAN areas grow unnecessarily
+  im = ssg_column_replace(im, mask, nbad, grow_mask=grow_mask)
+
   im = rot(im, cam_rot, 1., xc, yc, PIVOT=PIVOT, $
-           cubic=-0.5, missing=bad)
+           cubic=-0.5, missing=!values.f_nan)
 
-  bad_idx = where(im eq bad, count)
-  if count gt 0 then begin
-     im[bad_idx] = !values.f_nan
-  endif
-
-return, im
+  ;; Re-apply the bad column mask on the way out
+  return, im+mask
 
 end

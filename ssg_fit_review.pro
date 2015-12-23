@@ -81,7 +81,7 @@ pro ssg_fit_review
                parinfo[gw_idx].error
      oploterr, parinfo[lw_idx].ssg.nday, parinfo[lw_idx].value, $
                parinfo[lw_idx].error, !tok.triangle
-     legend, ['Gaussian width', 'Lorentzian width'], $
+     al_legend, ['Gaussian width', 'Lorentzian width'], $
              psym=[!tok.square, !tok.triangle]
      
   endfor

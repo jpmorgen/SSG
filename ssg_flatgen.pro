@@ -351,7 +351,7 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
                  endif
               endif
 
-              spec = smooth(spec, smooth_scale, /NAN)
+              spec = smooth(spec, smooth_scale, /NAN, /edge_truncate)
               template = template_create(im, normalize(spec))
               im = im/template
               ;; Now mark really opaque dust spots with 0

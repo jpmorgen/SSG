@@ -6,7 +6,7 @@
 
 ;-
 
-function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extract=extract, distort=distort, delete=delete
+function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extract=extract, distort=distort, delete=delete, grow_mask=grow_mask
 
 ;  ON_ERROR, 2
   if N_elements(im_or_fname) eq 0 then $
@@ -72,6 +72,10 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
   asize=size(im) & nx=asize[1] & ny=asize[2]
   sli_cent = sxpar(hdr, 'SLI_CENT', count=count)
   if count eq 0 then sli_cent = nx/2.
+
+  ;; Replace any bad columns with non-NAN values so calcs don't
+  ;; make bad columns grow
+  im = ssg_column_replace(im, mask, grow_mask=grow_mask)
 
   ;; Collapse for speed
   if keyword_set(blocking) then begin
@@ -160,6 +164,7 @@ function ssg_slicer, im_or_fname, hdr, slicer=in_slicer, blocking=blocking, extr
      endfor
   endif
 
-  return, im
+  ;; Re-apply the bad column mask on the way out
+  return, im+mask
 
 end
