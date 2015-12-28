@@ -8,7 +8,7 @@
 
 function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=nx
   ;; tnmin doesn't need common blocks but is slow for this application
-  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx, hdr, typecode
+  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx, hdr, typecode, orig_med_spec, orig_norm_xdisp, column_mask
   if keyword_set(dp) then $
      message, 'ERROR: You are asking me to calculate a derivative of the parameters for tnmin.  I don''nt know how to do this.  Make sure you specify /AUTODERIVATIVE with tnmin'
 
@@ -25,29 +25,77 @@ function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=
   ;; best.  Didn't have any measureable effect
   
   rot_im = ssg_camrot(im, -angle[0], nx/2., sli_cent, /quiet)
+  ;; Make sure whole first and last columns are set to NAN to keep
+  ;; number of pixels 
+  rot_im[0,*] = !values.f_NAN
+  rot_im[nx-1,*] = !values.f_NAN
+  rot_im *= column_mask
+
   ssg_spec_extract, rot_im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
-  if typecode gt 2 then begin
-     ;; For non-comp images, this removes additional cosmic
-     ;; ray effects
-     ref_im=template_create(rot_im, med_xdisp)
-  endif else begin
+  if typecode eq 2 then begin
      ;; For the comps, the median xdisp spectrum is 0, so use
-     ;; the average instead
+     ;; the average instead and just try to line things up based on
+     ;; the edges of the spectrum
      ref_im=template_create(rot_im, xdisp)
-  endelse
-  return, -total((rot_im*ref_im)^2.,/NAN)
-  ;;return, total(rot_im-ref_im,/NAN)
+     ;; And just return our basic macro rotation figure of merit 
+     return, -total((rot_im*ref_im)^2.,/NAN)
+  endif
+  ;; If we made it here, we are working with flats and object images.
+
+  ;; Try to work with the details of the slicer pattern.  I seem to
+  ;; get better results, though still not perfect, if I create the
+  ;; template with the use cross-dispersion only and divide, rather
+  ;; than do a traditional residual
+
+  ;;ref_im=template_create(rot_im, orig_med_spec, med_xdisp)
+  ref_im=template_create(rot_im, med_xdisp)
+  ;;FOM = total((rot_im - ref_im)^2, /NAN)
+
+  ;; Flatten by the ref_im
+  rot_im /= ref_im
+
+  ;; Cut off edges
+  ;; This has to be a fairly low value (<0.5) in order to create
+  ;; contrast for the algoritm to see edges, particularly the flats
+  bad_idx = where(orig_norm_xdisp lt 0.1, count)
+  if count gt 0 then $
+     rot_im[*,bad_idx] = !values.f_NAN
+  FOM = total(rot_im^2, /NAN)
+
+  ;;atv, rot_im
+  ;;print, angle[0], FOM
+  return, FOM
+
+  ;;;;;; Try to make a reasonable penalty for being off large amounts
+  ;;;;if count gt 0 then begin
+  ;;;;   med_xdisp[bad_idx] = 1
+  ;;;;endif
+  ;;   
+  ;;
+  ;;;; Figure of merit for macro rotation.  Goes up when aligned
+  ;;;; Since we don't have flats yet for determining precise edges, work
+  ;;;; with normalize to make sure we don't divide by things that are
+  ;;;; too small
+  ;;;;ref_im = normalize(ref_im, 0.75, /mean)
+  ;;macro_FOM = total((rot_im*ref_im)^2.,/NAN)
+  ;;
+  ;;;; Now create a figure of merit that decreases when the lumps from
+  ;;;; misalignment diminish
+  ;;;;rot_im = normalize(rot_im^2)
+  ;;slicer_FOM = total(rot_im^2, /NAN)
+  ;;print, angle[0], macro_FOM, slicer_FOM, slicer_FOM-macro_FOM
+  ;;return, slicer_FOM;;-macro_FOM
+  ;;;;return, total(rot_im-ref_im,/NAN)
 
 end
 
 pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom, noninteractive=noninteractive, review=review, write=write, ftol=ftol, maxiter=maxiter, max_angle=max_angle, start_angle=start_angle, nsteps=nsteps, nterms=nterms, trimspec=trimspec
 
-  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx, hdr, typecode
+  COMMON ssg_get_camrot, im, ref_im, sli_cent, nx, hdr, typecode, orig_med_spec, orig_norm_xdisp, column_mask
 ;  ON_ERROR, 2
   cd, indir
   if NOT keyword_set(ftol) then ftol = 1E-5
   if NOT keyword_set(start_angle) then start_angle=0.
-  if NOT keyword_set(max_angle) then max_angle=5.
   if NOT keyword_set(nsteps) then nsteps=25
   if NOT keyword_set(trimspec) then trimspec=0
   if NOT keyword_set(nterms) then nterms=5
@@ -128,7 +176,8 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
 
         ;; Set step size for amoeba
         if NOT keyword_set(max_angle) then begin
-           max_angle = 0.25
+           ;; Estimate 5 pixels across whole CCD as max we could be off
+           max_angle=!radeg*atan(5/800.)
            ;; Binned measurments can use smaller angles 
            ccdsum = strtrim(sxpar(hdr,'CCDSUM',COUNT=count),2)
            if count gt 0 then begin
@@ -150,7 +199,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         ;; Replace these and any other bad columns with extensions
         ;; from their edge values so that NAN areas don't affect the
         ;; calculations
-        im = ssg_column_replace(im)
+        im = ssg_column_replace(im, column_mask, grow_mask=3)
 
         ;; Borrow some code from ssg_lightsub to get rid of any
         ;; background light problem (particularly troublesome in
@@ -198,17 +247,24 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
 
         if keyword_set(TV) then display, im, /reuse
 
-        ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
-        
-        if typecodes[i] gt 2 then begin
-           ;; For non-comp images, this removes additional cosmic
-           ;; ray effects
-           ref_im=template_create(im, med_xdisp)
-        endif else begin
-           ;; For the comps, the median xdisp spectrum is 0, so use
-           ;; the average instead
-           ref_im=template_create(im, xdisp)
-        endelse
+        ;; For stable performance in rot_compare, use the original
+        ;; dispersion spectrum for creating the template and the
+        ;; original cross dispersion spectrum for defining bad rows
+        ssg_spec_extract, im, hdr, orig_spec, med_spec=orig_med_spec, med_xdisp=orig_norm_xdisp, /average
+        orig_norm_xdisp = normalize(orig_norm_xdisp, 0.75, /mean)
+
+
+        ;;ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average
+        ;;
+        ;;if typecodes[i] gt 2 then begin
+        ;;   ;; For non-comp images, this removes additional cosmic
+        ;;   ;; ray effects
+        ;;   ref_im=template_create(im, med_xdisp)
+        ;;endif else begin
+        ;;   ;; For the comps, the median xdisp spectrum is 0, so use
+        ;;   ;; the average instead
+        ;;   ref_im=template_create(im, xdisp)
+        ;;endelse
 
 
         ;; Here is a trick to speed automation.  The measured slicer
@@ -217,6 +273,8 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         ;; see how flatfields, etc. should be aligned or thrown out
         ;; Just in case something wasn't assigned
         sli_cent = sli_cents[i]
+        sli_bot = sli_bots[i]
+        sli_top = sli_tops[i]
         if finite(sli_cent) eq 0 then $
            sli_cent = sli_cents[i]
         if sli_cent eq 0 or finite(sli_cent) eq 0 then $
@@ -232,7 +290,6 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
                          p0=start_angle, scale=max_angle)
         if cam_rot eq -1 then $
            message, 'ERROR: can''t get camrot on this one'
-print, cam_rot        
         m_cam_rots[i] = cam_rot
         e_cam_rots[i] = ftol
         ngood = ngood + 1
