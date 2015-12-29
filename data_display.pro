@@ -5,6 +5,7 @@ FUNCTION DATA_DISPLAY, data
 ;data is a structure of data points. It is designed to be generated from data_select
 
 !P.MULTI = [0, 1, N_TAGS(data)-2]
+init = {tok_sysvar}
 
 ;check to see if nday data is submitted and convert it to julday
 IF TAG_EXIST(data, 'nday') EQ 1b THEN BEGIN
@@ -18,15 +19,22 @@ IF TAG_EXIST(data, 'nday') EQ 1b THEN BEGIN
 	ut_range=[MIN(uts), MAX(uts)]
 
 ;create graphs from the passed in data.
-	WHILE (point[0] EQ 0) DO BEGIN
-		FOR i=1, (N_TAGS(data)-2) DO BEGIN
-			PLOT, uts, data.(i), PSYM=1, YMARGIN=[9, 4], $
-			xtickunits = ['hours', 'Days', 'Months', 'Years'], $
-			title = names[i], $
-			xtitle = names[0], $
-			ytitle = names[i], $
-			xrange=ut_range
-		ENDFOR
+           WHILE (point[0] EQ 0) DO BEGIN
+              FOR i=1, (N_TAGS(data)-2) DO BEGIN
+                 if names[0] eq 'NDAY' then $
+                    xtickunits = ['hours']
+                 YMARGIN=[1,4]
+                 if names[0] eq 'NDAY' and i eq N_TAGS(data)-2 then begin
+                    xtickunits = ['hours', 'Days', 'Months', 'Years']
+                    YMARGIN=[11,4]
+                 endif
+                 PLOT, uts, data.(i), PSYM=1, YMARGIN=YMARGIN, $
+                       xtickunits = xtickunits, $
+                       title = names[i], $
+                       ytitle = names[i], $
+                       xrange=ut_range, $
+                       xstyle=!tok.exact+!tok.extend
+              ENDFOR
 	     ;; User selects points
 	     message, /CONTINUE, 'Use left and right buttons to zoom in on (bracket) area of interest. Middle button will bring up a menu.'
 
