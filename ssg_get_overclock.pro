@@ -37,7 +37,7 @@ pro ssg_get_overclock, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
   
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
   dbext, entries, "fname, nday, date, bad, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias, stdev_bias", files, ndays, dates, badarray, n_ovrclk, med_ovrclk, av_ovrclk, med_bias, av_bias, stdev_bias
 
   files=strtrim(files)

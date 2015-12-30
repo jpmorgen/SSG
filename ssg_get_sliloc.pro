@@ -40,7 +40,7 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
   dbopen, dbname, 0
   ;; Get all the files in the directory so we can mark slicer position as not
   ;; measured on the ones where we can't measure it.
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
 
   dbext, entries, "fname, nday, date, typecode, bad, m_sli_bot, e_sli_bot, m_sli_top, e_sli_top, sli_cent, e_sli_cent", $
          files, ndays, dates, typecodes, badarray, m_sli_bots, e_sli_bots, m_sli_tops, e_sli_tops, sli_cents, e_sli_cents

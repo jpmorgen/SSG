@@ -291,7 +291,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
   ;; measured on the ones where we can't measure it.
   entries = dbfind("typecode=2", $
                    dbfind("bad<2047", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir), /fullstring)))
 
   dbext, entries, "fname, nday, date, bad, m_dispers", $
          files, ndays, dates, badarray, disp_arrays

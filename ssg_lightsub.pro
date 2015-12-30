@@ -23,7 +23,7 @@ pro ssg_lightsub, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoom,
   dbopen, dbname, 0
   entries = dbfind("typecode>1", $
                    dbfind("bad<8191", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir), /fullstring)))
   dbext, entries, 'fname, m_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, m_cam_rot, cam_rot', $
          files, m_sli_bots, e_sli_bots, sli_bots, m_sli_tops, e_sli_tops, sli_tops, sli_cents, e_sli_cents, m_cam_rots, cam_rots
   dbext, entries, 'edge_coef, edge_coef_err, med_back, av_back, stdev_back', $

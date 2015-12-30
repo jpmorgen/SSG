@@ -18,7 +18,7 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, flat_only=flat_only, order=order, $
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
   dbext, entries, 'fname, nday, date, bad, typecode', $
          files, ndays, dates, badarray, typecodes
   dbext, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, no_fit', $

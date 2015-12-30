@@ -37,7 +37,7 @@ pro ssg_fit_dispers, indir, VERBOSE=verbose, order=order, sigma_cut=sigma_cut, $
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
   dbext, entries, "fname, nday, date, m_dispers, dispers", files, ndays, dates, m_dispers, dispers
   nf = N_elements(files)
   jds = ndays + julday(1,1,1990,0)

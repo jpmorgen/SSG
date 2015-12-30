@@ -20,7 +20,7 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
   dbopen, dbname, 0
   entries = dbfind("typecode=0", $
                    dbfind("bad<16383", $ ; < is really <=
-                          dbfind(string("dir=", indir))), count=count)
+                          dbfind(string("dir=", indir), /fullstring)), count=count)
   if count eq 0 then $
      message, 'ERROR: no biases found in ' + indir
   
@@ -322,7 +322,7 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
      message, /INFORMATIONAL, 'Recorded bad bias image(s) in ' + dbname
   endif
 
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
   nf = N_elements(entries)
   bias_fnames = strarr(nf)
   bias_fnames[*] = outname

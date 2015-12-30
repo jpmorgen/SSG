@@ -76,7 +76,7 @@ pro ssg_get_slicer, indir, VERBOSE=verbose, TV=tv, zoom=zoom, slicer=slicer_in, 
   dbopen, dbname, 0
   ;; Get all the files in the directory so we can mark camrot as not
   ;; measured on the ones where we can't measure it.
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
 
   dbext, entries, "fname, nday, date, typecode, m_slice, bad", files, ndays, dates, typecodes, slicers, badarray
   files=strtrim(files)

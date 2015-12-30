@@ -20,7 +20,7 @@ pro ssg_flatfield, indir, lampflat_dir=lampflat_dir, skyflat_dir=skyflat_dir, fl
   dbopen, dbname, 0
   entries = dbfind("typecode=[2,5]", $
                    dbfind("bad<16383", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir), /fullstring)))
         dbext, entries, 'fname, bad, typecode, lampflat_dir, skyflat_dir, flat_cut, sky_cut', $
          files, badarray, typecodes, lampflat_dirs, skyflat_dirs, flat_cuts, sky_cuts
         dbext, entries, 'm_sli_bot, e_sli_bot, sli_bot, m_sli_top, e_sli_top, sli_top, sli_cent, e_sli_cent, m_cam_rot, cam_rot', $

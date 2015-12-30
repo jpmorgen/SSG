@@ -25,7 +25,7 @@ pro ssg_cr_mark, indir, flat_cut=flat_cut, tv=tv, showplots=showplots, cr_rate=c
   dbopen, dbname, 0
   entries = dbfind("typecode=5", $
                    dbfind("bad<2047", $ ; < is really <=
-                          dbfind(string("dir=", indir))), count=count)
+                          dbfind(string("dir=", indir), /fullstring)), count=count)
   if count eq 0 then begin
      message, /INFORMATIONAL, 'NOTE: no object spectra recorded on ' + indir + '.  Returning without doing anything'
      dbclose

@@ -20,7 +20,7 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, $
   dbclose ;; Just in case
   dbname = 'ssg_reduce'
   dbopen, dbname, 0
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
   dbext, entries, 'fname, bad, nday, date, m_cam_rot, e_cam_rot, cam_rot, no_fit', $
          files, badarray, ndays, dates, m_cam_rots, e_cam_rots, cam_rots, no_fits
   angles = m_cam_rots

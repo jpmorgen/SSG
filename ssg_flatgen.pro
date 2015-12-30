@@ -37,10 +37,10 @@ pro ssg_flatgen, indir, showplots=showplots, TV=tv, cr_cutval=cr_cutval, dust_cu
   dbopen, dbname, 0
   lamp_entries = dbfind("typecode=3", $
                         dbfind("bad<2047", $ ; < is really <=
-                               dbfind(string("dir=", indir))))
+                               dbfind(string("dir=", indir), /fullstring)))
   sky_entries = dbfind("typecode=4", $
                         dbfind("bad<2047", $ ; < is really <=
-                               dbfind(string("dir=", indir))), count=num_skyflats)
+                               dbfind(string("dir=", indir), /fullstring)), count=num_skyflats)
 ;  ;; DEBUGGING
 ;  sky_entries = -1
 ;  num_skyflats = 0

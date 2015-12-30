@@ -51,15 +51,20 @@ function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=
   ref_im=template_create(rot_im, med_xdisp)
   ;;FOM = total((rot_im - ref_im)^2, /NAN)
 
-  ;; Flatten by the ref_im
-  rot_im /= ref_im
-
   ;; Cut off edges
   ;; This has to be a fairly low value (<0.5) in order to create
   ;; contrast for the algoritm to see edges, particularly the flats
-  bad_idx = where(orig_norm_xdisp lt 0.1, count)
+  ;; Trying with with /data/io/ssg/reduced/1994/940714wide/, which has
+  ;; a large angle to get away from the orig_norm_xdisp, which seems
+  ;; to have biased the results
+  ;;bad_idx = where(orig_norm_xdisp lt 0.1, count)
+  bad_idx = where(normalize(rot_im, 0.75) lt 0.1, count)
   if count gt 0 then $
-     rot_im[*,bad_idx] = !values.f_NAN
+     rot_im[bad_idx] = !values.f_NAN
+
+  ;; Flatten by the ref_im
+  rot_im /= ref_im
+
   FOM = total(rot_im^2, /NAN)
 
   ;;atv, rot_im
@@ -125,7 +130,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
   dbopen, dbname, 0
   ;; Get all the files in the directory so we can mark camrot as not
   ;; measured on the ones where we can't measure it.
-  entries = dbfind(string("dir=", indir))
+  entries = dbfind(string("dir=", indir), /fullstring)
 
   dbext, entries, 'fname, nday, date, typecode, bad', $
          files, ndays, dates, typecodes, badarray
@@ -206,16 +211,16 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         ;; comps).  ssg_lightsub works better with the rotation
         ;; taken out, which is why we don't do it for real before
         ;; now.
-        mask = fltarr(nx,ny)+1.
-        mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
-        edge_im = im * mask
+        edge_mask = fltarr(nx,ny)+1.
+        edge_mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
+        edge_im = im * edge_mask
         edge_spec = fltarr(nx)
         for ix=0,nx-1 do begin
            ;; Calculate median only, since there is certain to be
            ;; contamination from the wing of the light coming through
            ;; the slicer/exit slit jaws that would mess up the average
            edge_spec[ix] = median(edge_im[ix,*])
-        endfor
+        endfor ;; ix
         ;;plot, edge_spec
         good_idx = where(finite(edge_spec) eq 1, count)
         if count gt 0 then begin
@@ -224,20 +229,47 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         endif
 
         if keyword_set(showplots) then wset,7
+
+        
+        ;; For stable performance in rot_compare, use the original
+        ;; dispersion spectrum within the good region of the spectrum
+        ;; for creating the template and the full cross dispersion
+        ;; spectrum for defining bad rows
         ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
-                          hdr, spec, xdisp, showplots=showplots, $
-                          med_spec=med_spec, med_xdisp=med_xdisp, /average
+                          hdr, showplots=showplots, $
+                          med_spec=orig_med_spec, /average
+        ssg_spec_extract, im, hdr, med_xdisp=orig_xdisp, /average
+        orig_norm_xdisp = normalize(orig_xdisp, 0.75, /mean)
+        ;; Get ready to replace the edges with original pixels
+        edge_idx = where(orig_norm_xdisp lt 0.1, edge_count, complement=middle_idx)
+        ;;edge_idx = [indgen(sli_bots[i]), sli_tops[i] + indgen(sli_tops[i])]
 
         ;; For everything but comps, remove cosmic rays.  CR
         ;; removal from comps doesn't work very well because of
         ;; high contrast in good signal
         if typecodes[i] gt 2 then begin
-           template = template_create(im, normalize(med_spec))
-           ;; Do our cosmic ray removal in a separate array
-           cim = im/template
-           ;; Mark likely cosmic rays as NAN
-           badim = mark_cr(cim)
-           badidx = where(badim gt 0, count)
+           ;; Do our cosmic ray removal separately for edges and
+           ;; middle.  The edges need to be flattened by the
+           ;; cross dispersion spectrum, since there is a shape going
+           ;; down from the cut we used to define edge_idx.  We also
+           ;; need to be careful of divide by zero, so bump up by the
+           ;; minimum value
+           oim = im
+           edge_im = im
+           edge_im[*, middle_idx] = !values.f_NAN
+           min_edge = min(edge_im, /NAN)
+           edge_im -= min_edge
+           template = template_create(edge_im, orig_xdisp-min_edge)
+           edge_im = edge_im/template
+           bad_edge_im = mark_bad_pix(edge_im)
+           ;; Now do the middle
+           cim = im
+           template = template_create(im, orig_med_spec, orig_xdisp)
+           cim = cim/template
+           if edge_count gt 0 then $
+              cim[*,edge_idx] = !values.f_NAN
+           badim = mark_bad_pix(cim)
+           badidx = where(bad_edge_im+badim gt 0, count)
            if count gt 0.01*N_elements(cim) then $
               message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
            ;; Take out cosmic rays from original image
@@ -245,13 +277,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
               im[badidx] = !values.f_nan
         endif ;; not a comp
 
-        if keyword_set(TV) then display, im, /reuse
-
-        ;; For stable performance in rot_compare, use the original
-        ;; dispersion spectrum for creating the template and the
-        ;; original cross dispersion spectrum for defining bad rows
-        ssg_spec_extract, im, hdr, orig_spec, med_spec=orig_med_spec, med_xdisp=orig_norm_xdisp, /average
-        orig_norm_xdisp = normalize(orig_norm_xdisp, 0.75, /mean)
+        if keyword_set(TV) then display, im, /reuse, zoom=2
 
 
         ;;ssg_spec_extract, im, hdr, spec, xdisp, med_spec=med_spec, med_xdisp=med_xdisp, /average

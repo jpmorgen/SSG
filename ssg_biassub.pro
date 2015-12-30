@@ -19,7 +19,7 @@ pro ssg_biassub, indir
   dbopen, dbname, 0
   entries = dbfind("typecode>1", $
                    dbfind("bad<8191", $ ; < is really <=
-                          dbfind(string("dir=", indir))))
+                          dbfind(string("dir=", indir), /fullstring)))
   dbext, entries, "fname, med_bias, av_bias, stdev_bias, bad, bias_fname", files, med_biases, av_biases, stdev_biases, badarray, bias_fnames
   dbclose
 
