@@ -198,7 +198,9 @@ pro ssg_fit_sliloc, indir, VERBOSE=verbose, flat_only=flat_only, order=order, $
            sxaddpar, hdr, 'SLI_TOP', sli_tops[i], 'Slicer top edge'
            sxaddpar, hdr, 'M_SLITOP', m_sli_tops[i], 'Measured slicer top'
            sxaddpar, hdr, 'E_SLITOP', e_sli_tops[i], 'Measured slicer top error'
-           sxaddpar, hdr, 'NO_FIT', no_fits[i], 'Bitmap flag indicating use in polynomial fits'
+           sxaddpar, hdr, 'NO_FIT', no_fits[i], 'Bitmap flag indicating replacement by polynomial fits'
+           sxaddhist, string('(ssg_fit_sliloc.pro) from good measurements: 1 = slicer bottom'), hdr
+           sxaddhist, string('(ssg_fit_sliloc.pro) 2 = slicer top, 4 = camera rotation'), hdr
            sxaddpar, hdr, 'SLI_CENT', sli_cents[i], 'Best slicer center'
            sxaddpar, hdr, 'E_SLICEN', e_sli_cents[i], 'Slicer center error'
            ssgwrite, files[i], im, hdr, eim, ehdr

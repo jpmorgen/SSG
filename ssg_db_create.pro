@@ -95,7 +95,7 @@ pro ssg_db_create, outdir, ERASEDBD=newdbd, ERASEDATA=newdb, NEWINDEX=newindex
 ;; Bits indicate which to exclude
 ;; 1 = slicer bottom
 ;; 2 = slicer top
-;; 3 = camera rotation
+;; 4 = camera rotation
 
   printf, lun, 'gain		R*4		derived gain, electrons per adu'
   printf, lun, 'rdnoise		R*4		derived read noise, electrons'

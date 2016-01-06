@@ -117,6 +117,9 @@ pro ssg_raw_cp, indir, outdir, OVERWRITE=overwrite, VERBOSE=verbose
 
         entries[i] = db_entry
 
+        ;; Delete DATE keyword, which shows up in some files and is
+        ;; confusing, since it is when the file was written by IRAF
+        sxdelpar, hdr, 'DATE'
         sxaddhist, string('(ssg_raw_cp.pro) ', systime(/UTC), ' UT'), hdr
         sxaddhist, string('(ssg_raw_cp.pro) Read in RAWFILE, got proper NDAY, will write SSGFILE'), hdr
         sxaddpar, hdr, 'RAWFILE', files[i], 'Full path to raw SSG file'

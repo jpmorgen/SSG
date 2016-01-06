@@ -51,13 +51,18 @@ function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=
   ref_im=template_create(rot_im, med_xdisp)
   ;;FOM = total((rot_im - ref_im)^2, /NAN)
 
-  ;; Cut off edges
-  ;; This has to be a fairly low value (<0.5) in order to create
-  ;; contrast for the algoritm to see edges, particularly the flats
-  ;; Trying with with /data/io/ssg/reduced/1994/940714wide/, which has
-  ;; a large angle to get away from the orig_norm_xdisp, which seems
-  ;; to have biased the results
+  ;; Cut off edges.  Gives better results for days like
+  ;; /data/io/ssg/reduced/1994/940714wide/, which has a large angle,
+  ;; when I use the whole image instead of cutting along row  boundaries
   ;;bad_idx = where(orig_norm_xdisp lt 0.1, count)
+
+  ;; The cut value has to be a fairly low (<0.5) in order to create
+  ;; contrast for the algoritm to see edges, particularly the flats.
+  ;; 
+  ;; /data/io/ssg/reduced/2000/20001017 has low count rates in the
+  ;; flats and results in some high pixels off the edges when I use
+  ;; the full image method.  With cut value of 0.2 the pixels go away,
+  ;; but the angles end up being about the same.
   bad_idx = where(normalize(rot_im, 0.75) lt 0.1, count)
   if count gt 0 then $
      rot_im[bad_idx] = !values.f_NAN
@@ -70,27 +75,6 @@ function rot_compare, angle ;;, dp, im=im, ref_im=ref_im, sli_cent=sli_cent, nx=
   ;;atv, rot_im
   ;;print, angle[0], FOM
   return, FOM
-
-  ;;;;;; Try to make a reasonable penalty for being off large amounts
-  ;;;;if count gt 0 then begin
-  ;;;;   med_xdisp[bad_idx] = 1
-  ;;;;endif
-  ;;   
-  ;;
-  ;;;; Figure of merit for macro rotation.  Goes up when aligned
-  ;;;; Since we don't have flats yet for determining precise edges, work
-  ;;;; with normalize to make sure we don't divide by things that are
-  ;;;; too small
-  ;;;;ref_im = normalize(ref_im, 0.75, /mean)
-  ;;macro_FOM = total((rot_im*ref_im)^2.,/NAN)
-  ;;
-  ;;;; Now create a figure of merit that decreases when the lumps from
-  ;;;; misalignment diminish
-  ;;;;rot_im = normalize(rot_im^2)
-  ;;slicer_FOM = total(rot_im^2, /NAN)
-  ;;print, angle[0], macro_FOM, slicer_FOM, slicer_FOM-macro_FOM
-  ;;return, slicer_FOM;;-macro_FOM
-  ;;;;return, total(rot_im-ref_im,/NAN)
 
 end
 
@@ -148,6 +132,7 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
   if NOT keyword_set(review) then begin ; We really want to do all the fitting
 
      m_cam_rots[*] = !values.f_nan
+     e_cam_rots[*] = -!values.f_nan
 
      if keyword_set(showplots) then begin
         window,6
@@ -205,73 +190,143 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
         ;; from their edge values so that NAN areas don't affect the
         ;; calculations
         im = ssg_column_replace(im, column_mask, grow_mask=3)
+        eim = ssg_column_replace(eim)
 
-        ;; Borrow some code from ssg_lightsub to get rid of any
-        ;; background light problem (particularly troublesome in
-        ;; comps).  ssg_lightsub works better with the rotation
-        ;; taken out, which is why we don't do it for real before
-        ;; now.
-        edge_mask = fltarr(nx,ny)+1.
-        edge_mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
-        edge_im = im * edge_mask
-        edge_spec = fltarr(nx)
-        for ix=0,nx-1 do begin
-           ;; Calculate median only, since there is certain to be
-           ;; contamination from the wing of the light coming through
-           ;; the slicer/exit slit jaws that would mess up the average
-           edge_spec[ix] = median(edge_im[ix,*])
-        endfor ;; ix
-        ;;plot, edge_spec
-        good_idx = where(finite(edge_spec) eq 1, count)
-        if count gt 0 then begin
-           template = template_create(im, edge_spec)
-           im = im - template
-        endif
+        ;;;; Sat Jan  2 15:52:24 2016  jpmorgen@snipe
+        ;;;; Experimenting with taking this out
+        ;;;;;; Borrow some code from ssg_lightsub to get rid of any
+        ;;;;;; background light problem (particularly troublesome in
+        ;;;;;; comps).  ssg_lightsub works better with the rotation
+        ;;;;;; taken out, which is why we don't do it for real before
+        ;;;;;; now.
+        ;;;;edge_mask = fltarr(nx,ny)+1.
+        ;;;;edge_mask[*,sli_bots[i]:sli_tops[i]] = !values.f_nan
+        ;;;;edge_im = im * edge_mask
+        ;;;;edge_spec = fltarr(nx)
+        ;;;;for ix=0,nx-1 do begin
+        ;;;;   ;; Calculate median only, since there is certain to be
+        ;;;;   ;; contamination from the wing of the light coming through
+        ;;;;   ;; the slicer/exit slit jaws that would mess up the average
+        ;;;;   edge_spec[ix] = median(edge_im[ix,*])
+        ;;;;endfor ;; ix
+        ;;;;;;plot, edge_spec
+        ;;;;good_idx = where(finite(edge_spec) eq 1, count)
+        ;;;;if count gt 0 then begin
+        ;;;;   template = template_create(im, edge_spec)
+        ;;;;   im = im - template
+        ;;;;endif
 
         if keyword_set(showplots) then wset,7
 
-        
-        ;; For stable performance in rot_compare, use the original
-        ;; dispersion spectrum within the good region of the spectrum
-        ;; for creating the template and the full cross dispersion
-        ;; spectrum for defining bad rows
-        ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
-                          hdr, showplots=showplots, $
-                          med_spec=orig_med_spec, /average
-        ssg_spec_extract, im, hdr, med_xdisp=orig_xdisp, /average
-        orig_norm_xdisp = normalize(orig_xdisp, 0.75, /mean)
-        ;; Get ready to replace the edges with original pixels
-        edge_idx = where(orig_norm_xdisp lt 0.1, edge_count, complement=middle_idx)
-        ;;edge_idx = [indgen(sli_bots[i]), sli_tops[i] + indgen(sli_tops[i])]
-
-        ;; For everything but comps, remove cosmic rays.  CR
-        ;; removal from comps doesn't work very well because of
-        ;; high contrast in good signal
+        ;; For everything but comps, remove cosmic rays.  CR removal
+        ;; from comps doesn't work very well because of high contrast
+        ;; in good signal
         if typecodes[i] gt 2 then begin
+           ;;if files[i] eq '17oct0058r.fits' then begin
+           ;;   print, 'blah'
+           ;;endif
            ;; Do our cosmic ray removal separately for edges and
-           ;; middle.  The edges need to be flattened by the
-           ;; cross dispersion spectrum, since there is a shape going
-           ;; down from the cut we used to define edge_idx.  We also
-           ;; need to be careful of divide by zero, so bump up by the
-           ;; minimum value
-           oim = im
-           edge_im = im
-           edge_im[*, middle_idx] = !values.f_NAN
-           min_edge = min(edge_im, /NAN)
-           edge_im -= min_edge
-           template = template_create(edge_im, orig_xdisp-min_edge)
-           edge_im = edge_im/template
-           bad_edge_im = mark_bad_pix(edge_im)
+           ;; middle.  Finding that when flattened, the edges look a
+           ;; lot like biases.  This means I need to/can iterate,
+           ;; since the stddev is bumped up by cosmic ray hits.
+           ;; Modify code from ssg_biasgen
+           nbad = 0
+           last_nbad = nx*ny
+           oim = im ;; --> just in case I need it later
+           ;; Work with edges iteratively
+           while nbad lt last_nbad do begin
+              last_nbad = nbad
+              ;; Get full cross dispersion for flattening edges
+              ssg_spec_extract, im, hdr, med_xdisp=xdisp, /average
+              ;; Use eim to estimate where noisy part of edges are
+              ssg_spec_extract, eim, hdr, med_xdisp=exdisp, /average
+              middle_idx = where(exdisp/xdisp lt 0.1, N_middle)
+              if N_middle eq 0 then $
+                 message, 'NOTE: Errors are too large over the whole image to find middle indices.  Shutter was likely closed.'
+              ;; Construct our edge_im in which to spot cosmic rays
+              edge_im = im
+              edge_im[*, middle_idx[0]:middle_idx[N_middle-1]] = !values.f_NAN
+              ;; Don't divide by 0
+              min_edge = min(xdisp, /NAN) - 1
+              edge_im -= min_edge
+              xdisp -= min_edge
+              template = template_create(edge_im, xdisp)
+              ;; Flattens edge_im.  Ends up looking pretty much like a
+              ;; bias
+              edge_im /= template
+              ;; Mark our cosmic rays
+              sigma_im = (edge_im-median(edge_im))/stddev(edge_im, /NAN)
+              mask_im = mark_bad_pix(sigma_im, cutval=5)
+              badidx = where(mask_im gt 0, nbad)
+              if nbad gt 0 then mask_im[badidx] = !values.f_nan
+              ;; NAN out our bad pixels in original image and iterate
+              im += mask_im
+           endwhile
+
+           ;;;;; For stable performance in rot_compare, use the original
+           ;;;;; dispersion spectrum within the good region of the spectrum
+           ;;;;; for creating the template and the full cross dispersion
+           ;;;;; spectrum for defining bad rows
+           ;;;ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
+           ;;;                  hdr, showplots=showplots, $
+           ;;;                  med_spec=orig_med_spec, /average
+           ;;;ssg_spec_extract, im, hdr, med_xdisp=orig_xdisp, /average
+           ;;;orig_norm_xdisp = normalize(orig_xdisp, 0.75, /mean)
+           ;;;;; Get ready to replace the edges with original pixels
+           ;;;edge_idx = where(orig_norm_xdisp lt 0.1, edge_count, complement=middle_idx)
+           ;;;;;edge_idx = [indgen(sli_bots[i]), sli_tops[i] + indgen(sli_tops[i])]
+           ;;;
+           ;;;
+           ;;;The edges need to be flattened by the cross
+           ;;;;; dispersion spectrum, since there is a shape going down
+           ;;;;; from the cut we used to define edge_idx.
+           ;;;oim = im
+           ;;;edge_xdisp = orig_xdisp
+           ;;;;; We also need to be careful of divide by zero, so bump up
+           ;;;;; by the minimum value.
+           ;;;min_edge = min(edge_im, /NAN)
+           ;;;edge_im -= min_edge
+           ;;;orig_xdisp -= min_edge
+           ;;;
+           ;;;tmp_im = edge_im
+           ;;;   edge_im = im
+           ;;;   edge_im[*, middle_idx] = !values.f_NAN
+           ;;;   last_nbad = nbad
+           ;;;   template = template_create(edge_im, edge_xdisp)
+           ;;;   ;; This flattened edge_im
+           ;;;   edge_im /= template
+           ;;;   sigma_im = (edge_im-median(edge_im))/stddev (edge_im)
+           ;;;   ssg_spec_extract, im, hdr, med_xdisp=orig_xdisp, /average
+           ;;;endwhile
+           ;;;
+           ;;;bad_edge_im = mark_bad_pix(edge_im)
+
            ;; Now do the middle
-           cim = im
-           template = template_create(im, orig_med_spec, orig_xdisp)
-           cim = cim/template
-           if edge_count gt 0 then $
-              cim[*,edge_idx] = !values.f_NAN
-           badim = mark_bad_pix(cim)
-           badidx = where(bad_edge_im+badim gt 0, count)
-           if count gt 0.01*N_elements(cim) then $
+           ;; Get dispersion spectrum from good part of cross dispersion
+           ssg_spec_extract, im[*,sli_bots[i]:sli_tops[i]], $
+                             hdr, showplots=showplots, $
+                             med_spec=med_spec, /average
+           ;; Get good cross dispersion spectrum after edge CRs removed
+           ssg_spec_extract, im, hdr, med_xdisp=xdisp, /average
+           template = template_create(im, med_spec, xdisp)
+           norm_xdisp = normalize(xdisp, 0.75, /mean)
+           ;; Use eim to estimate where noisy part of edges are
+           ssg_spec_extract, eim, hdr, med_xdisp=exdisp, /average
+           middle_idx = where(exdisp/xdisp lt 0.1, N_middle)
+           if N_middle eq 0 then $
+              message, 'ERROR: norm_xdisp is messed up'
+           ;; Construct our edge_im in which to spot cosmic rays
+           template[*, 0:middle_idx[0]] = !values.f_NAN
+           template[*, middle_idx[N_middle-1]:ny-1] = !values.f_NAN
+
+           ;; Don't iterate here, since there is too much
+           ;; systematic variation, even after 2D template division
+           ;;sigma = template_statistic(im, template)
+           badim = mark_bad_pix(im/template, cutval=5)
+           badidx = where(badim gt 0, count)
+           if count gt 0.01*N_elements(im) then begin
               message, 'Too many hot pixels (possibly organized in lines) to make a good measurement'
+           endif
            ;; Take out cosmic rays from original image
            if count gt 0 then $
               im[badidx] = !values.f_nan
@@ -316,6 +371,8 @@ pro ssg_get_camrot, indir, VERBOSE=verbose, showplots=showplots, TV=tv, zoom=zoo
                          p0=start_angle, scale=max_angle)
         if cam_rot eq -1 then $
            message, 'ERROR: can''t get camrot on this one'
+        if abs(cam_rot) gt max_angle then $
+           message, 'NOTE: wacky cam_rot of ' + strtrim(cam_rot, 2)
         m_cam_rots[i] = cam_rot
         e_cam_rots[i] = ftol
         ngood = ngood + 1

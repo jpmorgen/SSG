@@ -101,7 +101,7 @@ pro ssg_db_init, indir, APPEND=append, DELETE=delete, NONRAW=nonraw, VERBOSE=ver
         im=ssgread(files[i], hdr) ; This will raise an error if not FITS
         test = sxpar(hdr, 'BIASSEC', count=count)
         if count eq 0 then $
-          message, 'ERROR: BIASSEC keyword is missing.  This file needs hand attention.'
+          message, 'NOTE: BIASSEC keyword is missing.  This is probably a post-processed file.'
 
         nday = sxpar(hdr, 'NDAY', count=count)
         if count gt 0 then begin

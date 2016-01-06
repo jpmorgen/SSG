@@ -262,11 +262,14 @@ pro ssg_cr_replace, indir, tv=tv, showplots=showplots, min_frac=min_frac, nonint
         im = ssg_camrot(no_NAN_im, -cam_rot, nx/2., sli_cent)
         eim = ssg_camrot(no_NAN_eim, -cam_rot, nx/2., sli_cent)
         sxaddhist, "(ssg_cr_replace.pro) Derotating im and eim, modified CAM_ROT keyword", hdr
-        sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated by ssg_cr_replace.pro'
+        sxaddhist, "(ssg_cr_replace.pro) Old CAM_ROT in OCAM_ROT keyword", hdr
+        ocamrot = sxpar(hdr, 'CAM_ROT', comment=comment)
+        sxaddpar, hdr, 'CAM_ROT', 0, 'Derotated from ' + strtrim(cam_rot, 2) + ' by ssg_cr_replace.pro'
+        sxaddpar, hdr, 'OCAM_ROT', ocamrot, comment, after='CAM_ROT'
         ;; Un-distort slices
-        im = ssg_slicer(im, hdr, /EXTRACT, /DELETE)
         sxaddhist, "(ssg_cr_replace.pro) Fixing distortions in slicer shape caused by optics", hdr
-        sxaddhist, "(ssg_cr_replace.pro) Deleted non-zero SLICER* keywords", hdr
+        sxaddhist, "(ssg_cr_replace.pro) Moving SLICER* keywords to OSLICR*", hdr
+        im = ssg_slicer(im, hdr, /EXTRACT, /DELETE)
 
         ;; NAN out bad columns using masks from ssg_column_replace,
         ;; which were produced slightly over-sized to deal with

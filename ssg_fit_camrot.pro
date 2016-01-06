@@ -130,11 +130,14 @@ pro ssg_fit_camrot, indir, VERBOSE=verbose, order=order, $
         endif else begin
            im = ssgread(files[i], hdr, eim, ehdr)
            sxaddhist, string('(ssg_fit_camrot.pro) ', systime(/UTC), ' UT'), hdr
-           sxaddhist, string('(ssg_fit_sliloc.pro) Added *CAM* keywords.  Image not modified'), hdr
+           sxaddhist, string('(ssg_fit_camrot.pro) Added *CAM* keywords.  Image not modified'), hdr
            sxaddpar, hdr, 'M_CAM_ROT', m_cam_rots[i], 'Measured camera rotation (clockwise)'
            sxaddpar, hdr, 'E_CAM_ROT', e_cam_rots[i], 'Measured camera rotation error (negative = bad measurement)'
-           sxaddpar, hdr, 'CAM_ROT', cam_rots[i], 'Best camera rotation'
-           sxaddpar, hdr, 'NO_FIT', no_fits[i], 'Bitmap flag indicating use in polynomial fits'
+           if (no_fits[i] AND 4) eq 4 then $
+              sxaddpar, hdr, 'CAM_ROT', cam_rots[i], 'Camera rotation from poly fit' $
+           else $
+              sxaddpar, hdr, 'CAM_ROT', cam_rots[i], 'Best camera rotation'
+           sxaddpar, hdr, 'NO_FIT', no_fits[i], 'Bitmap flag indicating replacement by polynomial fits'
 ;           for oi=0,order do begin
 ;              sxaddpar, hdr, string(format='("CAM_RP", i1)', oi), coefs[oi], 'poly. coef. in nday, origin= fix(nday,0)'
 ;           endfor

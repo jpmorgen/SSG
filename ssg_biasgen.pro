@@ -128,7 +128,9 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
         
         ;; Make up a bad column spotting algorithm
         ssg_spec_extract, bad_count_im, ihdr, colspec, rowspec, /total
-        bad_col = where(colspec gt 0, count)
+        ;; Had to add the ny/10 to make sure that the occational bad
+        ;; row doesn't mess things up
+        bad_col = where(colspec gt ny/10., count)
         if count gt 0 then begin
            mask_im[bad_col,*] = !values.f_nan
         endif
@@ -256,7 +258,7 @@ pro ssg_biasgen, indir, outname, plot=plot, TV=tv, sigma_cut=cutval, badcols=bad
   ;; Replace any remaining suspect pixels in the average image with
   ;; median values
 
-  badidx = where(abs(med_im - av_im) gt stdev, count)
+  badidx = where(abs(med_im - av_im) gt cutval*stdev, count)
   if count gt 0 then begin
      av_im[badidx] = med_im[badidx]
      message, /INFORMATIONAL, 'cleaned up ' + string(count) + ' pixels using median of all bias images'

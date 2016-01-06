@@ -381,6 +381,13 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      endif
      e_sli_bots[good_idx]  = sqrt(best_xdisp_peaks_errors^2 + left_error^2)
      m_sli_tops[good_idx]  = best_flat_right + best_xdisp_peaks
+     ;; Make sure slicer top doesn't go too high
+     bad_idx = where(m_sli_tops[good_idx] ge ny, count)
+     if count gt 0 then begin
+        ;; unwrap
+        bad_idx = good_idx[bad_idx]
+        m_sli_tops[bad_idx] = ny-1
+     endif
      e_sli_tops[good_idx]  = sqrt(best_xdisp_peaks_errors^2 + right_error^2)
      sli_cents [good_idx]  = (best_flat_left + best_flat_right)/2. + best_xdisp_peaks
      e_sli_cents[good_idx] = best_xdisp_peaks_errors
