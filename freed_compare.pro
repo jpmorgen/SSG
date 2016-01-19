@@ -82,19 +82,20 @@ pro freed_compare
   plot, delta, psym=!tok.dot
   ;;errplot, mndays, delta + errs/2., delta - errs/2.
   errplot, delta + errs/2., delta - errs/2.
-
+stop
   ;;oplot, mndays, mintensities-30, psym=!tok.dot
   ;;plot, ndays, intensities, psym=!tok.dot
   ;;plot, mndays, mintensities, psym=!tok.dot
 
-  plot, mintensities, intensities, psym=!tok.square
+plot, mintensities, intensities, psym=!tok.square, $
+      xtitle='Hand fit', ytitle='Machine fit'
   ;;oploterror, mintensities, $
   ;;            intensities, $
   ;;            merr_intensities, $
   ;;            err_intensities
   xaxis = indgen(30)
   oplot, xaxis, xaxis
-
+stop
   ;;plot, merr_intensities, err_intensities, psym=!tok.square
   ;;oplot, xaxis, xaxis
 

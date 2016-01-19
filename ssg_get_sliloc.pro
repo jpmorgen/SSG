@@ -184,7 +184,7 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
            left = first_peak_find(-xdisp_correlate[0:max([0,peak_idx-1])], $
                                   'right', /poly, /quiet)
            xdisp_peaks[ifiles_shift, ifile] = $
-             peak_find(xdisp_correlate[left:right], XTOL=1E5, FTOL=1E5) $
+             peak_find(xdisp_correlate[left:right], XTOL=1E5, FTOL=1E5, /quiet) $
              + left - nsteps/2.
            if keyword_set(showplots) then begin
               plot, xdisp_correlate, title=string('xdisp_correlate comparing flats ', ifile, ifiles_shift)
@@ -342,7 +342,7 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
                                'right', /poly, /quiet)
         best_xdisp_peaks[ifile] = $
           peak_find(xdisp_correlate[left:right], N_continuum=1, $
-                    XTOL=1E5, FTOL=1E5, error=error) + left - nsteps/2.
+                    XTOL=1E5, FTOL=1E5, error=error, /quiet) + left - nsteps/2.
         best_xdisp_peaks_errors[ifile] = error
      endfor
 
@@ -360,9 +360,9 @@ pro ssg_get_sliloc, indir, VERBOSE=verbose, TV=tv, showplots=showplots, zoom=zoo
      ;; first_peak_find to look at the entire flat execpt the left
      ;; peak as noise.  The signal on the flats tends to be very good
 
-     best_flat_left = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /left, error=left_error)
+     best_flat_left = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /left, error=left_error, /quiet)
      ;;best_flat_left  = first_peak_find(best_flat_d2, 'left', threshold=0.1, contrast=0.03)
-     best_flat_right = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /right, error=right_error)
+     best_flat_right = marks_edge_find(best_flat, /deviation, Secondderiv=best_flat_d2, /right, error=right_error, /quiet)
      ;;best_flat_right = first_peak_find(best_flat_d2, 'right', threshold=0.1, contrast=0.03)
      if best_flat_right - best_flat_left lt ny/10 then $
         message, 'ERROR: did not find sensible edges to the best flatfield [left, right]=[' + strtrim(left, 2) + ', ' + strtrim(right, 2)

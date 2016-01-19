@@ -71,8 +71,10 @@ pro ssg_smyth_chi2, $
    ps=ps, $
    jpeg=jpeg, $
    plot=plot, $
+   phi_plot=phi_plot, $
    sys_III_bin=sys_III_bin, $
    sys_III_offset=sys_III_offset, $
+   histogram=histogram, $
    _EXTRA=extra
 
   init = {tok_sysvar}
@@ -153,10 +155,10 @@ pro ssg_smyth_chi2, $
   
   ;; Handle each nday one at a time
   for inday=nday_start, nday_end do begin
-  ;;for inday=0,4000 do begin ;; full dataset
-  ;;for inday=406,406 do begin ;; 1991-02-11
-  ;;for inday=2806,2806 do begin ;; 1997-09-07
-  ;;for inday=3199,3199 do begin ;; 1998-10-05
+     ;;for inday=0,4000 do begin ;; full dataset
+     ;;for inday=406,406 do begin ;; 1991-02-11
+     ;;for inday=2806,2806 do begin ;; 1997-09-07
+     ;;for inday=3199,3199 do begin ;; 1998-10-05
      ;; Create the strings necessary to query the ZDBASE for nday
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
@@ -221,6 +223,7 @@ pro ssg_smyth_chi2, $
      pfo_array_append, sides, mside
 
      
+     ;; Plot individual day, if desired
      if keyword_set(plot) then begin
         ;; Initialize postscipt output
         if size(plot, /TNAME) eq 'STRING' then begin
@@ -258,7 +261,7 @@ pro ssg_smyth_chi2, $
               errplot, mlong_3[plot_idx], mintensity[plot_idx]-merr_intensity[plot_idx]/2., mintensity[plot_idx]+merr_intensity[plot_idx]/2., linestyle=!tok.solid, color=ic
               oplot, mlong_3[plot_idx], scaled_model[plot_idx], psym=!tok.triangle, color=ic
            endif
-        endfor
+        endfor ;; each phi bin
 
         if size(plot, /TNAME) eq 'STRING' then begin
            device,/close
@@ -274,10 +277,9 @@ pro ssg_smyth_chi2, $
         ;; Return color table to its original value
         tvlct, user_r, user_g, user_b
 
-     endif ;; plot
+     endif ;; plot individual days
 
-
-     endfor  ;; each nday
+  endfor  ;; each nday
 
   dbclose
 
@@ -286,12 +288,39 @@ pro ssg_smyth_chi2, $
   if keyword_set(plot) then $
      return
   
-  ;; Now plot chisq vs sysIII
+  ;; Plot chi^s vs. phi
+  if keyword_set(phi_plot) then begin
+     ;; plot histograms of chi^s vs phi
+     if keyword_set(histogram) then begin
+        ic = 1
+        plot_idx = where(phis gt 360 - sys_III_offset or $
+                         (0 lt phis and phis lt ic*sys_III_bin - sys_III_offset))
+        h = histogram(chi2s[plot_idx], binsize=1, locations=locations)
+        h /= float(N_elements(plot_idx))
+        plot, locations, h, psym=!tok.square, xtitle='chi-square', ytitle='!6Normalized histogram', position = [0.15, 0.15, 0.95, 0.95], xrange=[0,40]
+        for ic=2,360/sys_III_bin do begin
+           plot_idx = where((ic-1)*sys_III_bin - sys_III_offset lt phis and $
+                            phis lt ic*sys_III_bin - sys_III_offset)
+           h = histogram(chi2s[plot_idx], binsize=1, locations=locations)
+           h /= float(N_elements(plot_idx))
+           oplot, locations, h, psym=!tok.square, color=ic
+        endfor ;; each phi bin
+        return           
+     endif ;; Plot chi^s vs. phi
+
+     ;; If we made it here, we want to just plot all the chi2s as a
+     ;; function of phis together
+     plot, phis, chi2s, psym=!tok.square, xtitle='Io orbital phase', ytitle='!6chi-square', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
+     
+     return
+  endif
+
+  ;; If we made it here we want to plot chisq vs sysIII
 
   ;; Initialize postscipt output
   if keyword_set(ps) then begin
      if size(ps, /TNAME) ne 'STRING' then $
-       ps = 'ssg_smyth_chi2_out.ps'
+        ps = 'ssg_smyth_chi2_out.ps'
      set_plot, 'ps'
      device, /portrait, filename=ps, /color, /encap
   endif
