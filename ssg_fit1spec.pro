@@ -94,7 +94,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                   mpstep=mpstep, landscape=landscape, autofit=autofit, $
                   delta_nday=delta_nday, dispers=dispers_in, $
                   min_redchisq=min_redchisq, $
-                  min_final_redchisq=min_final_redchisq
+                  min_final_redchisq=min_final_redchisq, $
+                  no_plot=no_plot
 
   init = {ssg_sysvar}
 
@@ -124,6 +125,11 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   if N_elements(final_numlines) eq 0 then final_numlines = 4
   if N_elements(min_redchisq) eq 0 then min_redchisq = 100
   if N_elements(min_final_redchisq) eq 0 then min_final_redchisq = 10
+
+  if keyword_set(no_plot) and NOT keyword_set(autofit) then begin
+     message, /INFORMATIONAL, 'NOTE: /no_plot implies /autofit but /autofit is not set.  Setting /autofit for you.'
+     autofit = 1
+  endif
 
   if N_elements(N_continuum_in) eq 0 then N_continuum_in = 3
   N_continuum_orig = N_continuum_in
@@ -332,8 +338,10 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         message, /NONAME, !error_state.msg
      endelse ;; a real error
   endif else begin
-     ;;  This executes first
-     wset, 6
+     ;;  This executes first.  Don't change to a window if we
+     ;;  are trying to avoid plots
+     if NOT keyword_set(no_plot) then $
+        wset, 6
   endelse
 
   ;; Get our good X-axis pixels and make sure we have some data
@@ -549,14 +557,14 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
 ;        
         ;; --> I should do a limit check here just to keep mpfit happy
 
-        wset,6
-
-        sso_plot_fit, pix_axis, parinfo, spec, err_spec, $
-                      xrange=[left_wval, right_wval], yrange=yrange, $
-                      resid_yrange=resid_yrange, $
-                      title=title, xtitle=xtitle, ytitle=ytitle, $
-                      dop_axis_frac=dop_axis_frac
-
+        if NOT keyword_set(no_plot) then begin
+           wset,6
+           sso_plot_fit, pix_axis, parinfo, spec, err_spec, $
+                         xrange=[left_wval, right_wval], yrange=yrange, $
+                         resid_yrange=resid_yrange, $
+                         title=title, xtitle=xtitle, ytitle=ytitle, $
+                         dop_axis_frac=dop_axis_frac
+        endif ;; normal plotting
      endelse ;; no good data found in selected wavelength range
 
 

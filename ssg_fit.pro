@@ -7,7 +7,8 @@
 ;
 ;;-
 
-pro ssg_fit, nday_start_or_range, non_interactive=non_interactive, _EXTRA=extra
+pro ssg_fit, nday_start_or_range, non_interactive=non_interactive, $
+             no_plot=no_plot, _EXTRA=extra
 
                                 ;ON_ERROR, 2
   if NOT keyword_set(nday_start_or_range) then $
@@ -25,8 +26,10 @@ pro ssg_fit, nday_start_or_range, non_interactive=non_interactive, _EXTRA=extra
      ;; Fit each one, one by one, passing on command-line parameters
      ;; throught the _EXTRA mechanism
      for inday=0, nndays-1 do begin
-        ;; Make a window the first time through.  Code in 
-        if keyword_set(first_time) then $
+        ;; Make a window the first time through unless you
+        ;; don't want a window.  Code in ssg_fit1spec wsets to
+        ;; this window if no_plot is not set
+        if keyword_set(first_time) and NOT keyword_set(no_plot) then $
            window, 6, Title='SSG Fitting Window'
         first_time = 0
 
@@ -38,7 +41,7 @@ pro ssg_fit, nday_start_or_range, non_interactive=non_interactive, _EXTRA=extra
            CONTINUE
         endif
 
-        ssg_fit1spec, ndays[inday], autofit=(nndays gt 1), _EXTRA=extra
+        ssg_fit1spec, ndays[inday], autofit=(nndays gt 1), no_plot=no_plot, _EXTRA=extra
 
      endfor ;; each spectrum to be fitted
 
