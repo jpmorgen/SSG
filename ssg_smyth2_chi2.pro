@@ -61,7 +61,7 @@
 ; Initial revision
 ;
 ;-
-pro ssg_smyth_chi2, $
+pro ssg_smyth2_chi2, $
    nday1=nday, $
    ndays=ndays, $
    chi2s=chi2s, $
@@ -134,8 +134,9 @@ pro ssg_smyth_chi2, $
 
   ;; Read in the model results
   model_top = !ssg.top + path_sep() + 'analysis' + path_sep() + 'max' +  path_sep()
+  ;; Same template as previous results
   restore, model_top + 'britfil.dM2915.1line_template.sav'
-  model = read_ascii(model_top + 'britfil.dM2915.1line', template=model_template)
+  model = read_ascii(model_top + 'brit_set2_F1616.1line', template=model_template)
   ;; jdcnv provides answers in double precision, which have trouble
   ;; converting to integers the way I want, so tweak the hours a
   ;; little bit off of zero and then take the floor
@@ -143,14 +144,18 @@ pro ssg_smyth_chi2, $
   model_indays = floor(model_jds - !ssg.JDnday0)
 
   dbclose ;; just in case
-  dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
+  adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
 
-  ;; Find all the Io [OI] measurements
-  Io_OI = dbfind(/silent, "intensity>0.001", $             ;; screen out junk
-                 dbfind(/silent, "lambda=6300", $ ;; make sure we have the right line
-                        dbfind(/silent, "obj_code=1")))   ;; Io
-
-  print, 'Total number of Io [OI] points: ', N_elements(Io_OI)
+  dbopen, adbname, 0
+  oentries = dbfind("obj_code=1", dbfind("redchisq<5"))
+  aentries = oentries
+  lentries = dbfind("nn_DOWL<-50", oentries)
+  hentries = dbfind("nn_DOWL>50", oentries)
+  aentries = [lentries, hentries]
+  dbext, aentries, "nday, weq, err_weq, ip, intensity, err_intensity, alf, delta, wc, err_wc", ndays, weqs, err_weqs, ips, intensities, err_intensities, alfs, deltas, wcs, err_wcs
+  dbext, aentries, "nn_DOWL, nn_ew, nn_Dw, nn_Lw, redchisq", nn_DOWLs, nn_ews, nn_Dws, nn_Lws, redchisqs
+  
+  print, 'Total number of Io [OI] points: ', N_elements(aentries)
 
   
   ;; Handle each nday one at a time
@@ -163,7 +168,7 @@ pro ssg_smyth_chi2, $
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
      OI = dbfind(/silent, ndayl, $ ;; correct nday
-                 dbfind(/silent, ndayh, Io_OI), $
+                 dbfind(/silent, ndayh, aentries), $
                  count=data_count)
 
      ;; Don't bother with ndays unless they have at least 3 points
@@ -185,8 +190,10 @@ pro ssg_smyth_chi2, $
      endif
      ;; Check to make sure we are really lined up
      if data_count ne model_count then begin
-        if data_count lt model_count then $
-           message, 'ERROR: fewer data points than model points.  Something is not right'
+        if data_count lt model_count then begin
+           message, 'ERROR: ' + strtrim(data_count, 2) + ' data points ' + strtrim(model_count, 2) + ' model points.  Something is not right', /CONTINUE
+           CONTINUE
+        endif
         message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
         align_idx = 'None'
         for imodel=0, model_count-1 do begin

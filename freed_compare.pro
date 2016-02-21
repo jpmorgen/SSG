@@ -43,6 +43,12 @@ pro freed_compare
 
   mdb = 'io6300_integrated'
   dbopen, mdb
+  ;;entries=dbfind("err_intensity<10", $
+  ;;               dbfind("intensity>0.001", $
+  ;;                      dbfind("lambda=6300", $
+  ;;                             dbfind("obj_code=1", $
+  ;;                                    dbfind("nday>3571", $
+  ;;                                          dbfind("nday<3573"))))), count=N_m)
   entries=dbfind("err_intensity<10", $
                  dbfind("intensity>0.001", $
                         dbfind("lambda=6300", $
@@ -50,8 +56,8 @@ pro freed_compare
   dbext, entries, 'nday, LONG_3, phi, intensity, err_intensity', mndays, mLONG_3s, mphis, mintensities, merr_intensities
   dbclose
 
-  ;;adbname = 'io_oi_analyze'
-  adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
+  adbname = 'io_oi_analyze'
+  ;;adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
   dbopen, adbname, 0
 
   for im=0, N_m-1 do begin

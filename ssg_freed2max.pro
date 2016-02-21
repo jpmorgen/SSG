@@ -51,7 +51,10 @@ pro ssg_freed2max
 
   ;;for i=0,1 do print, format='(f11.4, f14.4, f16.6, f15.6, a6, a6, a6)', mlong_3[i], mphi[i], mintensity[i], merr_intensity[i], date[i]
 
-  for i=0,N_elements(mphi)-1 do print, format='(f11.4, f14.4, f16.6, f15.6, a6, a6, a6, a12)', mlong_3[i], mphi[i], mintensity[i], merr_intensity[i], date[i], mtime[i]
+  print, 'Melaine Freed reduction of Io [OI] 6300 observations.  All observations with brightness > 0.001 kR, error < 10 kR system 3'
+  print, 'system 3	 Io phase	brightness (kR) error (kR)year   month	day	UT	nday'
+
+  for i=0,N_elements(mphi)-1 do print, format='(f11.4, f14.4, f16.6, f15.6, a6, a6, a6, a12, f11.4)', mlong_3[i], mphi[i], mintensity[i], merr_intensity[i], date[i], mtime[i], mnday[i]
 
   dbclose
 end
