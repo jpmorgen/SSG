@@ -343,6 +343,12 @@ pro ssg_smyth_chi2, $
   ic = 1
   plot_idx = where(phis gt 360 - sys_III_offset or $
                    (0 lt phis and phis lt ic*sys_III_bin - sys_III_offset))
+  pfo_array_append, legend_colors, ic
+  pfo_array_append, legend_text, $
+                    string(format='(i4, " < !4u!6 < ", i4)', $
+                           360 - sys_III_offset, $
+                           ic*sys_III_bin - sys_III_offset)
+
   ;;wset,ic
   ;;plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle=string('chi-square'), yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, /ylog
   plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle='!6chi-square', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
@@ -355,7 +361,15 @@ pro ssg_smyth_chi2, $
      ;; if !d.name eq 'X' then $
      ;;    wset, ic
      ;; plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle=string('chi-square, phi = ', 45*(ic-1), 45*ic), yrange=minmax(chi2s), color=ic, xtickinterval=90, position = [0.15, 0.15, 0.9, 0.9]
+     pfo_array_append, legend_colors, ic
+     pfo_array_append, legend_text, $
+                       string(format='(i4, " < !4u!6 < ", i4)', $
+                              (ic-1)*sys_III_bin - sys_III_offset, $
+                              ic*sys_III_bin - sys_III_offset)
   endfor
+
+  al_legend, legend_text, $
+             psym=replicate(!tok.triangle, N_elements(legend_colors)), colors=byte(legend_colors)
 
   if keyword_set(ps) then begin
      device,/close
