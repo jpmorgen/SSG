@@ -62,6 +62,7 @@
 ;
 ;-
 pro ssg_smyth_chi2, $
+   freed=freed, $ ;; Use Melanie's database
    nday1=nday, $
    ndays=ndays, $
    chi2s=chi2s, $
@@ -134,8 +135,14 @@ pro ssg_smyth_chi2, $
 
   ;; Read in the model results
   model_top = !ssg.top + path_sep() + 'analysis' + path_sep() + 'max' +  path_sep()
+  ;; Max provides model results in consistent format, but I need to
+  ;; make it into a 1-line format
   restore, model_top + 'britfil.dM2915.1line_template.sav'
-  model = read_ascii(model_top + 'britfil.dM2915.1line', template=model_template)
+  if keyword_set(freed) then $
+     model = read_ascii(model_top + 'britfil.dM2915.1line', template=model_template) $
+  else $
+     model = read_ascii(model_top + 'brit_set2_F1616.1line', template=model_template)
+
   ;; jdcnv provides answers in double precision, which have trouble
   ;; converting to integers the way I want, so tweak the hours a
   ;; little bit off of zero and then take the floor
@@ -143,14 +150,29 @@ pro ssg_smyth_chi2, $
   model_indays = floor(model_jds - !ssg.JDnday0)
 
   dbclose ;; just in case
-  dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
+  if keyword_set(freed) then begin
+     dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
 
-  ;; Find all the Io [OI] measurements
-  Io_OI = dbfind(/silent, "intensity>0.001", $             ;; screen out junk
-                 dbfind(/silent, "lambda=6300", $ ;; make sure we have the right line
-                        dbfind(/silent, "obj_code=1")))   ;; Io
+     ;; Find all the Io [OI] measurements
+     aentries = dbfind(/silent, "intensity>0.001", $          ;; screen out junk
+                       dbfind(/silent, "lambda=6300", $       ;; make sure we have the right line
+                              dbfind(/silent, "obj_code=1"))) ;; Io
+  endif else begin ;; freed
+     ;; --> I will want to change this to the latest, once Max gets the
+     ;; latest fitted
+     adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
+     dbopen, adbname, 0
+     oentries = dbfind("obj_code=1", dbfind("redchisq<5"))
+     aentries = oentries
+     lentries = dbfind("nn_DOWL<-50", oentries)
+     hentries = dbfind("nn_DOWL>50", oentries)
+     aentries = [lentries, hentries]
+  endelse ;; freed vs. machine
 
-  print, 'Total number of Io [OI] points: ', N_elements(Io_OI)
+  dbext, aentries, "nday, weq, err_weq, ip, intensity, err_intensity, alf, delta, wc, err_wc", ndays, weqs, err_weqs, ips, intensities, err_intensities, alfs, deltas, wcs, err_wcs
+  ;;dbext, aentries, "nn_DOWL, nn_ew, nn_Dw, nn_Lw, redchisq", nn_DOWLs, nn_ews, nn_Dws, nn_Lws, redchisqs
+  
+  print, 'Total number of Io [OI] points: ', N_elements(aentries)
 
   
   ;; Handle each nday one at a time
@@ -163,7 +185,7 @@ pro ssg_smyth_chi2, $
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
      OI = dbfind(/silent, ndayl, $ ;; correct nday
-                 dbfind(/silent, ndayh, Io_OI), $
+                 dbfind(/silent, ndayh, aentries), $
                  count=data_count)
 
      ;; Don't bother with ndays unless they have at least 3 points
@@ -185,28 +207,41 @@ pro ssg_smyth_chi2, $
      endif
      ;; Check to make sure we are really lined up
      if data_count ne model_count then begin
-        if data_count lt model_count then $
-           message, 'ERROR: fewer data points than model points.  Something is not right'
-        message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
-        align_idx = 'None'
-        for imodel=0, model_count-1 do begin
-           this_align_idx = where(abs(model.data[model_nday_idx[imodel]] - mintensity) $
-                                  le intensity_tolerance, count)
-           if count eq 0 then $
-              message, 'ERROR: no data point found to match model point ' + strtrim(model.data[imodel], 2)
-           pfo_array_append, align_idx, this_align_idx
-        endfor
-        mnday          = mnday         [align_idx]
-        mlong_3        = mlong_3       [align_idx]
-        mintensity     = mintensity    [align_idx]
-        merr_intensity = merr_intensity[align_idx]
-        mfcont         = mfcont        [align_idx]
-        merr_fcont     = merr_fcont    [align_idx]
-        mwc            = mwc           [align_idx]
-        merr_wc        = merr_wc       [align_idx]
-        mphi           = mphi          [align_idx]
-        mside          = mside         [align_idx]
-     endif
+        if data_count lt model_count then begin
+           message, 'WARNING: ' + strtrim(data_count, 2) + ' data points ' + strtrim(model_count, 2) + ' model points.  Aligning to data', /CONTINUE
+           align_idx = 'None'
+           for idata=0, data_count-1 do begin
+              this_align_idx = where(abs(model.data[model_nday_idx] - mintensity[idata]) $
+                                     le intensity_tolerance, count)
+              if count eq 0 then begin
+                 message, 'WARNING: no model point found to match data point ' + strtrim(mintensity[idata], 2), /CONTINUE
+                 CONTINUE
+              endif ;; no match
+              pfo_array_append, align_idx, this_align_idx
+           endfor ;; idata
+           model_nday_idx = model_nday_idx[align_idx]
+        endif else begin
+           message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
+           align_idx = 'None'
+           for imodel=0, model_count-1 do begin
+              this_align_idx = where(abs(model.data[model_nday_idx[imodel]] - mintensity) $
+                                     le intensity_tolerance, count)
+              if count eq 0 then $
+                 message, 'ERROR: no data point found to match model point ' + strtrim(model.data[imodel], 2)
+              pfo_array_append, align_idx, this_align_idx
+           endfor ;; imodel
+           mnday          = mnday         [align_idx]
+           mlong_3        = mlong_3       [align_idx]
+           mintensity     = mintensity    [align_idx]
+           merr_intensity = merr_intensity[align_idx]
+           mfcont         = mfcont        [align_idx]
+           merr_fcont     = merr_fcont    [align_idx]
+           mwc            = mwc           [align_idx]
+           merr_wc        = merr_wc       [align_idx]
+           mphi           = mphi          [align_idx]
+           mside          = mside         [align_idx]
+        endelse ;; aligning to model
+     endif ;; aligning to data vs. model
      ;; Make a new variable, scaled_model, which is the raw model
      ;; multiplied by the scale factor which we will compare to the
      ;; data.  All indices into scaled_model will match those into
@@ -232,7 +267,7 @@ pro ssg_smyth_chi2, $
         endif
 
         ic = 1
-        format = '(i4, "/", i2, "/", i2, " Scale ", f3.1, "x10^15 !4u!6", i4, " -", i4)'
+        format = '(i4, "/", i2, "/", i2, " Scale ", f3.1, "x10^15 !7u!6", i4, " -", i4)'
         title = string(format=format, $
                        model.year[model_nday_idx[0]], $
                        model.month[model_nday_idx[0]], $
@@ -241,7 +276,7 @@ pro ssg_smyth_chi2, $
                        phis[0], phis[N_elements(phis)-1])
         plot, [0], [0], psym=!tok.dot, $
               xtickinterval=90, xrange=[0,360], yrange=[0,25], $
-              xtitle='!4k!6!DIII!N', ytitle='Io [OI] 6300 !3' + !tok.angstrom + ' !6(kR)', $
+              xtitle='!7k!6!DIII!N', ytitle='Io [OI] 6300 !3' + !tok.angstrom + ' !6(kR)', $
               title=title, position = [0.11, 0.15, 0.95, 0.9]
         
         ;; --> technically, this should be mphis, but I just do things
@@ -251,7 +286,7 @@ pro ssg_smyth_chi2, $
         if count gt 0 then begin
            pfo_array_append, legend_colors, ic
            pfo_array_append, legend_text, $
-                             string(format='(i4, " < !4u!6 < ", i4)', $
+                             string(format='(i4, " < !7u!6 < ", i4)', $
                                     360 - sys_III_offset, $
                                     ic*sys_III_bin - sys_III_offset)
            oplot, mlong_3[plot_idx], mintensity[plot_idx], psym=!tok.plus
@@ -264,7 +299,7 @@ pro ssg_smyth_chi2, $
            if count gt 0 then begin
               pfo_array_append, legend_colors, ic
               pfo_array_append, legend_text, $
-                                string(format='(i4, " < !4u!6 < ", i4)', $
+                                string(format='(i4, " < !7u!6 < ", i4)', $
                                        (ic-1)*sys_III_bin - sys_III_offset, $
                                        ic*sys_III_bin - sys_III_offset)
               oplot, mlong_3[plot_idx], mintensity[plot_idx], psym=!tok.plus, color=ic
@@ -323,7 +358,7 @@ pro ssg_smyth_chi2, $
 
      ;; If we made it here, we want to just plot all the chi2s as a
      ;; function of phis together
-     plot, phis, chi2s, psym=!tok.square, xtitle='Io orbital phase', ytitle='!6chi-square', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
+     plot, phis, chi2s, psym=!tok.square, xtitle='Io orbital phase', ytitle='!7v!6!U2!N!6chi-square', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
      
      return
   endif
@@ -351,7 +386,7 @@ pro ssg_smyth_chi2, $
 
   ;;wset,ic
   ;;plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle=string('chi-square'), yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, /ylog
-  plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle='!6chi-square', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
+  plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='!7k!6!DIII!N', ytitle='!7v!6!U2!N!6', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
   ;;plot, [0,360],[0,0], psym=!tok.dot, xtitle='System III', ytitle='!6chi-square', yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.9, 0.9]
   ;;oplot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, color=8
   for ic=2,360/sys_III_bin do begin
