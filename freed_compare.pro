@@ -88,7 +88,7 @@ pro freed_compare
   plot, delta, psym=!tok.dot
   ;;errplot, mndays, delta + errs/2., delta - errs/2.
   errplot, delta + errs/2., delta - errs/2.
-stop
+;;stop
   ;;oplot, mndays, mintensities-30, psym=!tok.dot
   ;;plot, ndays, intensities, psym=!tok.dot
   ;;plot, mndays, mintensities, psym=!tok.dot

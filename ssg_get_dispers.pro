@@ -480,6 +480,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
                        xtitle='Pixels ref to center of image', $
                        ytitle=string(sxpar(hdr, 'BUNIT')), $
                        xstyle=2, ystyle=2
+                 wait, 2
               endif
            endrep until end_of_loop
 

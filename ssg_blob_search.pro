@@ -80,6 +80,8 @@ pro ssg_blob_search, $
    blob_plot=blob_plot, $
    ps=ps, $
    jpeg=jpeg, $
+   N_ndays=N_ndays, $ ;; number of points per nday
+   indays=indays, $ ;; integer nday
    _EXTRA=extra ; args to plot or first_peak_find
 
   init = {tok_sysvar}
@@ -227,6 +229,11 @@ pro ssg_blob_search, $
      endif
 
      N_nday = N_elements(mnday)
+     ;; Tue Mar 22 15:58:01 2016  jpmorgen@snipe
+     ;; Save off the number of points on each day for statistical purposes
+     pfo_array_append, N_ndays, N_nday
+     pfo_array_append, indays, inday
+
      idx = indgen(N_nday)
      ;; Find time differences between adjacent points
      nday_diff = mnday[idx[1:N_nday-1]] - mnday[idx[0:N_nday-2]]

@@ -168,7 +168,10 @@ pro ssg_smyth_chi2, $
   print, 'Total number of Freed Io [OI] points: ', N_elements(mentries)
   print, 'Total number of autofit Io [OI] points: ', N_elements(aentries)
 
-  
+  ;; Sat Apr  9 20:01:16 2016  jpmorgen@byted
+  ;; See if I can fix Max's scale problems by preferring Melanie's,
+  ;; where available.  Data points will be selected the other way
+ 
   ;; Handle each nday one at a time
   for inday=nday_start, nday_end do begin
      ;;for inday=0,4000 do begin ;; full dataset
@@ -191,8 +194,10 @@ pro ssg_smyth_chi2, $
      print, 'NDAY = ', inday
 
      ;; Extract quantities we care about.
+     ;; Mon Apr  4 14:00:34 2016  jpmorgen@byted
+     ;; --> Problem with Max's model scale factor when set to 2.3?
      if mdata_count gt adata_count + 10 or adata_count lt 5 then begin
-        ;; Melanie's has more 
+     ;;if mdata_count gt adata_count then begin        ;; Melanie's has more 
         data_count = mdata_count
         dbext, OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
         ;; ndays is causing trouble if not matched in type.  Make it
