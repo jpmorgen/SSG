@@ -491,7 +491,6 @@ model_spec[line_idx] = spec[line_idx]
                        xtitle='Pixels ref to center of image', $
                        ytitle=string(sxpar(hdr, 'BUNIT')), $
                        xstyle=2, ystyle=2
-                 wait, 2
               endif
            endrep until end_of_loop
 
