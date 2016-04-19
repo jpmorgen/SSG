@@ -289,7 +289,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
   ;; Get all the files in the directory so we can mark camrot as not
 
   ;; measured on the ones where we can't measure it.
-  entries = dbfind("typecode=2", $
+  entries = dbfind("typecode=2", $f
                    dbfind("bad<2047", $ ; < is really <=
                           dbfind(string("dir=", indir), /fullstring)))
 
@@ -407,7 +407,7 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
                                N_continuum)
 
            model_spec=dblarr(good_count)
-
+;---Mark start here
            ;; Fit Voigt functions to the comp spectrum
            !p.multi = [0,0,2]
            repeat begin
@@ -448,10 +448,21 @@ pro ssg_get_dispers, indir, VERBOSE=verbose, plot=plot, TV=tv, atlas=atlas, disp
                     vps = [vps, params[N_continuum:n_params-1]]
                  endelse
               endelse
-              model_spec = voigt_spec(pix_axis, $
-                                      [params[0:N_continuum-1], vps], $
-                                      N_continuum=N_continuum)
-              red_chisq = total((spec[*] - model_spec[*])^2)/ $
+line_spec = voigt_spec(pix_axis, $
+                        vps, $
+                        N_continuum=0)
+line_idx = where(line_spec/max(line_spec) gt 1E-3)
+;; Make continuum
+cont=0
+for n=0,N_continuum-1 do begin
+     cont = cont + params[n]*pix_axis^n
+endfor
+model_spec = cont
+model_spec[line_idx] = spec[line_idx]
+             ; model_spec = voigt_spec(pix_axis, $
+             ;                        [params[0:N_continuum-1], vps], $
+             ;                         N_continuum=N_continuum)
+             red_chisq = total((spec[*] - model_spec[*])^2)/ $
                           (N_continuum + n_lines*param_per_voigt)
 
               end_of_loop = old_red_chisq ge red_chisq or $
