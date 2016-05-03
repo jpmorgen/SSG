@@ -64,7 +64,7 @@ pro ssg_data2max
   ;; --> Go for the gusto!  Include everything!
   aentries = oentries
   dbext, aentries, 'date, nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', dates, ndays, long_3s, intensities, err_intensities, fconts, err_fconts, wcs, err_wcs
-  dbext, aentries, 'weq, err_weq, ip, time', weqs, err_weqs, ips, times
+  dbext, aentries, 'weq, err_weq, ip, time, nn_DOWL', weqs, err_weqs, ips, times, nn_DOWLs
   
   dbext, aentries, 'nrows, numlines, deldot, deldot_m, err_deldot_m', nrows, numlines, deldot, deldot_m, err_deldot_m
   dbext, aentries, 'phi', phis
@@ -89,9 +89,9 @@ pro ssg_data2max
 
   
   print, $
-'system 3	 Io phase	brightness (kR) error (kR)year   month	day	UT	nday'
+'system 3	 Io phase	brightness (kR) error (kR)year   month	day	UT	nday      nearest neighbor (mA)'
   ;;for i=0,1 do print, format='(f11.4, f14.4, f16.6, f15.6, a16, a16, a16)', long_3s[i], phis[i], intensities[i], err_intensities[i], dates[i]
 
-  for i=0,N_pts-1 do print, format='(f11.4, f14.4, f16.6, f15.6, a6, a6, a6, a12, f11.4)', long_3s[good_idx[i]], phis[good_idx[i]], intensities[good_idx[i]], err_intensities[good_idx[i]], dates[good_idx[i]], times[good_idx[i]], ndays[good_idx[i]]
+  for i=0,N_pts-1 do print, format='(f11.4, f14.4, f16.6, f15.6, a6, a6, a6, a12, f11.4, f11.4)', long_3s[good_idx[i]], phis[good_idx[i]], intensities[good_idx[i]], err_intensities[good_idx[i]], dates[good_idx[i]], times[good_idx[i]], ndays[good_idx[i]], nn_DOWLs[good_idx[i]]
 
 end
