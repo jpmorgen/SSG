@@ -84,14 +84,20 @@ pro ssg_smyth_chi2, $
 
   ;; Make default nday behavior the whole range.  If just nday
   ;; is specified, only do that one day.
-  if N_elements(nday) eq 0 then begin
-     nday_start = 0
-     nday_end = 4000
-  endif else begin
-     nday_start = floor(nday)
-     nday_end = nday_start
-  endelse
-  
+  case N_elements(nday) of
+     0: begin
+        nday_start = 0
+        nday_end = 4000
+     end
+     1: begin
+        nday_start = floor(nday)
+        nday_end = nday_start
+     end
+     2: begin
+        nday_start = floor(nday[0])
+        nday_end = ceil(nday[1])
+     end
+  endcase  
   
   if N_elements(sys_III_bin) eq 0 then $
      sys_III_bin = 90
@@ -150,14 +156,32 @@ pro ssg_smyth_chi2, $
   dbopen, adbname, 0
   oentries = dbfind("obj_code=1", dbfind("redchisq<5"))
   aentries = oentries
+  ;; --> I want to ammend this when I use the April 2016
+  ;; version because I don't filter based on nn_DOWL
   lentries = dbfind("nn_DOWL<-50", oentries)
   hentries = dbfind("nn_DOWL>50", oentries)
   aentries = [lentries, hentries]
+  Nae = N_elements(aentries)
+  bad_idx = where((aentries[1:Nae-1] - aentries[0:Nae-2]) lt 0, count)
+  print, count
   ;; Extract the autofit entries once
   dbext, aentries, "nday, long_3, phi, intensity, err_intensity, alf, delta, wc, err_wc", andays, along_3s, aphis, aintensities, aerr_intensities, aalfs, adeltas, awcs, aerr_wcs
   ;;dbext, aentries, "nn_DOWL, nn_ew, nn_Dw, nn_Lw, redchisq", nn_DOWLs, nn_ews, nn_Dws, nn_Lws, redchisqs
   dbclose
 
+  ;; Sort on nday here and apply that to all extracted quantities to
+  ;; make sure everything is in the same order as Max's file
+  sort_idx = sort(andays)
+  andays                = andays[sort_idx]
+  along_3s              = along_3s[sort_idx]        
+  aphis                 = aphis[sort_idx]           
+  aintensities          = aintensities[sort_idx]    
+  aerr_intensities      = aerr_intensities[sort_idx]
+  aalfs                 = aalfs[sort_idx]           
+  adeltas               = adeltas[sort_idx]         
+  awcs                  = awcs[sort_idx]            
+  aerr_wcs              = aerr_wcs[sort_idx]        
+  
   ;; Open Melanie's database and keep it open
   dbopen,'/data/io/ssg/analysis/mef/database/io6300_integrated'
   ;; Find all the Io [OI] measurements
@@ -196,8 +220,13 @@ pro ssg_smyth_chi2, $
      ;; Extract quantities we care about.
      ;; Mon Apr  4 14:00:34 2016  jpmorgen@byted
      ;; --> Problem with Max's model scale factor when set to 2.3?
-     if mdata_count gt adata_count + 10 or adata_count lt 5 then begin
-     ;;if mdata_count gt adata_count then begin        ;; Melanie's has more 
+     ;;if mdata_count gt adata_count + 10 or adata_count lt 5 then begin
+     if mdata_count gt adata_count then begin        ;; Melanie's has more 
+     ;; Temporarily take out Melanie's results
+     ;;if adata_count eq 0 then begin
+        ;;print, 'No autofit data for this date'
+        ;;CONTINUE
+        print, 'Using Freed database'
         data_count = mdata_count
         dbext, OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
         ;; ndays is causing trouble if not matched in type.  Make it
@@ -210,6 +239,7 @@ pro ssg_smyth_chi2, $
      endif else begin
         ;; Autofit has more.  Stuff things into m* variables, since
         ;; they are used below
+        print, 'Using autofit database'
         data_count = adata_count
         mnday          = andays        [aidx]
         mlong_3        = along_3s       [aidx]
@@ -224,6 +254,8 @@ pro ssg_smyth_chi2, $
         ;; Switch to the autofit model
         model = amodel
      endelse
+
+     
 
      ;; Find our overlap between the model and this nday
 
@@ -240,42 +272,47 @@ pro ssg_smyth_chi2, $
      endif
      ;; Check to make sure we are really lined up
      if data_count ne model_count then begin
-        if data_count lt model_count then begin
-           message, 'WARNING: ' + strtrim(data_count, 2) + ' data points ' + strtrim(model_count, 2) + ' model points.  Aligning to data', /CONTINUE
-           align_idx = 'None'
-           for idata=0, data_count-1 do begin
-              this_align_idx = where(abs(model.data[model_nday_idx] - mintensity[idata]) $
-                                     le intensity_tolerance, count)
-              if count eq 0 then begin
-                 message, 'WARNING: no model point found to match data point ' + strtrim(mintensity[idata], 2), /CONTINUE
-                 CONTINUE
-              endif ;; no match
-              pfo_array_append, align_idx, this_align_idx
-           endfor ;; idata
-           model_nday_idx = model_nday_idx[align_idx]
-        endif else begin
-           message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
-           align_idx = 'None'
-           for imodel=0, model_count-1 do begin
-              this_align_idx = where(abs(model.data[model_nday_idx[imodel]] - mintensity) $
-                                     le intensity_tolerance, count)
-              if count eq 0 then begin
-                 message, 'WARNING (for now): no data point found to match model point ' + strtrim(model.data[imodel], 2), /CONTINUE
-                 CONTINUE
-              endif
-              pfo_array_append, align_idx, this_align_idx
-           endfor ;; imodel
-           mnday          = mnday         [align_idx]
-           mlong_3        = mlong_3       [align_idx]
-           mintensity     = mintensity    [align_idx]
-           merr_intensity = merr_intensity[align_idx]
-           ;;mfcont         = mfcont        [align_idx]
-           ;;merr_fcont     = merr_fcont    [align_idx]
-           ;;mwc            = mwc           [align_idx]
-           ;;merr_wc        = merr_wc       [align_idx]
-           mphi           = mphi          [align_idx]
-           ;;mside          = mside         [align_idx]
-        endelse ;; aligning to model
+        ;; aligning to data barfed for the case of 2841, which had
+        ;; missing data and missing model (not sure what that is all about).
+        ;;if data_count lt model_count then begin
+        ;;   message, 'WARNING: ' + strtrim(data_count, 2) + ' data points ' + strtrim(model_count, 2) + ' model points.  Aligning to data', /CONTINUE
+        ;;   align_idx = 'None'
+        ;;   for idata=0, data_count-1 do begin
+        ;;      ;; Create an index into model_nday_idx for model points
+        ;;      ;; that match the data
+        ;;      this_align_idx = where(abs(model.data[model_nday_idx] - mintensity[idata]) $
+        ;;                             le intensity_tolerance, count)
+        ;;      if count eq 0 then begin
+        ;;         message, 'WARNING: no model point found to match data point ' + strtrim(mintensity[idata], 2), /CONTINUE
+        ;;         CONTINUE
+        ;;      endif ;; no match
+        ;;      pfo_array_append, align_idx, this_align_idx
+        ;;   endfor ;; idata
+        ;;   model_nday_idx = model_nday_idx[align_idx]
+        ;;endif else begin
+        ;; Just align to the model for now
+        message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
+        align_idx = 'None'
+        for imodel=0, model_count-1 do begin
+           this_align_idx = where(abs(model.data[model_nday_idx[imodel]] - mintensity) $
+                                  le intensity_tolerance, count)
+           if count eq 0 then begin
+              message, 'WARNING (for now): no data point found to match model point ' + strtrim(model.data[imodel], 2), /CONTINUE
+              CONTINUE
+           endif
+           pfo_array_append, align_idx, this_align_idx
+        endfor ;; imodel
+        mnday          = mnday         [align_idx]
+        mlong_3        = mlong_3       [align_idx]
+        mintensity     = mintensity    [align_idx]
+        merr_intensity = merr_intensity[align_idx]
+        ;;mfcont         = mfcont        [align_idx]
+        ;;merr_fcont     = merr_fcont    [align_idx]
+        ;;mwc            = mwc           [align_idx]
+        ;;merr_wc        = merr_wc       [align_idx]
+        mphi           = mphi          [align_idx]
+        ;;mside          = mside         [align_idx]
+        ;;endelse ;; aligning to model
      endif ;; aligning to data vs. model
      ;; Make a new variable, scaled_model, which is the raw model
      ;; multiplied by the scale factor which we will compare to the
@@ -314,6 +351,9 @@ pro ssg_smyth_chi2, $
               xtitle='!7k!6!DIII!N', ytitle='Io [OI] 6300 !3' + !tok.angstrom + ' !6(kR)', $
               title=title, position = [0.11, 0.15, 0.95, 0.9]
         
+        ;; Temperarily calculated chi2 so I can plot that to see why I
+        ;; am not seeing some of the days I used to see on the chi2 plot
+        ;;chi2 = ((mintensity - scaled_model) / merr_intensity)^2.
         ;; --> technically, this should be mphis, but I just do things
         ;; one day at a time for now, so this will work...
         plot_idx = where(phis gt 360 - sys_III_offset or $
@@ -327,6 +367,7 @@ pro ssg_smyth_chi2, $
            oplot, mlong_3[plot_idx], mintensity[plot_idx], psym=!tok.plus
            errplot, mlong_3[plot_idx], mintensity[plot_idx]-merr_intensity[plot_idx]/2., mintensity[plot_idx]+merr_intensity[plot_idx]/2., linestyle=!tok.solid
            oplot, mlong_3[plot_idx], scaled_model[plot_idx], psym=!tok.triangle
+           oplot, mlong_3[plot_idx], chi2s[plot_idx]/10., psym=!tok.square, color=!tok.orange
         endif
         for ic=2,360/sys_III_bin do begin
            plot_idx = where((ic-1)*sys_III_bin - sys_III_offset lt phis and $
@@ -340,6 +381,7 @@ pro ssg_smyth_chi2, $
               oplot, mlong_3[plot_idx], mintensity[plot_idx], psym=!tok.plus, color=ic
               errplot, mlong_3[plot_idx], mintensity[plot_idx]-merr_intensity[plot_idx]/2., mintensity[plot_idx]+merr_intensity[plot_idx]/2., linestyle=!tok.solid, color=ic
               oplot, mlong_3[plot_idx], scaled_model[plot_idx], psym=!tok.triangle, color=ic
+              oplot, mlong_3[plot_idx], chi2s[plot_idx]/10., psym=!tok.square, color=!tok.orange
            endif
         endfor ;; each phi bin
 
@@ -421,12 +463,17 @@ pro ssg_smyth_chi2, $
 
   ;;wset,ic
   ;;plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle=string('chi-square'), yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, /ylog
-  plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='!7k!6!DIII!N', ytitle='!7v!6!U2!N!6', yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
+  plot, long_3s[plot_idx], chi2s[plot_idx], $
+        psym=!tok.square, xtitle='!7k!6!DIII!N', ytitle='!7v!6!U2!N!6', $
+        xrange=[0,360], yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, $
+        xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
   ;;plot, [0,360],[0,0], psym=!tok.dot, xtitle='System III', ytitle='!6chi-square', yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.9, 0.9]
   ;;oplot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, color=8
   for ic=2,360/sys_III_bin do begin
      plot_idx = where((ic-1)*sys_III_bin - sys_III_offset lt phis and $
-                      phis lt ic*sys_III_bin - sys_III_offset)
+                      phis lt ic*sys_III_bin - sys_III_offset, count)
+     if count eq 0 then $
+        CONTINUE
      oplot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, color=ic
      ;; if !d.name eq 'X' then $
      ;;    wset, ic

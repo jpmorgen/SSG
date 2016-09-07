@@ -53,11 +53,11 @@ pro ssg_median, $
   ;;adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
   adbname = 'io_oi_analyze'
   dbopen, adbname, 0
-  oentries = dbfind("obj_code=1", dbfind("redchisq<5"))
+  oentries = dbfind("obj_code=1", dbfind("redchisq<10"))
   aentries = oentries
-  lentries = dbfind("nn_DOWL<-50", oentries)
-  hentries = dbfind("nn_DOWL>50", oentries)
-  aentries = [lentries, hentries]
+  ;;lentries = dbfind("nn_DOWL<-50", oentries)
+  ;;hentries = dbfind("nn_DOWL>50", oentries)
+  ;;aentries = [lentries, hentries]
   dbext, aentries, "nday, weq, err_weq, ip, intensity, err_intensity, alf, delta, wc, err_wc", ndays, weqs, err_weqs, ips, intensities, err_intensities, alfs, deltas, wcs, err_wcs
   dbext, aentries, "nn_DOWL, nn_ew, nn_Dw, nn_Lw, redchisq", nn_DOWLs, nn_ews, nn_Dws, nn_Lws, redchisqs
   dbclose
