@@ -87,7 +87,7 @@ pro ssg_smyth_chi2, $
   case N_elements(nday) of
      0: begin
         nday_start = 0
-        nday_end = 4000
+        nday_end = 7000
      end
      1: begin
         nday_start = floor(nday)
@@ -198,10 +198,6 @@ pro ssg_smyth_chi2, $
  
   ;; Handle each nday one at a time
   for inday=nday_start, nday_end do begin
-     ;;for inday=0,4000 do begin ;; full dataset
-     ;;for inday=406,406 do begin ;; 1991-02-11
-     ;;for inday=2806,2806 do begin ;; 1997-09-07
-     ;;for inday=3199,3199 do begin ;; 1998-10-05
      ;; Create the strings necessary to query the ZDBASE for nday
      ndayl = string(format='("nday>", i5)', inday)
      ndayh = string(format='("nday<", i5)', inday+1)
@@ -220,8 +216,8 @@ pro ssg_smyth_chi2, $
      ;; Extract quantities we care about.
      ;; Mon Apr  4 14:00:34 2016  jpmorgen@byted
      ;; --> Problem with Max's model scale factor when set to 2.3?
-     ;;if mdata_count gt adata_count + 10 or adata_count lt 5 then begin
-     if mdata_count gt adata_count then begin        ;; Melanie's has more 
+     if mdata_count gt adata_count + 10 or adata_count lt 5 then begin
+     ;;if mdata_count gt adata_count then begin        ;; Melanie's has more 
      ;; Temporarily take out Melanie's results
      ;;if adata_count eq 0 then begin
         ;;print, 'No autofit data for this date'
