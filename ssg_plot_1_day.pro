@@ -93,12 +93,24 @@ pro ssg_plot_1_day, nday, ps=ps, _EXTRA=extra
   
   oploterr, mlong_3, mintensity, merr_intensity, !tok.dot
 
-  arrow, 284.925, 1, 284.925, 5, /data
-  arrow, 341.479, 1, 341.479, 5, /data
-  arrow, 255.749, 1, 255.749, 4, /data
+  adbname = 'io_oi_analyze'
+  dbopen, adbname, 0
+  aentries = dbfind("obj_code=1", $
+                    dbfind("redchisq<5", $
+                           dbfind(string("nday>", nday), $
+                                  dbfind(string("nday<", nday+1)))))
+  dbext, aentries, "nday, long_3, phi, intensity, err_intensity, alf, delta, wc, err_wc", andays, along_3s, aphis, aintensities, aerr_intensities, aalfs, adeltas, awcs, aerr_wcs
+  
+  dbclose
+  oplot, along_3s, aintensities, psym=!tok.diamond
+  oploterr, along_3s, aintensities, aerr_intensities, !tok.dot  
 
-  arrow, 270.262, 14, 270.262, 10, /data
-  arrow, 312.303, 14, 312.303, 10, /data
+  ;;arrow, 284.925, 1, 284.925, 5, /data
+  ;;arrow, 341.479, 1, 341.479, 5, /data
+  ;;arrow, 255.749, 1, 255.749, 4, /data
+  ;;
+  ;;arrow, 270.262, 14, 270.262, 10, /data
+  ;;arrow, 312.303, 14, 312.303, 10, /data
   
   if keyword_set(ps) then begin
      device,/close

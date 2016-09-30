@@ -76,11 +76,21 @@ pro ssg_smyth_chi2, $
    sys_III_bin=sys_III_bin, $
    sys_III_offset=sys_III_offset, $
    histogram=histogram, $
+   min_data_count=min_data_count, $ ;; minimum number of datapoints per night
+   nday_threshold=nday_threshold, $ ;; nday gap threshold in units of median nday difference for exposure calculations
+   min_cadence=min_cadence, $ ;; for exposure calculations 
    _EXTRA=extra
 
   init = {tok_sysvar}
   init = {ssg_sysvar}
 
+  if N_elements(nday_threshold) eq 0 then $
+     nday_threshold = 2
+
+  ;; Minimum average cadence in minutes for decent sampling.  --> Can
+  ;; possibly go with longer
+  if N_elements(min_cadence) eq 0 then $
+     min_cadence = 40
 
   ;; Make default nday behavior the whole range.  If just nday
   ;; is specified, only do that one day.
@@ -196,6 +206,9 @@ pro ssg_smyth_chi2, $
   ;; See if I can fix Max's scale problems by preferring Melanie's,
   ;; where available.  Data points will be selected the other way
  
+  ;; Keep track of number of nights and exposure time
+  nday_counter = 0
+  exp_time = 0
   ;; Handle each nday one at a time
   for inday=nday_start, nday_end do begin
      ;; Create the strings necessary to query the ZDBASE for nday
@@ -207,8 +220,10 @@ pro ssg_smyth_chi2, $
      aidx = where(inday lt andays and andays le inday+1, adata_count)
 
      ;; Don't bother with ndays unless they have at least 3 points
-     if mdata_count lt 3 and adata_count lt 3 then $
-           CONTINUE
+     if NOT keyword_set(min_data_count) then $
+        min_data_count = 3
+     if mdata_count lt min_data_count and adata_count lt min_data_count then $
+        CONTINUE
 
      ;; If we made it here, we have either Melanie or autofit data
      print, 'NDAY = ', inday
@@ -310,6 +325,7 @@ pro ssg_smyth_chi2, $
         ;;mside          = mside         [align_idx]
         ;;endelse ;; aligning to model
      endif ;; aligning to data vs. model
+
      ;; Make a new variable, scaled_model, which is the raw model
      ;; multiplied by the scale factor which we will compare to the
      ;; data.  All indices into scaled_model will match those into
@@ -325,7 +341,60 @@ pro ssg_smyth_chi2, $
      pfo_array_append, phis, mphi
      ;;pfo_array_append, sides, mside
 
+     ;; Exposure calculations
+     nday_counter += 1
+     ;; Find time differences between adjacent points to calculate
+     ;; the amount of decent exposure time coverage (code from
+     ;; ssg_blob_search)
+     N_nday = N_elements(mnday)
+     nday_diff = mnday[1:N_nday-1] - mnday[0:N_nday-2]
+     ;; Generally we have a constant cadance with occational large
+     ;; pauses.  Use median instead of the mean to spot the right
+     ;; side of our gaps.  This is the index into nday_diff, but it is
+     ;; labeled as the gap_right_idx, since it is to be used as the
+     ;; index into parent arrays
+     gap_right_idx = where(nday_diff gt nday_threshold*median(nday_diff), ntime_segments)
+
+     if ntime_segments eq 0 then begin
+        ;; If no gaps, replace where's -1 with the right bound of the
+        ;; array
+        gap_right_idx = N_nday-1
+     endif else begin
+        ;; If gaps, append the right bound of the array to our gap
+        ;; list since where won't find that
+        pfo_array_append, gap_right_idx, N_nday-1
+     endelse
+     ntime_segments += 1
      
+     ;; Put the left side of our first interval at idx=0
+     gap_left_idx = 0
+     for igap=0,ntime_segments-1 do begin
+        ;; Regenerate idx for this particular time segment
+        N_in_gap = gap_right_idx[igap] - gap_left_idx + 1
+     
+        ;; Don't bother for gaps that have less than 3 points
+        if N_in_gap lt 3 then begin
+           message, /INFORMATIONAL, 'NOTE: skipping gap with only ' + strtrim(N_in_gap, 2) + ' points'
+           ;; Move the left side of our gap forward if we have any more
+           ;; gaps to process
+           if igap lt ntime_segments then $
+              gap_left_idx = gap_right_idx[igap] + 1
+           CONTINUE
+        endif
+     
+        idx = indgen(N_in_gap) + gap_left_idx
+        print, 'new segment: ', idx
+        ;; Check to see if the sampling in this gap is close enough to
+        ;; our desired minimum cadence (in minutes)
+        cadence = mean(nday_diff[gap_left_idx:gap_right_idx[igap]-1]) * 24.*60.
+        if cadence gt min_cadence then begin
+           message, /INFORMATIONAL, 'NOTE: skipping gap which has cadence of ' + strtrim(cadence, 2) + ' minutes'
+           CONTINUE
+        endif
+        ;; If we made it here, we have a viable time segment
+        exp_time += mnday[gap_right_idx[igap]] - mnday[gap_left_idx]
+     endfor ;; each time segment
+
      ;; Plot individual day, if desired
      if keyword_set(plot) then begin
         ;; Initialize postscipt output
@@ -401,6 +470,7 @@ pro ssg_smyth_chi2, $
      endif ;; plot individual days
 
   endfor  ;; each nday
+  message, /CONTINUE, 'NOTE: Found ' + strtrim(nday_counter, 2) + ' nights with min_data_count gt ' + strtrim(min_data_count, 2) + '.  Total exposure time approx ' + strtrim(exp_time * 24. , 2)+ ' hours.'
 
   dbclose
 
@@ -461,7 +531,7 @@ pro ssg_smyth_chi2, $
   ;;plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle=string('chi-square'), yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, /ylog
   plot, long_3s[plot_idx], chi2s[plot_idx], $
         psym=!tok.square, xtitle='!7k!6!DIII!N', ytitle='!7v!6!U2!N!6', $
-        xrange=[0,360], yrange=[1, 150], xstyle=!tok.exact, ystyle=!tok.exact, $
+        xrange=[0,360], yrange=[1, 200], xstyle=!tok.exact, ystyle=!tok.exact, $
         xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
   ;;plot, [0,360],[0,0], psym=!tok.dot, xtitle='System III', ytitle='!6chi-square', yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.9, 0.9]
   ;;oplot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, color=8
