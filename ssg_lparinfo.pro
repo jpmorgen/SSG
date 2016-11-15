@@ -45,10 +45,25 @@ end
 
 pro ssg_lparinfo, inwave, wdelta, indir=indir, outdir=outdir, reread=reread, $
                   rebuild=rebuild, clear_cats=clear_cats, maxdiff=maxdiff, $
+                  lparinfo_name=lparinfo_name, $
                   min_ew
 
   init = {ssg_sysvar}
 
+  if keyword_set(lparinfo_name) then begin
+     if NOT file_test(lparinfo_name) then $
+        message, 'ERROR: file ' + lparinfo_name + 'not found.'
+     message, 'NOTE: Restoring ' + lparinfo_name, /CONTINUE
+     restore, lparinfo_name, /relaxed_structure_assignment
+     ;; Free any pointer that is already there
+     ptr_free, !ssg.lparinfo
+     !ssg.lparinfo = ptr_new(lparinfo, /no_copy)
+     if keyword_set(outdir) then $
+        message, 'WARNING: not writing lparinfo, since I am reading it'
+     return
+  endif ;; Restoring a specific (presumably tweaked) lparinfo
+
+  
   if N_elements(inwave) eq 0 then begin
      inwave = 6300
      message, 'WARNING: no input wavelength specified.  Using ' + strtrim(inwave, 2), /CONTINUE

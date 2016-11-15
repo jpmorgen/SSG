@@ -106,8 +106,8 @@ pro ssg_fit2ana, $
          weq, err_weq, alf, err_alf, today, intensity, err_intensity
 
   dbext, aentries, $
-         'nn_DOWL, nn_ew, nn_Dw, nn_Lw,', $
-         nn_DOWLs, nn_ews, nn_Dws, nn_Lws
+         'nn_DOWL, nn_ew, nn_Gw, nn_Lw, n2_DOWL, n2_ew, n2_Gw, n2_Lw', $
+         nn_DOWLs, nn_ews, nn_Gws, nn_Lws, n2_DOWLs, n2_ews, n2_Gws, n2_Lws
 
   dbclose
 
@@ -689,8 +689,12 @@ pro ssg_fit2ana, $
         message, 'ERROR: no object parameters found in ssg_ana_parinfo.  I just put them here, so I don''t expect this!'
      nn_DOWLs[inday] = ssg_ana_parinfo[obj_lc_idx].sso_ana.DOWL[0]
      nn_ews  [inday] = ssg_ana_parinfo[obj_lc_idx+1].sso_ana.value[0]
-     nn_Dws  [inday] = ssg_ana_parinfo[obj_lc_idx+2].sso_ana.value[0]
+     nn_Gws  [inday] = ssg_ana_parinfo[obj_lc_idx+2].sso_ana.value[0]
      nn_Lws  [inday] = ssg_ana_parinfo[obj_lc_idx+3].sso_ana.value[0]
+     n2_DOWLs[inday] = ssg_ana_parinfo[obj_lc_idx].sso_ana.DOWL[1]
+     n2_ews  [inday] = ssg_ana_parinfo[obj_lc_idx+1].sso_ana.value[1]
+     n2_Gws  [inday] = ssg_ana_parinfo[obj_lc_idx+2].sso_ana.value[1]
+     n2_Lws  [inday] = ssg_ana_parinfo[obj_lc_idx+3].sso_ana.value[1]
 
   endfor   ;; for each nday
   CATCH, /CANCEL
@@ -713,8 +717,8 @@ pro ssg_fit2ana, $
             weq, err_weq, alf, err_alf, today, intensity, err_intensity
 
   dbupdate, aentries, $
-            'nn_DOWL, nn_ew, nn_Dw, nn_Lw,', $
-            nn_DOWLs, nn_ews, nn_Dws, nn_Lws
+            'nn_DOWL, nn_ew, nn_Gw, nn_Lw, n2_DOWL, n2_ew, n2_Gw, n2_Lw', $
+            nn_DOWLs, nn_ews, nn_Gws, nn_Lws, n2_DOWLs, n2_ews, n2_Gws, n2_Lws
 
   dbclose
   !priv = oldpriv

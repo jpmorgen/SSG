@@ -79,7 +79,8 @@ pro ssg_smyth_chi2, $
    min_data_count=min_data_count, $ ;; minimum number of datapoints per night
    nday_threshold=nday_threshold, $ ;; nday gap threshold in units of median nday difference for exposure calculations
    min_cadence=min_cadence, $ ;; for exposure calculations 
-   _EXTRA=extra
+   scale_vs_time=scale_vs_time, $ ;; plot model scale factor vs time
+  _EXTRA=extra
 
   init = {tok_sysvar}
   init = {ssg_sysvar}
@@ -118,6 +119,9 @@ pro ssg_smyth_chi2, $
   if N_elements(intensity_tolerance) eq 0 then $
      intensity_tolerance = 0.001
 
+  if N_elements(long_3_tolerance) eq 0 then $
+     long_3_tolerance = 0.01
+
   ;; Might need to work with PS and X differently.  Color currently
   ;; works better with X.
   color
@@ -151,29 +155,36 @@ pro ssg_smyth_chi2, $
 
   ;; Read in the model results
   model_top = !ssg.top + path_sep() + 'analysis' + path_sep() + 'max' +  path_sep()
-  ;; Max provides model results in consistent format, but I need to
+  ;; Max provided model results in consistent format, but I needed to
   ;; make it into a 1-line format
   restore, model_top + 'britfil.dM2915.1line_template.sav'
   ;; m = Melanie, a = autofit
   mmodel = read_ascii(model_top + 'britfil.dM2915.1line', template=model_template)
-  amodel = read_ascii(model_top + 'brit_set2_F1616.1line', template=model_template)
-           
+  ;;amodel = read_ascii(model_top + 'brit_set2_F1616.1line', template=model_template)
+  ;; Starting with the spring 2016 run, Max generates his own 1-line
+  ;; version
+  restore, model_top + 'max_1_line_template.sav'
+  amodel = read_ascii(model_top + 'brit_set3_N216', template=max_1_line_template)           
   dbclose ;; just in case
   ;; --> I will want to change this to the latest, once Max gets the
   ;; latest fitted
-  adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
-  ;;adbname = 'io_oi_analyze'
+  ;;adbname = '/data/io/ssg/analysis/archive/database/2015-09-19_to_max/io_oi_analyze'
+  ;;adbname = '/data/io/ssg/analysis/archive/database/2016-04-20/io_oi_analyze'
+  ;;adbname = '/data/io/ssg/analysis/archive/database/2016-04-20_nday_3571_GW_75/io_oi_analyze'
+  adbname = 'io_oi_analyze'
   dbopen, adbname, 0
-  oentries = dbfind("obj_code=1", dbfind("redchisq<5"))
+  oentries = dbfind("err_intensity<10", dbfind("redchisq<10", dbfind("obj_code=1")))
   aentries = oentries
   ;; --> I want to ammend this when I use the April 2016
   ;; version because I don't filter based on nn_DOWL
-  lentries = dbfind("nn_DOWL<-50", oentries)
-  hentries = dbfind("nn_DOWL>50", oentries)
+  ;;lentries = dbfind("nn_DOWL<-50", oentries)
+  ;;hentries = dbfind("nn_DOWL>50", oentries)
+  lentries = dbfind("nn_DOWL<-25", oentries)
+  hentries = dbfind("nn_DOWL>25", oentries)
   aentries = [lentries, hentries]
   Nae = N_elements(aentries)
-  bad_idx = where((aentries[1:Nae-1] - aentries[0:Nae-2]) lt 0, count)
-  print, count
+  ;;bad_idx = where((aentries[1:Nae-1] - aentries[0:Nae-2]) lt 0, count)
+  ;;print, count
   ;; Extract the autofit entries once
   dbext, aentries, "nday, long_3, phi, intensity, err_intensity, alf, delta, wc, err_wc", andays, along_3s, aphis, aintensities, aerr_intensities, aalfs, adeltas, awcs, aerr_wcs
   ;;dbext, aentries, "nn_DOWL, nn_ew, nn_Dw, nn_Lw, redchisq", nn_DOWLs, nn_ews, nn_Dws, nn_Lws, redchisqs
@@ -231,13 +242,16 @@ pro ssg_smyth_chi2, $
      ;; Extract quantities we care about.
      ;; Mon Apr  4 14:00:34 2016  jpmorgen@byted
      ;; --> Problem with Max's model scale factor when set to 2.3?
-     if mdata_count gt adata_count + 10 or adata_count lt 5 then begin
+     ;; If Melanie's has lots more, or if autofit has just a
+     ;; few, as long as Melanie's has more
+     if (mdata_count gt adata_count + 10 or adata_count lt 5) and mdata_count gt adata_count then begin
      ;;if mdata_count gt adata_count then begin        ;; Melanie's has more 
      ;; Temporarily take out Melanie's results
      ;;if adata_count eq 0 then begin
         ;;print, 'No autofit data for this date'
         ;;CONTINUE
         print, 'Using Freed database'
+        database = 'Freed'
         data_count = mdata_count
         dbext, OI, 'nday, long_3, intensity, err_intensity, fcont, err_fcont, wc, err_wc', mnday, mlong_3, mintensity, merr_intensity, mfcont, merr_fcont, mwc, merr_wc
         ;; ndays is causing trouble if not matched in type.  Make it
@@ -251,6 +265,7 @@ pro ssg_smyth_chi2, $
         ;; Autofit has more.  Stuff things into m* variables, since
         ;; they are used below
         print, 'Using autofit database'
+        database = 'Auto'
         data_count = adata_count
         mnday          = andays        [aidx]
         mlong_3        = along_3s       [aidx]
@@ -264,7 +279,7 @@ pro ssg_smyth_chi2, $
         ;;mside          = asides         [aidx]
         ;; Switch to the autofit model
         model = amodel
-     endelse
+     endelse ;; Freed vs. autofit
 
      
 
@@ -281,49 +296,87 @@ pro ssg_smyth_chi2, $
         message, 'WARNING: no nday match found in model for nday ' + strtrim(inday, 2) + ' data_count = ' + strtrim(data_count, 2), /CONTINUE
         CONTINUE
      endif
+     if model_count lt min_data_count then begin
+        message, /INFORMATIONAL, 'NOTE: number of model points below min_data_count of ' + strtrim(min_data_count, 2) + ' skipping this day'
+        CONTINUE
+     endif
      ;; Check to make sure we are really lined up
      if data_count ne model_count then begin
         ;; aligning to data barfed for the case of 2841, which had
         ;; missing data and missing model (not sure what that is all about).
-        ;;if data_count lt model_count then begin
-        ;;   message, 'WARNING: ' + strtrim(data_count, 2) + ' data points ' + strtrim(model_count, 2) + ' model points.  Aligning to data', /CONTINUE
-        ;;   align_idx = 'None'
-        ;;   for idata=0, data_count-1 do begin
-        ;;      ;; Create an index into model_nday_idx for model points
-        ;;      ;; that match the data
-        ;;      this_align_idx = where(abs(model.data[model_nday_idx] - mintensity[idata]) $
-        ;;                             le intensity_tolerance, count)
-        ;;      if count eq 0 then begin
-        ;;         message, 'WARNING: no model point found to match data point ' + strtrim(mintensity[idata], 2), /CONTINUE
-        ;;         CONTINUE
-        ;;      endif ;; no match
-        ;;      pfo_array_append, align_idx, this_align_idx
-        ;;   endfor ;; idata
-        ;;   model_nday_idx = model_nday_idx[align_idx]
-        ;;endif else begin
-        ;; Just align to the model for now
-        message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
-        align_idx = 'None'
-        for imodel=0, model_count-1 do begin
-           this_align_idx = where(abs(model.data[model_nday_idx[imodel]] - mintensity) $
-                                  le intensity_tolerance, count)
+        if data_count lt model_count then begin
+           message, 'WARNING: ' + strtrim(data_count, 2) + ' data points ' + strtrim(model_count, 2) + ' model points.  Aligning to data', /CONTINUE
+           align_idx = 'None'
+           for idata=0, data_count-1 do begin
+              ;; Create an index into model_nday_idx for model points
+              ;; that match the data.  Have to do this differently for
+              ;; Freed and Auto, since Max didn't supply sysIII
+              ;; coordinates for Freed and Auto precision on intensity
+              ;; is too low
+              if database eq 'Freed' then begin
+                 this_align_idx = where(abs(model.data[model_nday_idx] - mintensity[idata]) $
+                                        le intensity_tolerance, count)
+              endif else begin
+                 this_align_idx = where(abs(model.sysIII[model_nday_idx] - mlong_3[idata]) $
+                                        le long_3_tolerance, count)
+              endelse
+              if count eq 0 then begin
+                 message, 'WARNING: no model point found to match data point ' + strtrim(mintensity[idata], 2) + '.  Removing data point', /CONTINUE
+                 mintensity[idata] = !values.f_NAN
+                 CONTINUE
+              endif ;; no match
+              if count gt 1 then $
+                 message, 'ERROR: duplicate entries found.  intensity_tolerance or long_3_tolerance too large'
+              pfo_array_append, align_idx, this_align_idx
+           endfor ;; idata
+           ;; Erase data points not fitted by model
+           good_data_idx = where(finite(mintensity) eq 1, count)
            if count eq 0 then begin
-              message, 'WARNING (for now): no data point found to match model point ' + strtrim(model.data[imodel], 2), /CONTINUE
+              message, 'ERROR: no good points left on this nday.  Something weird is happening', /CONTINUE
               CONTINUE
            endif
-           pfo_array_append, align_idx, this_align_idx
-        endfor ;; imodel
-        mnday          = mnday         [align_idx]
-        mlong_3        = mlong_3       [align_idx]
-        mintensity     = mintensity    [align_idx]
-        merr_intensity = merr_intensity[align_idx]
-        ;;mfcont         = mfcont        [align_idx]
-        ;;merr_fcont     = merr_fcont    [align_idx]
-        ;;mwc            = mwc           [align_idx]
-        ;;merr_wc        = merr_wc       [align_idx]
-        mphi           = mphi          [align_idx]
-        ;;mside          = mside         [align_idx]
-        ;;endelse ;; aligning to model
+           mintensity = mintensity[good_data_idx]
+           ;; Collect aligned model_idx
+           model_nday_idx = model_nday_idx[align_idx]
+        endif else begin
+           message, 'WARNING: data and model mismatch.  Aligning to model.', /CONTINUE
+           align_idx = 'None'
+           for imodel=0, model_count-1 do begin
+              if database eq 'Freed' then begin
+                 this_align_idx = where(abs(model.data[model_nday_idx[imodel]] - mintensity) $
+                                        le intensity_tolerance, count)
+              endif else begin
+                 this_align_idx = where(abs(model.sysIII[model_nday_idx[imodel]] - mlong_3) $
+                                        le intensity_tolerance, count)
+              endelse
+              if count eq 0 then begin
+                 message, 'WARNING: no data point found to match model point ' + strtrim(model.data[model_nday_idx[imodel]], 2) + '.  Removing model point', /CONTINUE
+                 model_nday_idx[imodel] = -1
+                 CONTINUE
+              endif
+              if count gt 1 then $
+                 message, 'ERROR: duplicate entries found.  intensity_tolerance or long_3_tolerance too large'
+              pfo_array_append, align_idx, this_align_idx
+           endfor ;; imodel
+           ;; Erase any model points that have no data
+           good_model_idx = where(model_nday_idx ne -1, count)
+           if count eq 0 then begin
+              message, 'ERROR: no good points left on this nday.  Something weird is happening.  Skipping nday', /CONTINUE
+              CONTINUE
+           endif
+           model_nday_idx = model_nday_idx[good_model_idx]
+           ;; Collect aligned data
+           mnday          = mnday         [align_idx]
+           mlong_3        = mlong_3       [align_idx]
+           mintensity     = mintensity    [align_idx]
+           merr_intensity = merr_intensity[align_idx]
+           ;;mfcont         = mfcont        [align_idx]
+           ;;merr_fcont     = merr_fcont    [align_idx]
+           ;;mwc            = mwc           [align_idx]
+           ;;merr_wc        = merr_wc       [align_idx]
+           mphi           = mphi          [align_idx]
+           ;;mside          = mside         [align_idx]
+        endelse ;; aligning to model
      endif ;; aligning to data vs. model
 
      ;; Make a new variable, scaled_model, which is the raw model
@@ -339,7 +392,8 @@ pro ssg_smyth_chi2, $
      pfo_array_append, chi2s, chi2
      pfo_array_append, long_3s, mlong_3
      pfo_array_append, phis, mphi
-     ;;pfo_array_append, sides, mside
+     ;; Model scale factors for scale_vs_time plot
+     pfo_array_append, scalefacs, model.model_scale[model_nday_idx]
 
      ;; Exposure calculations
      nday_counter += 1
@@ -347,6 +401,11 @@ pro ssg_smyth_chi2, $
      ;; the amount of decent exposure time coverage (code from
      ;; ssg_blob_search)
      N_nday = N_elements(mnday)
+     if N_nday lt min_data_count then begin
+        message, /INFORMATIONAL, 'ERROR: AFTER CLEANING, number of model points below min_data_count of ' + strtrim(min_data_count, 2) + ' skipping this day -- POSSIBLE MODEL/DATA ALIGNMENT PROBLEM!'
+        CONTINUE
+     endif
+
      nday_diff = mnday[1:N_nday-1] - mnday[0:N_nday-2]
      ;; Generally we have a constant cadance with occational large
      ;; pauses.  Use median instead of the mean to spot the right
@@ -383,7 +442,7 @@ pro ssg_smyth_chi2, $
         endif
      
         idx = indgen(N_in_gap) + gap_left_idx
-        print, 'new segment: ', idx
+        ;;print, 'new segment: ', idx
         ;; Check to see if the sampling in this gap is close enough to
         ;; our desired minimum cadence (in minutes)
         cadence = mean(nday_diff[gap_left_idx:gap_right_idx[igap]-1]) * 24.*60.
@@ -505,6 +564,21 @@ pro ssg_smyth_chi2, $
      
      return
   endif
+
+  if keyword_set(scale_vs_time) then begin
+     plot, !ssg.JDnday0 + ndays, scalefacs, $
+           xrange=[nday_start, nday_end] + !ssg.JDnday0, $
+           yrange=yrange, $
+           xtickunits = ['hours', 'Days', 'Months', 'Years'], $
+           xtitle='UT date (Year, Month, Day, Hour)', $
+           ytitle='Model scale factor', $
+           ymargin=[15,2], $
+           psym=!tok.plus, $ 
+           xstyle=!tok.exact+!tok.extend, $
+           ystyle=!tok.extend, $
+           _EXTRA=extra
+     return
+  endif ;; scale_vs_time plot
 
   ;; If we made it here we want to plot chisq vs sysIII
 
