@@ -80,10 +80,21 @@ pro ssg_smyth_chi2, $
    nday_threshold=nday_threshold, $ ;; nday gap threshold in units of median nday difference for exposure calculations
    min_cadence=min_cadence, $ ;; for exposure calculations 
    scale_vs_time=scale_vs_time, $ ;; plot model scale factor vs time
+   inner_torus=inner_torus, $
+   outer_torus=outer_torus, $
+   straddle=straddle, $ ;; try to find days that straddle outer to inner transition
+   model_scales=model_scales, $
+   scale_inner=scale_inner, $
+   new_scale=new_scale, $ ;; for applying a new scale factor to individual plots
+   nn_DOWL=nn_DOWL, $
   _EXTRA=extra
 
   init = {tok_sysvar}
   init = {ssg_sysvar}
+
+  ;; Handle /straddle case with a default
+  if N_elements(straddle) eq 1 then $
+     straddle = [15, 45]
 
   if N_elements(nday_threshold) eq 0 then $
      nday_threshold = 2
@@ -92,6 +103,11 @@ pro ssg_smyth_chi2, $
   ;; possibly go with longer
   if N_elements(min_cadence) eq 0 then $
      min_cadence = 40
+
+  ;; Handle the case where a string nday is input
+  if size(/type, nday) eq !tok.string then begin
+  endif
+
 
   ;; Make default nday behavior the whole range.  If just nday
   ;; is specified, only do that one day.
@@ -163,8 +179,10 @@ pro ssg_smyth_chi2, $
   ;;amodel = read_ascii(model_top + 'brit_set2_F1616.1line', template=model_template)
   ;; Starting with the spring 2016 run, Max generates his own 1-line
   ;; version
-  restore, model_top + 'max_1_line_template.sav'
-  amodel = read_ascii(model_top + 'brit_set3_N216', template=max_1_line_template)           
+  ;;restore, model_top + 'max_1_line_template.sav'
+  ;;amodel = read_ascii(model_top + 'brit_set3_N216', template=max_1_line_template)           
+  restore, model_top + 'max_1_line_template_r.sav'
+  amodel = read_ascii(model_top + 'brit_set3_D116', template=max_1_line_template_r)           
   dbclose ;; just in case
   ;; --> I will want to change this to the latest, once Max gets the
   ;; latest fitted
@@ -174,14 +192,20 @@ pro ssg_smyth_chi2, $
   adbname = 'io_oi_analyze'
   dbopen, adbname, 0
   oentries = dbfind("err_intensity<10", dbfind("redchisq<10", dbfind("obj_code=1")))
+  ;;oentries = dbfind("err_intensity<10", dbfind("redchisq<4", dbfind("obj_code=1")))
+  if keyword_set(inner_torus) then $
+     oentries = dbfind("io_phi<180", dbfind("io_phi>30", oentries))
+  if keyword_set(outer_torus) then $
+     oentries = [dbfind("io_phi>180", oentries), dbfind("io_phi<30", oentries)]
+  if keyword_set(straddle) then $
+     oentries = dbfind("io_phi<" + strtrim(straddle[1], 2), dbfind("io_phi>" + strtrim(straddle[0], 2), oentries))
   aentries = oentries
-  ;; --> I want to ammend this when I use the April 2016
-  ;; version because I don't filter based on nn_DOWL
-  ;;lentries = dbfind("nn_DOWL<-50", oentries)
-  ;;hentries = dbfind("nn_DOWL>50", oentries)
-  lentries = dbfind("nn_DOWL<-25", oentries)
-  hentries = dbfind("nn_DOWL>25", oentries)
-  aentries = [lentries, hentries]
+  ;; Allow nn_DOWL to be a keyword
+  if keyword_set(nn_DOWL) then begin
+     lentries = dbfind("nn_DOWL<" + strtrim(-1. * nn_DOWL, 2), oentries)
+     hentries = dbfind("nn_DOWL>" + strtrim(nn_DOWL, 2), oentries)
+     aentries = [lentries, hentries]
+  endif ;; nn_DOWL
   Nae = N_elements(aentries)
   ;;bad_idx = where((aentries[1:Nae-1] - aentries[0:Nae-2]) lt 0, count)
   ;;print, count
@@ -209,6 +233,13 @@ pro ssg_smyth_chi2, $
   mentries = dbfind(/silent, "intensity>0.001", $             ;; screen out junk
                     dbfind(/silent, "lambda=6300", $          ;; make sure we have the right line
                            dbfind(/silent, "obj_code=1")))    ;; Io
+
+  if keyword_set(inner_torus) then $
+     mentries = dbfind("phi<180", dbfind("phi>30", mentries))
+  if keyword_set(inner_torus) then $
+     mentries = [dbfind("phi>180", mentries), dbfind("phi<30", mentries)]
+  if keyword_set(straddle) then $
+     mentries = dbfind("phi<" + strtrim(straddle[1], 2), dbfind("phi>" + strtrim(straddle[0], 2), mentries))
 
   print, 'Total number of Freed Io [OI] points: ', N_elements(mentries)
   print, 'Total number of autofit Io [OI] points: ', N_elements(aentries)
@@ -244,12 +275,12 @@ pro ssg_smyth_chi2, $
      ;; --> Problem with Max's model scale factor when set to 2.3?
      ;; If Melanie's has lots more, or if autofit has just a
      ;; few, as long as Melanie's has more
-     if (mdata_count gt adata_count + 10 or adata_count lt 5) and mdata_count gt adata_count then begin
+     ;;if (mdata_count gt adata_count + 10 or adata_count lt 5) and mdata_count gt adata_count then begin
      ;;if mdata_count gt adata_count then begin        ;; Melanie's has more 
      ;; Temporarily take out Melanie's results
-     ;;if adata_count eq 0 then begin
-        ;;print, 'No autofit data for this date'
-        ;;CONTINUE
+     if adata_count eq 0 then begin
+        print, 'No autofit data for ' + nday2date(inday)
+        CONTINUE
         print, 'Using Freed database'
         database = 'Freed'
         data_count = mdata_count
@@ -280,8 +311,6 @@ pro ssg_smyth_chi2, $
         ;; Switch to the autofit model
         model = amodel
      endelse ;; Freed vs. autofit
-
-     
 
      ;; Find our overlap between the model and this nday
 
@@ -347,7 +376,7 @@ pro ssg_smyth_chi2, $
                                         le intensity_tolerance, count)
               endif else begin
                  this_align_idx = where(abs(model.sysIII[model_nday_idx[imodel]] - mlong_3) $
-                                        le intensity_tolerance, count)
+                                        le long_3_tolerance, count)
               endelse
               if count eq 0 then begin
                  message, 'WARNING: no data point found to match model point ' + strtrim(model.data[model_nday_idx[imodel]], 2) + '.  Removing model point', /CONTINUE
@@ -379,6 +408,18 @@ pro ssg_smyth_chi2, $
         endelse ;; aligning to model
      endif ;; aligning to data vs. model
 
+     ;; Tweak the scale factor, if desired
+     if keyword_set(plot) and keyword_set(new_scale) then begin
+        model.model_scale[model_nday_idx] = new_scale
+     endif
+
+     ;; Now that we are aligned, scale the model for inner torus, if desired
+     if keyword_set(scale_inner) then begin
+        inner_idx = where(30 lt mphi and mphi lt 180, count)
+        if count gt 0 then $
+           model.model_scale[model_nday_idx[inner_idx]] *= scale_inner
+     endif
+
      ;; Make a new variable, scaled_model, which is the raw model
      ;; multiplied by the scale factor which we will compare to the
      ;; data.  All indices into scaled_model will match those into
@@ -393,7 +434,7 @@ pro ssg_smyth_chi2, $
      pfo_array_append, long_3s, mlong_3
      pfo_array_append, phis, mphi
      ;; Model scale factors for scale_vs_time plot
-     pfo_array_append, scalefacs, model.model_scale[model_nday_idx]
+     pfo_array_append, model_scales, model.model_scale[model_nday_idx]
 
      ;; Exposure calculations
      nday_counter += 1
@@ -470,9 +511,12 @@ pro ssg_smyth_chi2, $
                        model.day[model_nday_idx[0]], $
                        model.model_scale[model_nday_idx[0]], $
                        phis[0], phis[N_elements(phis)-1])
+        xtitle = '!7k!6!DIII!N'
+        if keyword_set(scale_inner) then $
+           xtitle = string(format='(a, "; Inner torus scaled by ", f3.1)', xtitle, scale_inner)
         plot, [0], [0], psym=!tok.dot, $
               xtickinterval=90, xrange=[0,360], yrange=[0,25], $
-              xtitle='!7k!6!DIII!N', ytitle='Io [OI] 6300 !3' + !tok.angstrom + ' !6(kR)', $
+              xtitle=xtitle, ytitle='Io [OI] 6300 !3' + !tok.angstrom + ' !6(kR)', $
               title=title, position = [0.11, 0.15, 0.95, 0.9]
         
         ;; Temperarily calculated chi2 so I can plot that to see why I
@@ -509,12 +553,19 @@ pro ssg_smyth_chi2, $
            endif
         endfor ;; each phi bin
 
+        ;; Correct white/black problems in ps output
+        if size(plot, /TNAME) eq 'STRING' then begin
+           white_idx = where(legend_colors eq !tok.white, count)
+           if count gt 0 then $
+              legend_colors[white_idx] = !tok.black
+        endif ;; correcting white/black
+
         al_legend, legend_text, $
                    psym=replicate(!tok.triangle, N_elements(legend_colors)), colors=byte(legend_colors)
 
         if size(plot, /TNAME) eq 'STRING' then begin
            device,/close
-           set_plot, 'x' 
+           set_plot, 'x'
         endif  
 
         !P.thick     = oPthick    
@@ -566,7 +617,7 @@ pro ssg_smyth_chi2, $
   endif
 
   if keyword_set(scale_vs_time) then begin
-     plot, !ssg.JDnday0 + ndays, scalefacs, $
+     plot, !ssg.JDnday0 + ndays, model_scales, $
            xrange=[nday_start, nday_end] + !ssg.JDnday0, $
            yrange=yrange, $
            xtickunits = ['hours', 'Days', 'Months', 'Years'], $
@@ -582,7 +633,7 @@ pro ssg_smyth_chi2, $
 
   ;; If we made it here we want to plot chisq vs sysIII
 
-  ;; Initialize postscipt output
+  ;; Initialize postscript output
   if keyword_set(ps) then begin
      if size(ps, /TNAME) ne 'STRING' then $
         ps = 'ssg_smyth_chi2_out.ps'
@@ -625,12 +676,19 @@ pro ssg_smyth_chi2, $
                               ic*sys_III_bin - sys_III_offset)
   endfor
 
-  al_legend, legend_text, position=[100, 140], /top, $
-             psym=replicate(!tok.triangle, N_elements(legend_colors)), colors=byte(legend_colors)
+  ;; Correct white/black problems in ps output
+  if size(plot, /TNAME) eq 'STRING' then begin
+     white_idx = where(legend_colors eq !tok.white, count)
+     if count gt 0 then $
+        legend_colors[white_idx] = !tok.black
+  endif ;; correcting white/black
+
+  al_legend, legend_text, /right, $ ;; position=[100, 140], /top, $
+             psym=replicate(!tok.square, N_elements(legend_colors)), colors=byte(legend_colors)
 
   if keyword_set(ps) then begin
      device,/close
-     set_plot, 'x' 
+     set_plot, 'x'
   endif  
 
   !P.thick     = oPthick    

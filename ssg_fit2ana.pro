@@ -184,7 +184,7 @@ pro ssg_fit2ana, $
      if dirs[inday] ne this_dir then begin
         this_dir = dirs[inday]
         sparinfo_fname = strtrim(dirs[inday], 2) + '/sparinfo_' + $
-                         strtrim(round(ndays[inday]), 2) + '.sav'
+                         strtrim(floor(ndays[inday]), 2) + '.sav'
         restore, sparinfo_fname, /relaxed_structure_assignment
         if N_elements(sparinfo) eq 0 then begin
            message, 'WARNING: no saved parinfo found for this entire nday', /CONTINUE

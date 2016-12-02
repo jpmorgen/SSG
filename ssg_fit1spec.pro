@@ -171,7 +171,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
   objects=strtrim(objects)
   shortfile= $
     strmid(files[0], strpos(files[0], '/', /REVERSE_SEARCH) + 1)
-  sparinfo_fname = dirs[0] + '/sparinfo_' + strtrim(round(ndays[0]), 2) + '.sav'
+  sparinfo_fname = dirs[0] + '/sparinfo_' + strtrim(floor(ndays[0]), 2) + '.sav'
   ;; --> I am going to want to think about this more: the exact role
   ;; of the fitting database.  I think I want to call it ssg_fit
   fdbname = 'oi_6300_fit'
@@ -1412,7 +1412,7 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
                    'ERROR: THIS SHOULD NOT HAPPEN: nday ' + strtrim(rnday,2) + ' not found in ' + rdbname
                  dbext, rentry, 'dir', rdirs
                  rdirs = strtrim(rdirs, 2)
-                 rsparinfo_fname = rdirs[0] + '/sparinfo_' + strtrim(round(rnday), 2) + '.sav'
+                 rsparinfo_fname = rdirs[0] + '/sparinfo_' + strtrim(floor(rnday), 2) + '.sav'
                  if file_test(rsparinfo_fname) eq 1 then begin
                     message, /INFORMATIONAL, 'NOTE: reading stored parameters from ' + rsparinfo_fname
                     restore, rsparinfo_fname, /relaxed_structure_assignment

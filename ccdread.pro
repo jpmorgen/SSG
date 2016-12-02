@@ -9,6 +9,7 @@ function ccdread, filename, hdr, RAW=raw, DOUBLE=double, TV=tv, REUSE=reuse, zoo
 
 CATCH, err
 if err ne 0 then begin
+   CATCH, /CANCEL
    message, 'ERROR: returning -1', /CONTINUE
    return, -1
 endif
