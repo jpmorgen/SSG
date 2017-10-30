@@ -68,14 +68,17 @@ pro ssg_sysvar__define, top
        tolerance:	0.00005d*2d, $
        $ ;; For prett-printing objects from obj_codes in database.
        obj_codes: ['Jupiter', 'Io', 'Europa', 'Ganymede', 'Callisto', 'Night Sky', 'Dark', 'Comp', 'Flat', 'Day Sky', 'Other'], $
-       $ ;; mmp_xyz is the position of MMP relative to the center of 
+       $ ;; LONGITUD= '-111:35:40.83'      / Longitude (ddd:mm:ss.ss) - means West)
+       $ ;; LATITUDE= '31:57:30.3'         / Latitude (dd:mm:ss.s)
+       $ ;; ALTITUDE=                 2096 / Altitude (Meters)                              
+        $ ;; mmp_xyz is the position of MMP relative to the center of 
        $ ;; the earth in the ITRF93 reference frame.  See 
-       $ ;; ~/data/ephemeris/tk/mmp.tk for details about how it was 
+       $ ;; ~/data/ephemeris/tk/mmp.tk (file lost) for details about how it was 
        $ ;; derived.  Basically, the topocentric coordinates came from
-       $ ;; http://nsokp.nso.edu/mp/site.html the correction for
+       $ ;; http://nsokp.nso.edu/mp/info.html (used to be site.html) the correction for
        $ ;; the geoid height (basis of altitude) vs. height above
        $ ;; the ellipsoid came from 
-       $ ;; http://www.ngs.noaa.gov/CORS/utilities4/ and the conversion
+       $ ;; http://www.ngs.noaa.gov/CORS/utilities4/ (lost), but https://www.unavco.org/software/geodetic-utilities/geoid-height-calculator/geoid-height-calculator.html might do and the conversion
        $ ;; to x,y,z from http://www.ngs.noaa.gov/cgi-bin/xyz_getxyz.prl
        mmp_xyz	:	[-1994124.0333d, $
                          -5037950.3038d, $

@@ -82,6 +82,24 @@ pro freed_compare
   dbext, aentries, "nday, long_3, phi, weq, err_weq, ip, intensity, err_intensity", ndays, long_3s, phis, weqs, err_weqs, ips, intensities, err_intensities
   dbclose
 
+  ;; Not all of the autofit stuff is decent
+  good_idx = where(finite(intensities), count)
+  if count eq 0 then $
+     message, 'ERROR: no good autofit entries'
+
+  ;; If we made it here, we have matches.  Make sure they all line up
+  mndays = mndays[good_idx]
+  mintensities = mintensities[good_idx]
+  merr_intensities = merr_intensities[good_idx]
+  mLONG_3s = mLONG_3s[good_idx]
+  mphis = mphis[good_idx]
+
+  ndays = ndays[good_idx]
+  intensities = intensities[good_idx]
+  err_intensities = err_intensities[good_idx]
+  LONG_3s = LONG_3s[good_idx]
+  phis = phis[good_idx]
+  
   delta = mintensities - intensities
   errs = sqrt(merr_intensities^2 + err_intensities^2)
   ;;plot, mndays, delta, psym=!tok.dot
@@ -93,12 +111,14 @@ pro freed_compare
   ;;plot, ndays, intensities, psym=!tok.dot
   ;;plot, mndays, mintensities, psym=!tok.dot
 
-plot, mintensities, intensities, psym=!tok.square, $
+  plot, mintensities, intensities, psym=!tok.square, $
       xtitle='Hand fit', ytitle='Machine fit'
   ;;oploterror, mintensities, $
   ;;            intensities, $
   ;;            merr_intensities, $
   ;;            err_intensities
+  print, 'Freed vs. machine fit correlation coef for ', count, ' points: ', correlate(mintensities, intensities)
+  print, 'Freed vs. machine fit rho rank correlation: ', r_correlate(mintensities, intensities)
   xaxis = indgen(30)
   oplot, xaxis, xaxis
 stop
@@ -113,11 +133,22 @@ stop
   sigmas = delta / errs
   plot, sigmas, psym=!tok.dot
 
-  binsize = 0.1
+  binsize = 0.2
   min = -10
   max = 10
   h = histogram(sigmas, binsize=binsize, min=-10, max=10)
-  plot, indgen((max - min)/binsize)*binsize - max, h
+  h_errs = sqrt(h)
+  hist_xaxis = indgen((max - min)/binsize)*binsize - max
+  plot, hist_xaxis, h
+  gaussian = N_elements(sigmas)*binsize/sqrt(2*!pi) * exp(-hist_xaxis^2/2.)
+  oplot, hist_xaxis, gaussian, linestyle=!tok.dashed
+  errplot, hist_xaxis, h - h_errs, h + h_errs
+
+  stop
+  plot, hist_xaxis, h - gaussian
+  errplot, hist_xaxis, h - gaussian - h_errs, h - gaussian + h_errs
+  ;; Looks like a slight preference for negative values, which makes
+  ;; sense for collision in to Fraunhofer lines.
 
   good_idx = where(finite(intensities), complement=bad_idx, N_bad)
   print, ndays[bad_idx]

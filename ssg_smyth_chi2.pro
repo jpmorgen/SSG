@@ -61,6 +61,28 @@
 ; Initial revision
 ;
 ;-
+
+;; Helper function to get white and black sorted out on screen vs. ps output
+function black_white, colors
+  init = {tok_sysvar}
+
+  ;; I tend to debug on screen, so things look fine here
+  if !d.name eq 'X' then $
+     return, colors
+  ;; If we made it here, we need to flip black and white for PS
+  ;; output, since paper is white....
+  black_idx = where(colors eq !tok.black, black_count)
+  white_idx = where(colors eq !tok.white, white_count)
+  if black_count gt 0 then begin
+     print, 'Am I here?'
+     colors[black_idx] = !tok.white
+  endif
+  if white_count gt 0 then $
+     colors[white_idx] = !tok.black
+  return, colors
+end
+
+
 pro ssg_smyth_chi2, $
    freed=freed, $ ;; Use Melanie's database
    nday1=nday, $
@@ -72,6 +94,7 @@ pro ssg_smyth_chi2, $
    ps=ps, $
    jpeg=jpeg, $
    plot=plot, $
+   show_chi2=show_chi2, $ ;; show chi^2 in orange boxes on individual day plots
    phi_plot=phi_plot, $
    sys_III_bin=sys_III_bin, $
    sys_III_offset=sys_III_offset, $
@@ -80,18 +103,33 @@ pro ssg_smyth_chi2, $
    nday_threshold=nday_threshold, $ ;; nday gap threshold in units of median nday difference for exposure calculations
    min_cadence=min_cadence, $ ;; for exposure calculations 
    scale_vs_time=scale_vs_time, $ ;; plot model scale factor vs time
-   inner_torus=inner_torus, $
+   inner_torus=inner_torus, $ ;; These are defined by phi
    outer_torus=outer_torus, $
    straddle=straddle, $ ;; try to find days that straddle outer to inner transition
+   rinner_torus=rinner_torus, $ ;; These are defined by radius
+   router_torus=router_torus, $
+   rstraddle=rstraddle, $ ;; try to find days that straddle outer to inner transition
+   whole_nights=whole_nights, $ ;; work with whole nights after applying rstraddle criterion
    model_scales=model_scales, $
+   plasma_rs=plasma_rs, $ ;; plasmacentric radial coordinate from model
    scale_inner=scale_inner, $
    new_scale=new_scale, $ ;; for applying a new scale factor to individual plots
    nn_DOWL=nn_DOWL, $
+   legend=legend, $ ;; general legend for [OI] intensity plots
+   max_model=max_model, $
   _EXTRA=extra
 
   init = {tok_sysvar}
   init = {ssg_sysvar}
 
+  ;; plasma-centric radius of nominal peak electron density (Rj)
+  e_peak_r = 5.72
+
+  ;; Should do this for the phi-defined ones too, though I hope those
+  ;; become obsolete
+  if keyword_set(rinner_torus) + keyword_set(router_torus) + keyword_set(rstraddle) gt 1 then $
+     message, 'ERROR: specify only one of rinner_torus, router_torus, rstraddle'
+  
   ;; Handle /straddle case with a default
   if N_elements(straddle) eq 1 then $
      straddle = [15, 45]
@@ -138,6 +176,9 @@ pro ssg_smyth_chi2, $
   if N_elements(long_3_tolerance) eq 0 then $
      long_3_tolerance = 0.01
 
+  if N_elements(max_model) eq 0 then $
+     max_model = 'brit_set3_D116'
+
   ;; Might need to work with PS and X differently.  Color currently
   ;; works better with X.
   color
@@ -182,7 +223,7 @@ pro ssg_smyth_chi2, $
   ;;restore, model_top + 'max_1_line_template.sav'
   ;;amodel = read_ascii(model_top + 'brit_set3_N216', template=max_1_line_template)           
   restore, model_top + 'max_1_line_template_r.sav'
-  amodel = read_ascii(model_top + 'brit_set3_D116', template=max_1_line_template_r)           
+  amodel = read_ascii(model_top + max_model, template=max_1_line_template_r)           
   dbclose ;; just in case
   ;; --> I will want to change this to the latest, once Max gets the
   ;; latest fitted
@@ -251,6 +292,7 @@ pro ssg_smyth_chi2, $
   ;; Keep track of number of nights and exposure time
   nday_counter = 0
   exp_time = 0
+  N_total_obs = 0
   ;; Handle each nday one at a time
   for inday=nday_start, nday_end do begin
      ;; Create the strings necessary to query the ZDBASE for nday
@@ -271,16 +313,23 @@ pro ssg_smyth_chi2, $
      print, 'NDAY = ', inday
 
      ;; Extract quantities we care about.
-     ;; Mon Apr  4 14:00:34 2016  jpmorgen@byted
-     ;; --> Problem with Max's model scale factor when set to 2.3?
-     ;; If Melanie's has lots more, or if autofit has just a
-     ;; few, as long as Melanie's has more
-     ;;if (mdata_count gt adata_count + 10 or adata_count lt 5) and mdata_count gt adata_count then begin
-     ;;if mdata_count gt adata_count then begin        ;; Melanie's has more 
-     ;; Temporarily take out Melanie's results
-     if adata_count eq 0 then begin
-        print, 'No autofit data for ' + nday2date(inday)
-        CONTINUE
+
+     ;; Generally avoid Melanie's database, since it has
+     ;; problems with phase and doesn't have some of the fancy
+     ;; quantities like plasmacentric radius of Io for some of our
+     ;; other options.  But it does give us the option to have more data
+     if keyword_set(freed) then begin
+        use_freed = (mdata_count gt adata_count + 10 or adata_count lt 5) and mdata_count gt adata_count
+     endif else begin
+        if adata_count eq 0 then begin
+           print, 'No autofit data for ' + nday2date(inday)
+           CONTINUE
+        endif
+        ;; If we made it here, we have autofit data, but don't
+        ;; want to use Melanie Freed's database
+        use_freed = 0
+     endelse
+     if use_freed then begin
         print, 'Using Freed database'
         database = 'Freed'
         data_count = mdata_count
@@ -412,10 +461,62 @@ pro ssg_smyth_chi2, $
      if keyword_set(plot) and keyword_set(new_scale) then begin
         model.model_scale[model_nday_idx] = new_scale
      endif
+     
+     ;; Cleaner to code radius-based inner/outer/straddle section this way
+     if keyword_set(rinner_torus) + keyword_set(router_torus) + keyword_set(rstraddle) eq 1 then begin
+        if keyword_set(rstraddle) then $
+           if rstraddle eq 1 then $
+              rstraddle = 0.05
+        ;; Work with the inner/outer torus as defined by the model
+        if keyword_set(rinner_torus) then $
+           subset_idx = where(model.plasma_r[model_nday_idx] lt e_peak_r, count)
+        if keyword_set(router_torus) then $
+           subset_idx = where(model.plasma_r[model_nday_idx] ge e_peak_r, count)
+        if keyword_set(rstraddle) then $
+           subset_idx = where(e_peak_r - rstraddle lt model.plasma_r[model_nday_idx] and $
+                              model.plasma_r[model_nday_idx] lt e_peak_r + rstraddle, count)
+        if count eq 0 then begin
+           message, /INFORMATIONAL, 'NOTE: after applying inner/outer/straddle conditions, no points found.  Skipping this day.'
+           CONTINUE
+        endif
+        ;; Check to see if we want to get back to working with the entire nday
+        if keyword_set(rstraddle) + keyword_set(whole_nights) eq 2 then $
+           subset_idx = indgen(N_elements(model_nday_idx))
+
+        ;; If we made it here, we have something to do
+        ;; Take out subset of data and model noting that subset_idx is
+        ;; into model_inday_idx and just plane data
+        model_nday_idx = model_nday_idx[subset_idx]
+        ;; Collect aligned data
+        mnday          = mnday         [subset_idx]
+        mlong_3        = mlong_3       [subset_idx]
+        mintensity     = mintensity    [subset_idx]
+        merr_intensity = merr_intensity[subset_idx]
+        ;;mfcont         = mfcont        [subset_idx]
+        ;;merr_fcont     = merr_fcont    [subset_idx]
+        ;;mwc            = mwc           [subset_idx]
+        ;;merr_wc        = merr_wc       [subset_idx]
+        mphi           = mphi          [subset_idx]
+        ;;mside          = mside         [subset_idx]
+        plasma_r	= model.plasma_r[subset_idx]
+     endif ;; radius-based inner/outer/straddle
+
+     ;; After we have pruned everything, check if we have anything left
+     N_nday = N_elements(mnday)
+     if N_nday lt min_data_count then begin
+        message, /INFORMATIONAL, 'NOTE: after cleaning, number of model points below min_data_count of ' + strtrim(min_data_count, 2) + ' skipping this day'
+        CONTINUE
+     endif
+
+     ;; At this point, all of the model scales are the same for the
+     ;; day.  We are about to mess with this, so save off the original
+     ;; model scale for title purposes
+     model_scale = model.model_scale[model_nday_idx[0]]
 
      ;; Now that we are aligned, scale the model for inner torus, if desired
      if keyword_set(scale_inner) then begin
-        inner_idx = where(30 lt mphi and mphi lt 180, count)
+        ;;inner_idx = where(30 lt mphi and mphi lt 180, count)
+        inner_idx = where(model.plasma_r[model_nday_idx] lt e_peak_r, count)
         if count gt 0 then $
            model.model_scale[model_nday_idx[inner_idx]] *= scale_inner
      endif
@@ -435,17 +536,13 @@ pro ssg_smyth_chi2, $
      pfo_array_append, phis, mphi
      ;; Model scale factors for scale_vs_time plot
      pfo_array_append, model_scales, model.model_scale[model_nday_idx]
+     pfo_array_append, plasma_rs, plasma_r
 
      ;; Exposure calculations
      nday_counter += 1
      ;; Find time differences between adjacent points to calculate
      ;; the amount of decent exposure time coverage (code from
      ;; ssg_blob_search)
-     N_nday = N_elements(mnday)
-     if N_nday lt min_data_count then begin
-        message, /INFORMATIONAL, 'ERROR: AFTER CLEANING, number of model points below min_data_count of ' + strtrim(min_data_count, 2) + ' skipping this day -- POSSIBLE MODEL/DATA ALIGNMENT PROBLEM!'
-        CONTINUE
-     endif
 
      nday_diff = mnday[1:N_nday-1] - mnday[0:N_nday-2]
      ;; Generally we have a constant cadance with occational large
@@ -483,6 +580,7 @@ pro ssg_smyth_chi2, $
         endif
      
         idx = indgen(N_in_gap) + gap_left_idx
+        N_total_obs += N_in_gap
         ;;print, 'new segment: ', idx
         ;; Check to see if the sampling in this gap is close enough to
         ;; our desired minimum cadence (in minutes)
@@ -493,23 +591,31 @@ pro ssg_smyth_chi2, $
         endif
         ;; If we made it here, we have a viable time segment
         exp_time += mnday[gap_right_idx[igap]] - mnday[gap_left_idx]
+        ;; Move the left side of our gap forward if we have any more
+        ;; gaps to process
+        if igap lt ntime_segments then $
+           gap_left_idx = gap_right_idx[igap] + 1
      endfor ;; each time segment
 
      ;; Plot individual day, if desired
      if keyword_set(plot) then begin
         ;; Initialize postscipt output
-        if size(plot, /TNAME) eq 'STRING' then begin
+        if size(plot, /type) eq !tok.string then begin
            set_plot, 'ps'
            device, /portrait, filename=plot, /color, /encap
         endif
 
         ic = 1
         format = '(i4, "/", i2, "/", i2, " Scale ", f3.1, "x10^15 !7u!6", i4, " -", i4)'
+        ;; Set the title model_scale to the new_scale value
+        if keyword_set(new_scale) then $
+           model_scale = new_scale
+
         title = string(format=format, $
                        model.year[model_nday_idx[0]], $
                        model.month[model_nday_idx[0]], $
                        model.day[model_nday_idx[0]], $
-                       model.model_scale[model_nday_idx[0]], $
+                       model_scale, $
                        phis[0], phis[N_elements(phis)-1])
         xtitle = '!7k!6!DIII!N'
         if keyword_set(scale_inner) then $
@@ -534,8 +640,14 @@ pro ssg_smyth_chi2, $
                                     ic*sys_III_bin - sys_III_offset)
            oplot, mlong_3[plot_idx], mintensity[plot_idx], psym=!tok.plus
            errplot, mlong_3[plot_idx], mintensity[plot_idx]-merr_intensity[plot_idx]/2., mintensity[plot_idx]+merr_intensity[plot_idx]/2., linestyle=!tok.solid
-           oplot, mlong_3[plot_idx], scaled_model[plot_idx], psym=!tok.triangle
-           oplot, mlong_3[plot_idx], chi2s[plot_idx]/10., psym=!tok.square, color=!tok.orange
+           ;; Plot inner or outer torus model points differently 
+           inner_idx = where(model.plasma_r[model_nday_idx[plot_idx]] lt e_peak_r, n_inner, complement=outer_idx, ncomplement=n_outer)
+           if n_inner gt 0 then $
+              oplot, mlong_3[plot_idx[inner_idx]], scaled_model[plot_idx[inner_idx]], psym=!tok.asterisk
+           if n_outer gt 0 then $
+              oplot, mlong_3[plot_idx[outer_idx]], scaled_model[plot_idx[outer_idx]], psym=!tok.triangle
+           if keyword_set(show_chi2) then $
+              oplot, mlong_3[plot_idx], chi2s[plot_idx]/10., psym=!tok.square, color=!tok.orange
         endif
         for ic=2,360/sys_III_bin do begin
            plot_idx = where((ic-1)*sys_III_bin - sys_III_offset lt phis and $
@@ -548,22 +660,32 @@ pro ssg_smyth_chi2, $
                                        ic*sys_III_bin - sys_III_offset)
               oplot, mlong_3[plot_idx], mintensity[plot_idx], psym=!tok.plus, color=ic
               errplot, mlong_3[plot_idx], mintensity[plot_idx]-merr_intensity[plot_idx]/2., mintensity[plot_idx]+merr_intensity[plot_idx]/2., linestyle=!tok.solid, color=ic
-              oplot, mlong_3[plot_idx], scaled_model[plot_idx], psym=!tok.triangle, color=ic
-              oplot, mlong_3[plot_idx], chi2s[plot_idx]/10., psym=!tok.square, color=!tok.orange
+              ;; Plot inner or outer torus model points differently 
+              inner_idx = where(model.plasma_r[model_nday_idx[plot_idx]] lt e_peak_r, n_inner, complement=outer_idx, ncomplement=n_outer)
+              if n_inner gt 0 then $
+                 oplot, mlong_3[plot_idx[inner_idx]], scaled_model[plot_idx[inner_idx]], psym=!tok.asterisk, color=ic
+              if n_outer gt 0 then $
+                 oplot, mlong_3[plot_idx[outer_idx]], scaled_model[plot_idx[outer_idx]], psym=!tok.triangle, color=ic
+              if keyword_set(show_chi2) then $
+                 oplot, mlong_3[plot_idx], chi2s[plot_idx]/10., psym=!tok.square, color=!tok.orange
            endif
         endfor ;; each phi bin
 
-        ;; Correct white/black problems in ps output
-        if size(plot, /TNAME) eq 'STRING' then begin
-           white_idx = where(legend_colors eq !tok.white, count)
-           if count gt 0 then $
-              legend_colors[white_idx] = !tok.black
-        endif ;; correcting white/black
-
+        ;; Model point legend suggested by Marissa.  Hide the dot as
+        ;; black (white in PS) so the Smyth & Marconi model line looks
+        ;; like a title.
+        al_legend, ['Smyth & Marconi model', 'Outer torus', 'Inner torus'], $
+                   psym=[!tok.dot, !tok.triangle, !tok.asterisk], $
+                   colors=black_white([!tok.black, !tok.white, !tok.white]), $
+                   charsize=1.3, /left
+           
+        ;; Phi legend
         al_legend, legend_text, $
-                   psym=replicate(!tok.triangle, N_elements(legend_colors)), colors=byte(legend_colors)
+                   psym=replicate(!tok.triangle, N_elements(legend_colors)), $
+                   colors=black_white(byte(legend_colors)), $
+                   /right
 
-        if size(plot, /TNAME) eq 'STRING' then begin
+        if size(plot, /type) eq !tok.string then begin
            device,/close
            set_plot, 'x'
         endif  
@@ -580,7 +702,7 @@ pro ssg_smyth_chi2, $
      endif ;; plot individual days
 
   endfor  ;; each nday
-  message, /CONTINUE, 'NOTE: Found ' + strtrim(nday_counter, 2) + ' nights with min_data_count gt ' + strtrim(min_data_count, 2) + '.  Total exposure time approx ' + strtrim(exp_time * 24. , 2)+ ' hours.'
+  message, /CONTINUE, 'NOTE: Found ' + strtrim(nday_counter, 2) + ' nights with min_data_count gt ' + strtrim(min_data_count, 2) + '.  Total exposure time approx ' + strtrim(exp_time * 24. , 2)+ ' hours.  Total number of points = ' + strtrim(N_total_obs, 2)
 
   dbclose
 
@@ -595,13 +717,20 @@ pro ssg_smyth_chi2, $
      if keyword_set(histogram) then begin
         ic = 1
         plot_idx = where(phis gt 360 - sys_III_offset or $
-                         (0 lt phis and phis lt ic*sys_III_bin - sys_III_offset))
-        h = histogram(chi2s[plot_idx], binsize=1, locations=locations)
-        h /= float(N_elements(plot_idx))
+                         (0 lt phis and phis lt ic*sys_III_bin - sys_III_offset), count)
+        if count gt 0 then begin
+           h = histogram(chi2s[plot_idx], binsize=1, locations=locations)
+           h /= float(N_elements(plot_idx))
+        endif else begin
+           locations = [0]
+           h = locations
+        endelse
         plot, locations, h, psym=!tok.square, xtitle='chi-square', ytitle='!6Normalized histogram', position = [0.15, 0.15, 0.95, 0.95], xrange=[0,40]
         for ic=2,360/sys_III_bin do begin
            plot_idx = where((ic-1)*sys_III_bin - sys_III_offset lt phis and $
-                            phis lt ic*sys_III_bin - sys_III_offset)
+                            phis lt ic*sys_III_bin - sys_III_offset, count)
+           if count eq 0 then $
+              CONTINUE
            h = histogram(chi2s[plot_idx], binsize=1, locations=locations)
            h /= float(N_elements(plot_idx))
            oplot, locations, h, psym=!tok.square, color=ic
@@ -635,7 +764,7 @@ pro ssg_smyth_chi2, $
 
   ;; Initialize postscript output
   if keyword_set(ps) then begin
-     if size(ps, /TNAME) ne 'STRING' then $
+     if size(ps, /type) ne !tok.string then $
         ps = 'ssg_smyth_chi2_out.ps'
      set_plot, 'ps'
      device, /portrait, filename=ps, /color, /encap
@@ -676,15 +805,9 @@ pro ssg_smyth_chi2, $
                               ic*sys_III_bin - sys_III_offset)
   endfor
 
-  ;; Correct white/black problems in ps output
-  if size(plot, /TNAME) eq 'STRING' then begin
-     white_idx = where(legend_colors eq !tok.white, count)
-     if count gt 0 then $
-        legend_colors[white_idx] = !tok.black
-  endif ;; correcting white/black
-
   al_legend, legend_text, /right, $ ;; position=[100, 140], /top, $
-             psym=replicate(!tok.square, N_elements(legend_colors)), colors=byte(legend_colors)
+             psym=replicate(!tok.square, N_elements(legend_colors)), $
+             colors=black_white(byte(legend_colors))
 
   if keyword_set(ps) then begin
      device,/close

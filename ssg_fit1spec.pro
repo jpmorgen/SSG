@@ -986,7 +986,15 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
         if answer eq 'P' then begin
            landscape = fix(modval(landscape, 'Plot in landscape mode? (1=yes, 0=no)'))
            pfile=strmid(shortfile, 0, strpos(shortfile, '.fits')) + $
-                 '_spec.ps'
+                 '_spec'
+           ;; Not sure if I really need to worry about this for
+           ;; landscape plots.  I generally don't use them,
+           ;; preferring encapsulated for placing as figures
+           if landscape then $
+              pfile = pfile + '.ps' $
+           else $
+              pfile = pfile + '.eps'
+           
            message, /CONTINUE, 'Writing postscript file ' + pfile
            set_plot,'ps'
 
@@ -994,7 +1002,8 @@ pro ssg_fit1spec, nday, obj, N_continuum=N_continuum_in, $
            ocharthick = !P.charthick
            !P.thick = 3
            !P.charthick = 2
-           device, filename=pfile, landscape=landscape
+           ;; Generally I want 
+           device, filename=pfile, landscape=landscape, encap=~landscape
            sso_plot_fit, pix_axis, parinfo, spec, err_spec, $
                          xrange=[left_wval, right_wval], yrange=yrange, $
                          resid_yrange=resid_yrange, $
