@@ -44,6 +44,7 @@ pro ssg_inner_outer_scale, $
    inner_new_scale=inner_new_scale, $
    xrange=xrange, $
    yrange=yrange, $
+   sysIV=sysIV, $
    ps=ps, $
    _EXTRA=extra
 
@@ -63,10 +64,11 @@ pro ssg_inner_outer_scale, $
      inner_h_err = sqrt(inner_h)
   endif else begin
 
-     ssg_smyth_chi2, sys_III_offset=45, min_data_count=min_data_count, ndays=inner_ndays, long_3s=inner_long_3s, phis=inner_phis, sides=inner_sides, chi2s=inner_chi2s, model_scales=inner_model_scales, /rinner_torus, _EXTRA=extra
+     ssg_smyth_chi2, sys_III_offset=45, min_data_count=min_data_count, ndays=inner_ndays, long_3s=inner_long_3s, phis=inner_phis, sides=inner_sides, chi2s=inner_chi2s, model_scales=inner_model_scales, /rinner_torus, plasma_rs=inner_plasma_rs, _EXTRA=extra
   
-     inner_ndays = floor(inner_ndays)
-     inner_idx = uniq(inner_ndays, sort(inner_ndays))
+     ;; Integer inner ndays so we can still use the original ndays, below
+     iinner_ndays = floor(inner_ndays)
+     inner_idx = uniq(iinner_ndays, sort(iinner_ndays))
      inner_h = histogram(inner_model_scales[inner_idx], binsize=0.5, locations=inner_locations)
      inner_h_err = sqrt(inner_h)
 
@@ -76,59 +78,153 @@ pro ssg_inner_outer_scale, $
      inner_low_idx = where(inner_model_scales[inner_idx] lt 3.5, complement=inner_high_idx, count, ncomplement=high_count)
      if count gt 0 then begin
         inner_low_idx = inner_idx[inner_low_idx]
-        print, 'Ndays with low inner norm value: ', inner_ndays[inner_low_idx]
-        print, 'Dates with low inner norm value: ', nday2date(inner_ndays[inner_low_idx])
+        print, 'Ndays with low inner norm value: ', iinner_ndays[inner_low_idx]
+        print, 'Dates with low inner norm value: ', nday2date(iinner_ndays[inner_low_idx])
      endif
      if high_count gt 0 then begin
         inner_high_idx = inner_idx[inner_high_idx]
-        print, 'Ndays with high inner norm value: ', inner_ndays[inner_high_idx]
-        print, 'Dates with high inner norm value: ', nday2date(inner_ndays[inner_high_idx])
+        print, 'Ndays with high inner norm value: ', iinner_ndays[inner_high_idx]
+        print, 'Dates with high inner norm value: ', nday2date(iinner_ndays[inner_high_idx])
      endif
 
 endelse
   
-  ssg_smyth_chi2, sys_III_offset=45, min_data_count=min_data_count, ndays=outer_ndays, long_3s=outer_long_3s, phis=outer_phis, sides=outer_sides, chi2s=outer_chi2s, model_scales=outer_model_scales, /router_torus, _EXTRA=extra
+  ssg_smyth_chi2, sys_III_offset=45, min_data_count=min_data_count, ndays=outer_ndays, long_3s=outer_long_3s, phis=outer_phis, sides=outer_sides, chi2s=outer_chi2s, model_scales=outer_model_scales, /router_torus, plasma_rs=outer_plasma_rs, _EXTRA=extra
   
-  outer_ndays = floor(outer_ndays)
-  outer_idx = uniq(outer_ndays, sort(outer_ndays))
+  ;; Floor of outer_ndays
+  iouter_ndays = floor(outer_ndays)
+  outer_idx = uniq(iouter_ndays, sort(iouter_ndays))
   outer_h = histogram(outer_model_scales[outer_idx], binsize=0.5, locations=outer_locations)
   outer_h_err = sqrt(outer_h)
 
   outer_low_idx = where(outer_model_scales[outer_idx] lt 3.5, complement=outer_high_idx, count, ncomplement=high_count)
   if count gt 0 then begin
      outer_low_idx = outer_idx[outer_low_idx]
-     print, 'Ndays with low outer norm value: ', outer_ndays[outer_low_idx]
-     print, 'Dates with low outer norm value: ', nday2date(outer_ndays[outer_low_idx])
+     print, 'Ndays with low outer norm value: ', iouter_ndays[outer_low_idx]
+     print, 'Dates with low outer norm value: ', nday2date(iouter_ndays[outer_low_idx])
   endif
   if high_count gt 0 then begin
      outer_high_idx = outer_idx[outer_high_idx]
-     print, 'Ndays with high outer norm value: ', outer_ndays[outer_high_idx]
-     print, 'Dates with high outer norm value: ', nday2date(outer_ndays[outer_high_idx])
+     print, 'Ndays with high outer norm value: ', iouter_ndays[outer_high_idx]
+     print, 'Dates with high outer norm value: ', nday2date(iouter_ndays[outer_high_idx])
      print, 'Scale factors: ', outer_model_scales[outer_high_idx]
   endif
 
+  ;; Find days for which we have both inner and outer.  Be careful
+  ;; because the outer_ and inner_idx are into the floored versions
+  if NOT keyword_set(sysIV) then $
+     sysIV = 10.21
+  print, 'Printing table for paper'
+  for inday=0,N_elements(inner_idx)-1 do begin
+     inner_outer_idx = where(iouter_ndays[outer_idx] eq iinner_ndays[inner_idx[inday]], count)
+     if count eq 0 then $
+        CONTINUE
+     if count gt 1 then $
+        message, 'ERROR: expecting one or no matches'
 
-  ;; This doesn't allow for min_data_count
-  ;;model_top = !ssg.top + path_sep() + 'analysis' + path_sep() + 'max' +  path_sep()
-  ;;restore, model_top + 'max_1_line_template.sav'
-  ;;model = read_ascii(model_top + 'brit_set3_N216', template=max_1_line_template)
-  ;;
-  ;;inner_idx = where(30 lt model.phi and model.phi lt 180)
-  ;;inner_model_scales = model.model_scale[inner_idx]
-  ;;
-  ;;outer_idx = [where(model.phi lt 30), where(model.phi gt 180)]
-  ;;outer_model_scales = model.model_scale[outer_idx]
-  ;;
-  ;;inner_ndays = floor(model.max_inday[inner_idx])
-  ;;inner_idx = uniq(inner_ndays, sort(inner_ndays))
-  ;;inner_h = histogram(inner_model_scales[inner_idx], binsize=0.5, locations=inner_locations)
-  ;;inner_h_err = sqrt(inner_h)
-  ;;
-  ;;outer_ndays = floor(model.max_inday[outer_idx])
-  ;;outer_idx = uniq(outer_ndays, sort(outer_ndays))
-  ;;outer_h = histogram(outer_model_scales[outer_idx], binsize=0.5, locations=outer_locations)
-  ;;outer_h_err = sqrt(outer_h)
+     ;; If we made it here, we have both inner and outer on this day.
+     ;; Blossom back up to the idx from the output of the original
+     ;; ssg_smyth_chi2 calls.
+     ;; unwrap
+     inner_outer_idx = outer_idx[inner_outer_idx]
+     this_inday = iouter_ndays[inner_outer_idx]
+     ;; this_inday is an array + where requires a scalar.
+     this_inday = this_inday[0]
+     this_outer_idx = where(iouter_ndays eq this_inday, nouter)
+     this_inner_idx = where(iinner_ndays eq this_inday, ninner)
 
+     ;; Print table of observations line-by-line
+     which_first = 'O'
+     if inner_ndays[this_inner_idx[0]] lt outer_ndays[this_outer_idx[0]] then $
+        which_first = 'I'
+
+     ;; Collect times for phase relationship searching
+     pfo_array_append, begin_outers, outer_ndays[this_outer_idx[0]]
+     pfo_array_append, end_outers, outer_ndays[this_outer_idx[nouter-1]]
+
+     ;; Collect outer/inner ratio
+     outer_inner_ratio = outer_model_scales[this_outer_idx[0]] / $
+                         inner_model_scales[this_inner_idx[0]]
+     ;; Prepare to print phase to previous measurement
+     N_days = N_elements(end_outers)
+     if N_days le 1 then begin
+        min_diff = 0
+        max_diff = 0
+     endif else begin
+        min_diff = (begin_outers[N_days-1] - end_outers[N_days-2]) * 24. / sysIV
+        max_diff = (end_outers[N_days-1] - begin_outers[N_days-2]) * 24. / sysIV
+     endelse
+     print, string(format='(i6, 2(a20), 6(F6.1), A2, 2(F6.1))', $
+                   iouter_ndays[this_outer_idx[0]], $
+                   nday2date([outer_ndays[this_outer_idx[0]], $
+                              outer_ndays[this_outer_idx[nouter-1]]]), $
+                   outer_long_3s[this_outer_idx[0]], $
+                   outer_long_3s[this_outer_idx[nouter-1]], $                   
+                   outer_phis[this_outer_idx[0]], $
+                   outer_phis[this_outer_idx[nouter-1]], $
+                   outer_model_scales[this_outer_idx[0]], $
+                   outer_inner_ratio, $
+                   which_first, $
+                   min_diff, $
+                   max_diff)
+
+     ;; Prepare for histogram of outer/inner scale factor ratios
+     pfo_array_append, outer_inner_ratios, outer_inner_ratio
+
+  endfor ;; each inner nday to find matches with outer
+
+;;;;; Process beginning and end times of outer torus observations to
+;;;;; see if we have any system III or IV phasing
+;;;N_days = N_elements(end_outers)
+;;;
+;;;;; Do this at first for just adjacent measurements
+;;;min_diffs = begin_outers[1:N_days-1] - end_outers[0:N_days-2]
+;;;max_diffs = end_outers[1:N_days-1] - begin_outers[0:N_days-2]
+;;;
+;;;
+;;;
+;;;;; This might be overkill, since if we don't see a pattern in the next
+;;;;; --> I am going to want to do all permutations and combinations
+;;;;; Arrays of differences between begin and end points
+;;;for inday=0, N_days-2 do begin
+;;;   pfo_array_append, min_diffs, $
+;;;                     begin_outers[inday+1:N_days-1] - end_outers[inday]
+;;;   pfo_array_append, max_diffs, $
+;;;                     end_outers[inday+1:N_days-1] - begin_outers[inday]
+;;;   ;; Midpoint of each second observation with the same array
+;;;   ;; structure (flat) as the *_diffs
+;;;   pfo_array_append, outer_midpoints, $        
+;;;                     replicate((end_outers[inday+1] + $
+;;;                                begin_outers[inday+1]) / 2., $
+;;;                               N_days-1-inday)
+;;;end
+;;;
+;;;
+;;;if NOT keyword_set(sysIV) then $
+;;;   sysIV = 10.21
+;;;min_sysIVs = min_diffs mod (sysIV * 24.)
+;;;max_sysIVs = max_diffs mod (sysIV * 24.)
+;;;
+;;;min_sysIV_idx = uniq(min_sysIVs, sort(min_sysIVs))
+;;;min_sysIV_h = histogram(min_sysIVs[min_sysIV_idx], binsize=0.5, locations=min_locations)
+;;;max_sysIV_idx = uniq(max_sysIVs, sort(max_sysIVs))
+;;;max_sysIV_h = histogram(max_sysIVs[max_sysIV_idx], binsize=0.5, locations=max_locations)
+;;;
+;;;plot, min_locations, min_sysIV_h, psym=!tok.hist
+;;;oplot, max_locations, max_sysIV_h, psym=!tok.hist, color=!tok.green
+;;;
+;;;return
+;;;n_diff_idx = uniq(min_diffs, sort(min_diffs))
+;;;min_diff_h = histogram(min_diffs[min_diff_idx], binsize=0.5, locations=min_locations)
+;;;max_diff_idx = uniq(max_diffs, sort(max_diffs))
+;;;max_diff_h = histogram(max_diffs[max_diff_idx], binsize=0.5, locations=max_locations)
+;;;
+;;;plot, min_locations, min_diff_h, psym=!tok.hist
+;;;oplot, max_locations, max_diff_h, psym=!tok.hist, color=!tok.green
+;;;
+;;;return
+
+  ;; Make histogram plot
   xtitle = 'Scale factor'
   if keyword_set(scale_inner) then begin
      inner_locations *= scale_inner
@@ -197,6 +293,15 @@ endelse
   print, 'Outer histogram'
   for i=0, N_elements(outer_locations)-1 do $
      print, outer_locations[i], outer_h[i]
+  
+  ;; Make the outer/inner histogram look nice by using the inner/outer ratio
+  h = histogram(1./outer_inner_ratios, binsize=0.5, locations=locations, reverse_indices=ridx)
+  locations += (locations[1] - locations[0])/2.
+  herr = sqrt(h)
+  plot, 1./locations, h, psym=!tok.hist, $
+        xtitle='Outer/Inner scale factor', ytitle='Histogram', xrange=[0.3,1]
+  errplot, 1./locations, h-herr, h+herr
+
 
   if keyword_set(ps) then begin
      device,/close

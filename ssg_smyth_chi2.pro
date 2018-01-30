@@ -469,9 +469,9 @@ pro ssg_smyth_chi2, $
               rstraddle = 0.05
         ;; Work with the inner/outer torus as defined by the model
         if keyword_set(rinner_torus) then $
-           subset_idx = where(model.plasma_r[model_nday_idx] lt e_peak_r, count)
+           subset_idx = where(model.plasma_r[model_nday_idx] le e_peak_r, count)
         if keyword_set(router_torus) then $
-           subset_idx = where(model.plasma_r[model_nday_idx] ge e_peak_r, count)
+           subset_idx = where(model.plasma_r[model_nday_idx] gt e_peak_r, count)
         if keyword_set(rstraddle) then $
            subset_idx = where(e_peak_r - rstraddle lt model.plasma_r[model_nday_idx] and $
                               model.plasma_r[model_nday_idx] lt e_peak_r + rstraddle, count)
@@ -699,6 +699,12 @@ pro ssg_smyth_chi2, $
         ;; Return color table to its original value
         tvlct, user_r, user_g, user_b
 
+        ;; Print out plot points with ndays and times
+        print, 'nday, sysIII, phi, scale factor'
+        for ipt=0, N_elements(ndays)-1 do begin
+           print, format='(f10.4, 3f7.1)', $
+                  ndays[ipt], long_3s[ipt], phis[ipt], model_scales[ipt] ;;, plasma_rs
+        endfor
      endif ;; plot individual days
 
   endfor  ;; each nday
