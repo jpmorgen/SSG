@@ -189,19 +189,27 @@ pro ssg_smyth_chi2, $
   tvlct, user_r, user_g, user_b, /get
   tek_color
 
-  ;; Be polite, but get the line thicknesses we need for PS output
-  ;; (leave for terminal output since that gets us started on PS output)
-  oPthick     = !P.thick
-  oPcharsize  = !P.charsize
-  oPcharthick = !P.charthick
-  oXthick     = !X.thick
-  oYthick     = !Y.thick
+  ;; Initialize postscript output
+  if keyword_set(ps) or size(plot, /type) eq !tok.string then begin
+     ;; Be polite, but get the line thicknesses we need for PS output
+     ;; (leave for terminal output since that gets us started on PS output)
+     oPthick     = !P.thick
+     oPcharsize  = !P.charsize
+     oPcharthick = !P.charthick
+     oXthick     = !X.thick
+     oYthick     = !Y.thick
 
-  !P.thick = 3
-  !P.charsize = 1.5
-  !P.charthick = 2
-  !X.thick = 2
-  !Y.thick = 2      
+     !P.thick = 3
+     !P.charsize = 1.5
+     !P.charthick = 2
+     !X.thick = 2
+     !Y.thick = 2      
+
+     if size(ps, /type) ne !tok.string then $
+        ps = 'ssg_smyth_chi2_out.ps'
+     set_plot, 'ps'
+     device, /portrait, filename=ps, /color, /encap
+  endif
 
   ;; Initialize output arrays for pfo_array_append
   ndays = 'None'
@@ -498,7 +506,7 @@ pro ssg_smyth_chi2, $
         ;;merr_wc        = merr_wc       [subset_idx]
         mphi           = mphi          [subset_idx]
         ;;mside          = mside         [subset_idx]
-        plasma_r	= model.plasma_r[subset_idx]
+        plasma_r	= model.plasma_r[model_nday_idx]
      endif ;; radius-based inner/outer/straddle
 
      ;; After we have pruned everything, check if we have anything left
@@ -674,14 +682,14 @@ pro ssg_smyth_chi2, $
         ;; Model point legend suggested by Marissa.  Hide the dot as
         ;; black (white in PS) so the Smyth & Marconi model line looks
         ;; like a title.
-        al_legend, ['Smyth & Marconi model', 'Outer torus', 'Inner torus'], $
-                   psym=[!tok.dot, !tok.triangle, !tok.asterisk], $
-                   colors=black_white([!tok.black, !tok.white, !tok.white]), $
+        al_legend, ['Data', 'Smyth & Marconi model:', 'Outer torus', 'Inner torus'], $
+                   psym=[!tok.plus, !tok.dot, !tok.triangle, !tok.asterisk], $
+                   colors=black_white([!tok.white, !tok.black, !tok.white, !tok.white]), $
                    charsize=1.3, /left
            
-        ;; Phi legend
+        ;; Phi & data legend
         al_legend, legend_text, $
-                   psym=replicate(!tok.triangle, N_elements(legend_colors)), $
+                   psym=[replicate(!tok.triangle, N_elements(legend_colors))], $
                    colors=black_white(byte(legend_colors)), $
                    /right
 
@@ -689,12 +697,6 @@ pro ssg_smyth_chi2, $
            device,/close
            set_plot, 'x'
         endif  
-
-        !P.thick     = oPthick    
-        !P.charsize  = oPcharsize 
-        !P.charthick = oPcharthick
-        !X.thick     = oXthick    
-        !Y.thick     = oYthick    
 
         ;; Return color table to its original value
         tvlct, user_r, user_g, user_b
@@ -711,6 +713,9 @@ pro ssg_smyth_chi2, $
   message, /CONTINUE, 'NOTE: Found ' + strtrim(nday_counter, 2) + ' nights with min_data_count gt ' + strtrim(min_data_count, 2) + '.  Total exposure time approx ' + strtrim(exp_time * 24. , 2)+ ' hours.  Total number of points = ' + strtrim(N_total_obs, 2)
 
   dbclose
+
+  ;; --> It would be nice if I had better logic to select the various
+  ;; plotting options
 
   ;; If we were using the plotting feature for individual ndays,
   ;; return now
@@ -731,7 +736,11 @@ pro ssg_smyth_chi2, $
            locations = [0]
            h = locations
         endelse
-        plot, locations, h, psym=!tok.square, xtitle='chi-square', ytitle='!6Normalized histogram', position = [0.15, 0.15, 0.95, 0.95], xrange=[0,40]
+        plot, locations, h, psym=!tok.square, xtitle='chi-square', $
+              ytitle='!6Normalized histogram', $
+              position = [0.15, 0.15, 0.95, 0.95], $
+              xrange=[0.000001,200], /xlog,$
+              yrange=[0.001, 1], /ylog
         for ic=2,360/sys_III_bin do begin
            plot_idx = where((ic-1)*sys_III_bin - sys_III_offset lt phis and $
                             phis lt ic*sys_III_bin - sys_III_offset, count)
@@ -768,14 +777,6 @@ pro ssg_smyth_chi2, $
 
   ;; If we made it here we want to plot chisq vs sysIII
 
-  ;; Initialize postscript output
-  if keyword_set(ps) then begin
-     if size(ps, /type) ne !tok.string then $
-        ps = 'ssg_smyth_chi2_out.ps'
-     set_plot, 'ps'
-     device, /portrait, filename=ps, /color, /encap
-  endif
-
   ;; Divide phi bins up into sys_III_bin deg chunks.  If
   ;; sys_III_offset is set, shift by that amount
   ic = 1
@@ -789,9 +790,9 @@ pro ssg_smyth_chi2, $
 
   ;;wset,ic
   ;;plot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, xtitle='System III', ytitle=string('chi-square'), yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, /ylog
-  plot, long_3s[plot_idx], chi2s[plot_idx], $
+  plot, long_3s[plot_idx], chi2s[plot_idx], /ylog, $
         psym=!tok.square, xtitle='!7k!6!DIII!N', ytitle='!7v!6!U2!N!6', $
-        xrange=[0,360], yrange=[1, 200], xstyle=!tok.exact, ystyle=!tok.exact, $
+        xrange=[0,360], yrange=[0.1, 200], xstyle=!tok.exact, ystyle=!tok.exact, $
         xtickinterval=90, position = [0.15, 0.15, 0.95, 0.95]
   ;;plot, [0,360],[0,0], psym=!tok.dot, xtitle='System III', ytitle='!6chi-square', yrange=[1, 300], xstyle=!tok.exact, ystyle=!tok.exact, xtickinterval=90, position = [0.15, 0.15, 0.9, 0.9]
   ;;oplot, long_3s[plot_idx], chi2s[plot_idx], psym=!tok.square, color=8
@@ -815,16 +816,16 @@ pro ssg_smyth_chi2, $
              psym=replicate(!tok.square, N_elements(legend_colors)), $
              colors=black_white(byte(legend_colors))
 
-  if keyword_set(ps) then begin
+  if keyword_set(ps) or size(plot, /type) eq !tok.string then begin
      device,/close
      set_plot, 'x'
-  endif  
 
-  !P.thick     = oPthick    
-  !P.charsize  = oPcharsize 
-  !P.charthick = oPcharthick
-  !X.thick     = oXthick    
-  !Y.thick     = oYthick    
+     !P.thick     = oPthick    
+     !P.charsize  = oPcharsize 
+     !P.charthick = oPcharthick
+     !X.thick     = oXthick    
+     !Y.thick     = oYthick    
+  endif  
 
   ;; Return color table to its original value
   tvlct, user_r, user_g, user_b

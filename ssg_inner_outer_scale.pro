@@ -41,14 +41,17 @@ pro ssg_inner_outer_scale, $
    min_data_count=min_data_count, $
    scale_inner=scale_inner, $
    normalize=normalize, $
+   conorm=conorm, $
    inner_new_scale=inner_new_scale, $
    xrange=xrange, $
    yrange=yrange, $
    sysIV=sysIV, $
+   OOIHist=OOIHist, $
    ps=ps, $
    _EXTRA=extra
 
   init = {tok_sysvar}
+  init = {ssg_sysvar}
 
   ;; Be polite with the color table
   tvlct, user_r, user_g, user_b, /get
@@ -115,6 +118,7 @@ endelse
   if NOT keyword_set(sysIV) then $
      sysIV = 10.21
   print, 'Printing table for paper'
+  print, 'nday & UT Date  & \sysIII$^1$&  & $\phi^1$&     & SO$^2$& O/I$^3$ & A$^4$ & \sysIII\ cycles$^5$& \sysIV\ cycles$^5$&\\'
   for inday=0,N_elements(inner_idx)-1 do begin
      inner_outer_idx = where(iouter_ndays[outer_idx] eq iinner_ndays[inner_idx[inday]], count)
      if count eq 0 then $
@@ -151,22 +155,30 @@ endelse
         min_diff = 0
         max_diff = 0
      endif else begin
-        min_diff = (begin_outers[N_days-1] - end_outers[N_days-2]) * 24. / sysIV
-        max_diff = (end_outers[N_days-1] - begin_outers[N_days-2]) * 24. / sysIV
+        min_diff = (begin_outers[N_days-1] - end_outers[N_days-2]) * 24.
+        max_diff = (end_outers[N_days-1] - begin_outers[N_days-2]) * 24.
      endelse
-     print, string(format='(i6, 2(a20), 6(F6.1), A2, 2(F6.1))', $
+     min_III_diff = min_diff / !ssg.sysIII
+     max_III_diff = max_diff / !ssg.sysIII
+     min_IV_diff = min_diff / sysIV
+     max_IV_diff = max_diff / sysIV
+     date = nday2date(outer_ndays[this_outer_idx[0]])
+     date = strsplit(date, 'T', /extract)
+     print, string(format='(i6, (a11), 6(F6.1), F7.2, A2, F6.1, F6.1)', $
                    iouter_ndays[this_outer_idx[0]], $
-                   nday2date([outer_ndays[this_outer_idx[0]], $
-                              outer_ndays[this_outer_idx[nouter-1]]]), $
+                   date[0], $
                    outer_long_3s[this_outer_idx[0]], $
                    outer_long_3s[this_outer_idx[nouter-1]], $                   
                    outer_phis[this_outer_idx[0]], $
                    outer_phis[this_outer_idx[nouter-1]], $
                    outer_model_scales[this_outer_idx[0]], $
                    outer_inner_ratio, $
+                   min(inner_plasma_rs[this_inner_idx]), $
                    which_first, $
-                   min_diff, $
-                   max_diff)
+                   min_III_diff, $
+                   max_III_diff, $
+                   min_IV_diff, $
+                   max_IV_diff)
 
      ;; Prepare for histogram of outer/inner scale factor ratios
      pfo_array_append, outer_inner_ratios, outer_inner_ratio
@@ -239,6 +251,10 @@ endelse
      outer_h_err = outer_h_err/total(outer_h)
      outer_h = outer_h/total(outer_h)
   endif
+  if keyword_set(conorm) then begin
+     inner_h_err = inner_h_err/total(inner_h)*total(outer_h)
+     inner_h = inner_h/total(inner_h)*total(outer_h)
+  endif
 
   ;; Initialize postscript output
   if keyword_set(ps) then begin
@@ -267,40 +283,55 @@ endelse
      device, /portrait, filename=ps, /color, /encap
   endif ;; initialize PS
 
-  ;; !! NOTE !! histogram returns locations as the _start_ of each
-  ;; bin.  psym=!tok.hist assumes the center
-  inner_locations += (inner_locations[1]-inner_locations[0])/2
-  outer_locations += (outer_locations[1]-outer_locations[0])/2
-  if NOT keyword_set(xrange) then $
-     xrange=minmax([inner_locations, outer_locations])
-  if NOT keyword_set(yrange) then $
-     yrange=minmax([inner_h, outer_h])
-  plot, inner_locations, inner_h, psym=!tok.hist, $
-        xtitle=xtitle, ytitle=ytitle, $
-        xrange=xrange, $
-        yrange=yrange, $
-        _EXTRA=extra
-  oplot, outer_locations, outer_h, psym=!tok.hist, color=!tok.green
-  errplot, inner_locations, inner_h-inner_h_err, inner_h+inner_h_err
-  errplot, outer_locations, outer_h-outer_h_err, outer_h+outer_h_err, color=!tok.green
-  al_legend, ['Inner torus', 'Outer torus'], /top, linestyle=[!tok.solid,!tok.solid], colors=byte([!tok.white, !tok.green]), linsize=0.5, /right
+  if NOT keyword_set(OOIHist) then begin
+     ;; !! NOTE !! histogram returns locations as the _start_ of each
+     ;; bin.  psym=!tok.hist assumes the center
+     inner_locations += (inner_locations[1]-inner_locations[0])/2.
+     outer_locations += (outer_locations[1]-outer_locations[0])/2.
+     if NOT keyword_set(xrange) then $
+        xrange=minmax([inner_locations, outer_locations])
+     if NOT keyword_set(yrange) then $
+        yrange=minmax([inner_h, outer_h])
+     plot, inner_locations, inner_h, psym=!tok.hist, $
+           xtitle=xtitle, ytitle=ytitle, $
+           xrange=xrange, $
+           yrange=yrange, $
+           _EXTRA=extra
+     oplot, outer_locations, outer_h, psym=!tok.hist, color=!tok.green
+     errplot, inner_locations, inner_h-inner_h_err, inner_h+inner_h_err
+     errplot, outer_locations, outer_h-outer_h_err, outer_h+outer_h_err, color=!tok.green
+     al_legend, ['Inner torus', 'Outer torus'], /top, linestyle=[!tok.solid,!tok.solid], colors=byte([!tok.white, !tok.green]), linsize=0.5, /right
 
-  ;; Tue Sep 19 15:43:24 2017 EDT  jpmorgen@snipe
-  ;; print histograms to get number of points in second peak
-  print, 'Inner histogram'
-  for i=0, N_elements(inner_locations)-1 do $
-     print, inner_locations[i], inner_h[i]
-  print, 'Outer histogram'
-  for i=0, N_elements(outer_locations)-1 do $
-     print, outer_locations[i], outer_h[i]
-  
-  ;; Make the outer/inner histogram look nice by using the inner/outer ratio
-  h = histogram(1./outer_inner_ratios, binsize=0.5, locations=locations, reverse_indices=ridx)
-  locations += (locations[1] - locations[0])/2.
-  herr = sqrt(h)
-  plot, 1./locations, h, psym=!tok.hist, $
-        xtitle='Outer/Inner scale factor', ytitle='Histogram', xrange=[0.3,1]
-  errplot, 1./locations, h-herr, h+herr
+     ;; Tue Sep 19 15:43:24 2017 EDT  jpmorgen@snipe
+     ;; print histograms to get number of points in second peak
+     print, 'Inner histogram'
+     for i=0, N_elements(inner_locations)-1 do $
+        print, inner_locations[i], inner_h[i]
+     print, 'Outer histogram'
+     for i=0, N_elements(outer_locations)-1 do $
+        print, outer_locations[i], outer_h[i]
+  endif ;; separate outer, inner histograms
+
+  if keyword_set(OOIHist) then begin
+     ;; Make the outer/inner histogram look nice by using the inner/outer ratio
+                                ;h = histogram(1./outer_inner_ratios, binsize=0.5, locations=locations, reverse_indices=ridx)
+     h = histogram(outer_inner_ratios, binsize=0.15, locations=locations, reverse_indices=ridx)
+     print, h, locations
+     locations += (locations[1]-locations[0])/2.
+     print, locations
+     ;;locations = 1./locations
+     print, locations
+     ;;locations += (locations[1] - locations[0])/2.
+     herr = sqrt(h)
+     plot, locations, h, psym=!tok.hist, $
+           xtitle='Outer/Inner scale factor', ytitle='Histogram', $
+           yrange=[0,15]
+;        xrange=[0.3,1.1], xstyle=!tok.exact
+     errplot, locations, h-herr, h+herr
+
+     print, 'outer/inner ratios'
+     print, outer_inner_ratios
+  endif ;; O/I histogram
 
 
   if keyword_set(ps) then begin

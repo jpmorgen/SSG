@@ -85,6 +85,7 @@ pro ssg_sysvar__define, top
                          3357614.1124d] / 1000d, $
         c : 299792.458d, $ ;; speed of like in km/s
         TIo: 1.769137786d , $ ;; Io's orbital period in days
+        sysIII: 9.925d, $ ;; system III
        $ ;; The mmp.tk file was lost, but io.notebk from April 26, 2004 and Feb 12, 2013 has notes
        $ ;; mmg_geodetic is just a string that gets sent on to the HORIZONS email interface in ssg_ephem_req
        mmp_geodetic : '248.405325000, 31.958416667, 2.06675', $
